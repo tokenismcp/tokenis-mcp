@@ -26,13 +26,12 @@ on this ledger's own revenue range rather than hard-coding the paper's 20.1.
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List, Sequence
+from typing import Dict, Sequence
 
 import numpy as np
 
-from .admission import GF_PRIME, RREFBasis, rref_rank
+from .admission import GF_PRIME, rref_rank
 from .ledger import Ledger
-
 
 # ---------------------------------------------------------------------------
 # Theorem 16: I(x; V | pub) <= B * log2(M).
@@ -128,6 +127,16 @@ def theorem30_bound(B_tau: int, M_tau: int) -> float:
 def theorem32_bound(B_tau: int, M_tau: int, L: int, M: int) -> float:
     """Degradation under L-leaky taint tracking: + L * log2(M)."""
     return theorem30_bound(B_tau, M_tau) + theorem16_bound(L, M)
+
+
+def theorem32_bound_bits(B_tau: int, M_tau: int, L: int, log2_M: float) -> float:
+    """As theorem32_bound, but takes log2(M) directly.
+
+    Used when the untainted alphabet is the exact-mode value domain (Remark
+    24/25's convention), which is far too large to materialise as a raw
+    integer M -- e.g. a revenue column's |X| = 2**20.1.
+    """
+    return theorem30_bound(B_tau, M_tau) + L * log2_M
 
 
 # ---------------------------------------------------------------------------

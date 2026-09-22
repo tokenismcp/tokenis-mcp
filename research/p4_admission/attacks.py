@@ -311,7 +311,6 @@ def attack_query_economics(
     auditor growing with history) will care about most directly.
     """
     ctx = QueryContext(subject_id=subject_id, credential_id=credential_id, taint=0)
-    n = gw.ledger.n
     rng = np.random.default_rng(12345)
     latencies: List[float] = []
     admitted_count = 0

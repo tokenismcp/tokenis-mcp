@@ -23,7 +23,7 @@ from typing import Optional
 
 import numpy as np
 
-from .admission import All, Predicate, characteristic_indicator
+from .admission import Predicate, characteristic_indicator
 from .ledger import Ledger
 
 FUNCTIONS = ("COUNT", "SUM", "AVG", "VAR")
