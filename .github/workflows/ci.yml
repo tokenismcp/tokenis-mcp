@@ -6,11 +6,13 @@ on:
   pull_request:
 
 jobs:
-  test:
+  core:
+    # Crypto/semantic/gateway/audit core + the P3/P4 research reproduction:
+    # no mcp dependency, runs on the package's Python floor.
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.12"]
+        python-version: ["3.9", "3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,9 +22,28 @@ jobs:
         run: pip install -e ".[dev,research]"
       - name: Lint
         run: ruff check .
-      - name: Test
-        run: pytest -q
+      - name: Test (excluding the MCP server, which needs Python >=3.10)
+        run: pytest -q tests research/p3_leakage research/p4_admission tokenis/conformance
       - name: Verify P3 claims pipeline
         run: python research/p3_leakage/verify_claims.py
       - name: Verify P4 claims pipeline
         run: python research/p4_admission/verify_claims.py
+
+  mcp-server:
+    # The MCP transport layer: needs the `mcp` package, which requires
+    # Python >=3.10.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package with server extra
+        run: pip install -e ".[dev,server]"
+      - name: Test MCP server
+        run: pytest -q tokenis/mcp_server
+      - name: Run quickstart example end-to-end
+        run: python examples/quickstart.py

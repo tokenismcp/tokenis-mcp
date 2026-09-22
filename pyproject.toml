@@ -25,10 +25,14 @@ dependencies = [
     "numpy>=1.24",
     "ecdsa>=0.19",
     "cryptography>=41",
-    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
+# The MCP transport layer (tokenis/mcp_server) is the one part of this
+# package that needs Python >=3.10 (the `mcp` package's own floor) -- kept
+# as an optional extra so the crypto/semantic/gateway/audit core and the
+# research/ reproduction code stay usable on Python 3.9.
+server = ["mcp>=1.0"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
 dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4"]
 
@@ -40,7 +44,13 @@ Papers = "https://github.com/j1729labs/tokenis-mcp/tree/main/papers"
 include = ["tokenis*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "research/p3_leakage", "research/p4_admission", "tokenis/conformance"]
+testpaths = [
+    "tests",
+    "research/p3_leakage",
+    "research/p4_admission",
+    "tokenis/conformance",
+    "tokenis/mcp_server",
+]
 
 [tool.ruff]
 line-length = 100
