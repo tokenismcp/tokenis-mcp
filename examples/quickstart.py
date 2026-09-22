@@ -61,15 +61,29 @@ async def main() -> None:
     )
 
     _print_result(
-        "disclose_ratio without an authorized purpose -- denied",
+        "disclose_ratio without an authorized purpose -- denied at the Reveal gate",
         await server.call_tool(
             "disclose_ratio",
-            {"numerator_industry": "finance", "denominator_industry": "retail", "purpose": "just curious"},
+            {"numerator_industry": "finance", "denominator_industry": "tech", "purpose": "just curious"},
         ),
     )
 
     _print_result(
         "disclose_ratio with an authorized purpose -- crosses the boundary, gated and audited",
+        await server.call_tool(
+            "disclose_ratio",
+            {
+                "numerator_industry": "finance",
+                "denominator_industry": "tech",
+                "purpose": "authorized_quarterly_review",
+            },
+        ),
+    )
+
+    _print_result(
+        "disclose_ratio with an authorized purpose but against 'retail' (2 rows): the Reveal "
+        "gate passes, but the underlying sum is *still* admission-checked exactly like a bare "
+        "aggregate call, and denied by the same D1 rule",
         await server.call_tool(
             "disclose_ratio",
             {

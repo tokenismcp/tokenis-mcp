@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2026 4Chains Inc.
 # SPDX-License-Identifier: Apache-2.0
 """CLI entry point: ledger -> admission policy -> all 8 attacks -> bounds checks

@@ -22,16 +22,30 @@ to anything it likes. A production integration must bind ``principal`` to
 ``token_verifier``/``auth`` parameters `MCPServer` accepts) before this
 service ever sees it, not trust a tool argument.
 
-Admission control note
------------------------
-This service currently enforces only a minimal, inline minimum-aggregate-
-size rule (D1) directly -- the full D1-D5 policy ladder lives in
-:mod:`tokenis.gateway.admission` (adopted from the P4 reproduction) and is
-wired in once that module lands; until then, treat every method here as
-demonstrating the *disclosure-boundary* architecture (typed returns, gated
-Reveal, hash-chained audit trail) rather than as production-strength
-admission control. This is called out again at the top of
-:mod:`tokenis.gateway.admission` itself once it exists.
+Admission control
+------------------
+Every value-bearing call (``aggregate``, ``group_by``, ``compare_periods``,
+and the two underlying sums inside ``disclose_ratio``/``disclose_bucket``)
+is checked against a real :class:`~tokenis.gateway.admission.AdmissionPolicy`
+(the full D1-D5 ladder) before it executes -- not a stand-in. ``exists`` is
+checked too, as a ``COUNT`` query (exempt from D2's rowspace audit, since a
+set size is public, but still subject to D1/D3/D4/D5). The admission
+policy is rebuilt from the current ledger the first time it's needed and
+whenever the record count changes; since every service in this repository
+loads its ledger once via :func:`load_demo_ledger` before any tool call,
+this means one build per service instance in practice -- interleaving
+``ingest`` calls with tool calls would reset the D2 audit history and D3
+budget state, which is a documented reference-implementation limitation,
+not a silent correctness gap (see :meth:`_ensure_admission`).
+
+``credential_id`` is set equal to ``principal`` throughout this service --
+another reference simplification. A real deployment has short-lived
+per-session credentials distinct from the long-lived authenticated subject;
+collapsing the two here means this service's own code path never exercises
+:class:`~tokenis.gateway.admission.CredentialScopedBudget`'s failure mode
+(it isn't used -- :class:`~tokenis.gateway.admission.SubjectScopedBudget`
+is the only budget scope this service constructs), so nothing is silently
+weakened by the collapse.
 
 Similarity search simplification
 ---------------------------------
@@ -52,17 +66,27 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
 from tokenis.crypto.ec_elgamal import Decryptor, KeyPair, keygen
+from tokenis.gateway.admission import (
+    AdmissionPolicy,
+    And,
+    Eq,
+    MissingSubjectIdError,
+)
+from tokenis.gateway.admission import All as AdmitAll
+from tokenis.gateway.admission import Query as AdmQuery
+from tokenis.gateway.admission import QueryContext as AdmQueryContext
 from tokenis.gateway.compute import AggregateEngine, Predicate, average
 from tokenis.gateway.reveal import RevealDenied, RevealObject, reveal
 from tokenis.semantic.tokenizer import GeneralizationHierarchy, ScopedTokenizer
 
 
 class AdmissionDenied(Exception):
-    """Raised when a call fails the (currently minimal) admission check.
-    See the module docstring: this stands in for
-    :mod:`tokenis.gateway.admission` until that module is wired in."""
+    """Raised when a call is refused by :class:`~tokenis.gateway.admission.AdmissionPolicy`
+    (or by its ``MissingSubjectIdError`` precondition -- see Corollary 14)."""
 
 
 @dataclass
@@ -93,6 +117,10 @@ class TokenisGatewayService:
         self.trace = DisclosureTrace()
         self._embeddings: Dict[str, Tuple[float, ...]] = {}
         self._token_by_name: Dict[str, str] = {}
+        self._industry_values: List[str] = []
+        self._region_values: List[str] = []
+        self._customer_token_values: List[str] = []
+        self._admission: Optional[AdmissionPolicy] = None
         if not self.catalogue:
             self.catalogue = {
                 "revenue": CatalogueEntry("sealed", min_aggregate_size=3, description="Annual revenue"),
@@ -120,6 +148,9 @@ class TokenisGatewayService:
             fields["customer_token"] = token
             self._token_by_name[customer_name] = token
         self.engine.ingest(record_id, fields, sealed_revenue, with_square=True)
+        self._industry_values.append(str(fields.get("industry", "")))
+        self._region_values.append(str(fields.get("region", "")))
+        self._customer_token_values.append(str(fields.get("customer_token", "")))
         if embedding is not None:
             token = fields.get("customer_token", record_id)
             self._embeddings[token] = tuple(embedding)
@@ -135,20 +166,94 @@ class TokenisGatewayService:
         name = f"industry={industry},region={region}"
         return Predicate(name, matcher)
 
-    def _check_min_aggregate_size(self, predicate: Predicate, principal: str, purpose: str) -> int:
-        count = self.engine.count(predicate)
-        min_size = self.catalogue["revenue"].min_aggregate_size
-        if count < min_size:
+    def _ensure_admission(self) -> None:
+        """(Re)build the AdmissionPolicy from the current ledger if it's
+        stale or hasn't been built yet. See the module docstring for why
+        rebuilding resets D2/D3 state, and why that's a documented
+        limitation rather than a silent one."""
+        n = len(self.engine)
+        if self._admission is not None and self._admission.n == n:
+            return
+        sealed_columns = frozenset(
+            name for name, entry in self.catalogue.items() if entry.protection_class == "sealed"
+        )
+        self._admission = AdmissionPolicy(
+            n=n,
+            public_attributes={
+                "industry": np.array(self._industry_values, dtype=object),
+                "region": np.array(self._region_values, dtype=object),
+                "customer_token": np.array(self._customer_token_values, dtype=object),
+            },
+            catalogue=sealed_columns,
+            k=self.catalogue["revenue"].min_aggregate_size,
+            budget=1000,
+            taint_budget=100,
+            taint_call_cap=200,
+        )
+
+    def _admission_predicate(
+        self,
+        industry: Optional[str] = None,
+        region: Optional[str] = None,
+        customer_token: Optional[str] = None,
+    ):
+        parts = []
+        if industry is not None:
+            parts.append(Eq("industry", industry))
+        if region is not None:
+            parts.append(Eq("region", region))
+        if customer_token is not None:
+            parts.append(Eq("customer_token", customer_token))
+        if not parts:
+            return AdmitAll()
+        if len(parts) == 1:
+            return parts[0]
+        return And(*parts)
+
+    def _check_admission(
+        self,
+        principal: str,
+        function: str,
+        industry: Optional[str] = None,
+        region: Optional[str] = None,
+        customer_token: Optional[str] = None,
+        column: Optional[str] = "revenue",
+        purpose: str = "aggregate",
+    ) -> int:
+        """Runs the query through the full D1-D5 :class:`AdmissionPolicy`
+        before any ciphertext is touched. Raises :class:`AdmissionDenied`
+        (after logging the denial to the trace, per P2 Remark 18) if
+        refused; otherwise returns the query's matched count."""
+        self._ensure_admission()
+        assert self._admission is not None  # for type-checkers; set by _ensure_admission
+        predicate = self._admission_predicate(industry, region, customer_token)
+        query = AdmQuery(predicate=predicate, function=function, column=column)
+        context = AdmQueryContext(subject_id=principal, credential_id=principal, taint=0)
+        ref = f"industry={industry},region={region},function={function}"
+        try:
+            decision = self._admission.decide(query, context)
+        except MissingSubjectIdError as exc:
             self.trace.record_denial(
                 AuditRecord(
-                    principal=principal, obj_ref=predicate.name, purpose=purpose,
+                    principal=principal or "", obj_ref=ref, purpose=purpose,
+                    policy_version="v1", decision="deny",
+                )
+            )
+            raise AdmissionDenied(str(exc)) from exc
+        if not decision.admitted:
+            self.trace.record_denial(
+                AuditRecord(
+                    principal=principal, obj_ref=ref, purpose=purpose,
                     policy_version="v1", decision="deny",
                 )
             )
             raise AdmissionDenied(
-                f"minimum aggregate size not met ({count} < {min_size}) for {predicate.name!r}"
+                f"{decision.rule}: {decision.reason}"
+                + (f" (matched {decision.set_size})" if decision.set_size is not None else "")
             )
-        return count
+        if decision.set_size is not None:
+            return decision.set_size
+        return self.engine.count(self._predicate(industry, region))
 
     # -- tool 1: aggregate --------------------------------------------------
 
@@ -156,17 +261,20 @@ class TokenisGatewayService:
         self, principal: str, function: str, industry: Optional[str] = None,
         region: Optional[str] = None,
     ) -> Dict[str, Any]:
-        pred = self._predicate(industry, region)
-        count = self._check_min_aggregate_size(pred, principal, "aggregate")
-        total = self._decryptor.decrypt(self.engine.sum(pred))
-        if function == "sum":
-            value: Any = total
-        elif function == "count":
-            value = count
-        elif function == "avg":
-            value = average(total, count)
-        else:
+        adm_function = {"sum": "SUM", "count": "COUNT", "avg": "AVG"}.get(function)
+        if adm_function is None:
             raise ValueError(f"unsupported aggregate function {function!r}")
+        column = None if adm_function == "COUNT" else "revenue"
+        count = self._check_admission(
+            principal, adm_function, industry=industry, region=region, column=column,
+            purpose="aggregate",
+        )
+        pred = self._predicate(industry, region)
+        if function == "count":
+            value: Any = count
+        else:
+            total = self._decryptor.decrypt(self.engine.sum(pred))
+            value = total if function == "sum" else average(total, count)
         self.trace.record_aggregate_result(
             AuditRecord(
                 principal=principal, obj_ref=pred.name, purpose="aggregate",
@@ -183,19 +291,16 @@ class TokenisGatewayService:
             raise ValueError("group_by key must be an OPEN attribute: industry or region")
         keys = sorted({row[key] for row in self._all_public_rows() if key in row})
         groups: Dict[str, Any] = {}
-        min_size = self.catalogue["revenue"].min_aggregate_size
         for k in keys:
-            pred = self._predicate(**{key: k})  # type: ignore[arg-type]
-            count = self.engine.count(pred)
-            if count < min_size:
-                groups[k] = {"suppressed": True, "reason": f"count {count} < minimum {min_size}"}
-                self.trace.record_denial(
-                    AuditRecord(
-                        principal=principal, obj_ref=f"group_by:{key}={k}", purpose="group_by",
-                        policy_version="v1", decision="deny",
-                    )
+            kwargs = {key: k}
+            try:
+                count = self._check_admission(
+                    principal, "SUM", column="revenue", purpose="group_by", **kwargs,
                 )
+            except AdmissionDenied as exc:
+                groups[k] = {"suppressed": True, "reason": str(exc)}
                 continue
+            pred = self._predicate(**kwargs)  # type: ignore[arg-type]
             total = self._decryptor.decrypt(self.engine.sum(pred))
             band = _band(total)
             groups[k] = {"suppressed": False, "band": band, "count": count}
@@ -227,8 +332,10 @@ class TokenisGatewayService:
         genuinely separate encrypted period columns. Only a coarse
         direction/ratio crosses the boundary, never the raw values or
         their raw difference (see ``tokenis/spec/tool-surface.md``)."""
+        self._check_admission(
+            principal, "SUM", industry=industry, column="revenue", purpose="compare_periods",
+        )
         pred = self._predicate(industry=industry)
-        self._check_min_aggregate_size(pred, principal, "compare_periods")
         total = self._decryptor.decrypt(self.engine.sum(pred))
         a = total * period_a_multiplier
         b = total * period_b_multiplier
@@ -273,6 +380,9 @@ class TokenisGatewayService:
     def exists(
         self, principal: str, industry: Optional[str] = None, customer_token: Optional[str] = None,
     ) -> Dict[str, Any]:
+        self._check_admission(
+            principal, "COUNT", industry=industry, customer_token=customer_token, purpose="exists",
+        )
         pred = self._predicate(industry=industry)
         if customer_token is not None:
             base_matcher = pred.matcher
@@ -302,6 +412,17 @@ class TokenisGatewayService:
             return purpose.startswith("authorized_")
 
         def decrypt_fn(_obj: RevealObject) -> float:
+            # Both underlying sums go through the same D1-D5 AdmissionPolicy
+            # any other SUM query would (raises AdmissionDenied, which
+            # RevealDenied does not subclass -- see the try/except below).
+            self._check_admission(
+                principal, "SUM", industry=numerator_industry, column="revenue",
+                purpose="disclose_ratio.numerator",
+            )
+            self._check_admission(
+                principal, "SUM", industry=denominator_industry, column="revenue",
+                purpose="disclose_ratio.denominator",
+            )
             num = self._decryptor.decrypt(self.engine.sum(num_pred))
             den = self._decryptor.decrypt(self.engine.sum(den_pred))
             if den == 0:
@@ -328,6 +449,10 @@ class TokenisGatewayService:
             return purpose.startswith("authorized_")
 
         def decrypt_fn(_obj: RevealObject) -> str:
+            self._check_admission(
+                principal, "SUM", industry=industry, column="revenue",
+                purpose="disclose_bucket",
+            )
             total = self._decryptor.decrypt(self.engine.sum(pred))
             for threshold, label in zip(thresholds, labels):
                 if total < threshold:
@@ -385,16 +510,27 @@ def _cosine_similarity(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
 
 
 def load_demo_ledger(service: TokenisGatewayService) -> None:
-    """Loads five small, entirely fictional rows -- used by
+    """Loads eight small, entirely fictional rows -- used by
     :mod:`tokenis.mcp_server.server`'s default server, the conformance
     suite's fixtures, and ``examples/quickstart.py`` so all three exercise
-    the same data without each hand-rolling it."""
+    the same data without each hand-rolling it.
+
+    Three industries, deliberately sized so both "denied" and "admitted"
+    paths are reachable through every tool: ``finance`` and ``tech`` each
+    have 3 rows (meeting the demo catalogue's minimum aggregate size of 3),
+    while ``retail`` has only 2 (illustrating D1's minimum-aggregate-size
+    denial, including through ``disclose_ratio``'s underlying sums, which
+    are admission-checked exactly like a bare ``aggregate`` call).
+    """
     rows = [
         ("r1", {"industry": "finance", "region": "Seoul-Gangnam"}, 1_000_000, "Acme Corp", (1.0, 0.0, 0.0)),
         ("r2", {"industry": "finance", "region": "Busan-Haeundae"}, 2_000_000, "Beta LLC", (0.9, 0.1, 0.0)),
         ("r3", {"industry": "retail", "region": "Seoul-Gangnam"}, 500_000, "Gamma Inc", (0.0, 1.0, 0.0)),
         ("r4", {"industry": "retail", "region": "Seoul-Jongno"}, 750_000, "Delta Co", (0.0, 0.9, 0.1)),
         ("r5", {"industry": "finance", "region": "Seoul-Gangnam"}, 1_250_000, "Epsilon Ltd", (0.95, 0.05, 0.0)),
+        ("r6", {"industry": "tech", "region": "Seoul-Gangnam"}, 3_000_000, "Zeta AI", (0.0, 0.0, 1.0)),
+        ("r7", {"industry": "tech", "region": "Seoul-Jongno"}, 1_500_000, "Eta Systems", (0.05, 0.0, 0.95)),
+        ("r8", {"industry": "tech", "region": "Busan-Haeundae"}, 2_500_000, "Theta Labs", (0.0, 0.05, 0.95)),
     ]
     for record_id, public_fields, revenue, name, embedding in rows:
         service.ingest(record_id, public_fields, revenue, customer_name=name, embedding=embedding)
