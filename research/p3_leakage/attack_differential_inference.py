@@ -284,7 +284,11 @@ def noise_averaging_vs_deterministic(
         # sample per target (seeded deterministically per target+sigma, as
         # a "canonical form of the query" would be in a real cache) and
         # check whether that single draw already lands within tolerance.
-        det_rng = np.random.default_rng(abs(hash((round(sigma_mult, 6), n_targets))) % (2 ** 32))
+        # A deterministic per-(sigma, n_targets) seed -- NOT Python's builtin
+        # hash(), which is fine for floats/ints but we avoid it on principle
+        # to keep every seed path in this package obviously reproducible.
+        det_seed = (int(round(sigma_mult * 1_000_000)) * 2_654_435_761 + n_targets) % (2 ** 32)
+        det_rng = np.random.default_rng(det_seed)
         noisy_once = amounts + det_rng.normal(0, sigma_abs, size=len(amounts))
         rel_err = np.abs(noisy_once - amounts) / np.maximum(np.abs(amounts), 1e-9)
         det_success = float(np.mean(rel_err <= target_rel_err) * 100.0)

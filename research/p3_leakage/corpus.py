@@ -272,13 +272,21 @@ class PublicGraph:
 
     edges: np.ndarray  # shape (m, 2), directory indices, i < j
     n_firms: int
+    _adjacency_cache: Optional[Dict[int, set]] = field(default=None, repr=False, compare=False)
 
     def adjacency(self) -> Dict[int, set]:
-        adj: Dict[int, set] = {}
-        for a, b in self.edges:
-            adj.setdefault(int(a), set()).add(int(b))
-            adj.setdefault(int(b), set()).add(int(a))
-        return adj
+        # Memoized: this is rebuilt on first call and reused thereafter. The
+        # attack/defense pipelines call `stage3_propagate` (and therefore
+        # this method) many times per sweep point -- rebuilding an O(edges)
+        # dict from scratch every call was the dominant cost of the D1 epoch
+        # sweep before this cache was added.
+        if self._adjacency_cache is None:
+            adj: Dict[int, set] = {}
+            for a, b in self.edges:
+                adj.setdefault(int(a), set()).add(int(b))
+                adj.setdefault(int(b), set()).add(int(a))
+            self._adjacency_cache = adj
+        return self._adjacency_cache
 
 
 @dataclass

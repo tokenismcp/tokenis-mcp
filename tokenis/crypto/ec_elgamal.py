@@ -69,7 +69,7 @@ class PrivateKey:
     """A scalar secret key. Never serialize or log this."""
 
     scalar: int
-    curve: Any = field(default=DEFAULT_CURVE, compare=False)
+    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
 
     def public_key(self) -> "PublicKey":
         return PublicKey(point=self.scalar * self.curve.generator, curve=self.curve)
@@ -80,7 +80,7 @@ class PublicKey:
     """An elliptic-curve point ``sk * G``. Safe to distribute."""
 
     point: PointJacobi
-    curve: Any = field(default=DEFAULT_CURVE, compare=False)
+    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ class Ciphertext:
 
     c1: PointJacobi
     c2: PointJacobi
-    curve: Any = field(default=DEFAULT_CURVE, compare=False)
+    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
 
     def __add__(self, other: "Ciphertext") -> "Ciphertext":
         return add(self, other)
