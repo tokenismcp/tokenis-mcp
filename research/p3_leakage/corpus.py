@@ -598,7 +598,7 @@ class CorpusSizes:
 
     @staticmethod
     def ci_scale() -> "CorpusSizes":
-        return CorpusSizes(directory_size=2_500, ledger_size=300, n_sessions=220)
+        return CorpusSizes(directory_size=8_000, ledger_size=500, n_sessions=300)
 
 
 def build_corpus(

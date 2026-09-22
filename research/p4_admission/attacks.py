@@ -220,7 +220,7 @@ def _sub_k_cells(ledger: Ledger, k: int, max_cells: int) -> List[Tuple[Any, np.n
 
 def attack_general_tracker(
     gw: GatewaySim,
-    policy: AdmissionPolicy,
+    policy_factory,
     n_cells: int = 20,
     column: str = "revenue",
     k: int = 5,
@@ -228,8 +228,19 @@ def attack_general_tracker(
     credential_id: str = "cred-1",
     taint: int = 0,
 ) -> Dict[str, Any]:
-    """Proposition 5: q(phi)=q(phi OR T)+q(phi OR NOT T)-q(T)-q(NOT T) for sub-k phi."""
-    ctx = QueryContext(subject_id=subject_id, credential_id=credential_id, taint=taint)
+    """Proposition 5: q(phi)=q(phi OR T)+q(phi OR NOT T)-q(T)-q(NOT T) for sub-k phi.
+
+    `policy_factory` is a zero-argument callable returning a fresh
+    :class:`AdmissionPolicy` (e.g. ``lambda: AdmissionPolicy(...)``). Each
+    cell is tested against its OWN fresh policy instance, matching the
+    paper's evaluation methodology ("each [attack] run against a fresh
+    gateway", §8.1) -- this avoids one cell's admitted queries (whose
+    characteristic vectors can be large, e.g. a size-2k padding set unioned
+    with a size-1 cell) contaminating a later, unrelated cell's D2 audit
+    basis with cross-cell linear combinations that reveal individual values
+    the target cell never touched. Within a single cell's own 4 queries the
+    basis accumulates exactly as the real auditor would.
+    """
     cells = _sub_k_cells(gw.ledger, k, n_cells)
     recovered = 0
     queries_issued = 0
@@ -237,6 +248,8 @@ def attack_general_tracker(
     n = gw.ledger.n
 
     for idx, (phi, members) in enumerate(cells):
+        policy = policy_factory()
+        ctx = QueryContext(subject_id=subject_id, credential_id=credential_id, taint=taint)
         # Pick a fresh padding predicate T with 2k <= |C_T| <= n-2k per cell
         # (re-issued per cell, per §5.2: this avoids concentrating exposure).
         T = None

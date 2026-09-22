@@ -30,7 +30,7 @@ boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from tokenis.crypto.ec_elgamal import Ciphertext, PublicKey, encrypt
 

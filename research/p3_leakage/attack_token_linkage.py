@@ -120,16 +120,24 @@ def stage1_candidates(
     profile: ProfileColumns,
     sessions: Optional[Sequence[Session]] = None,
     active: bool = True,
+    only_tokens: Optional[Sequence[int]] = None,
 ) -> Dict[int, np.ndarray]:
-    """Returns {ledger_token: array of admissible directory indices}."""
+    """Returns {ledger_token: array of admissible directory indices}.
+
+    `only_tokens` restricts the (otherwise O(ledger_size * |U|)) computation
+    to a subset of tokens -- used by the D1 epoch sweep in `defenses.py`,
+    where each epoch block only needs candidates for the handful of tokens
+    that actually appear in that block's sessions, not the whole ledger.
+    """
     directory = corpus.directory
     ledger = corpus.ledger
     n_dir = directory.size
     sessions = corpus.workload.sessions if sessions is None else sessions
+    token_range = range(ledger.size) if only_tokens is None else only_tokens
 
     if not active:
         universe = np.arange(n_dir)
-        return {t: universe for t in range(ledger.size)}
+        return {t: universe for t in token_range}
 
     disclosed = _disclosed_columns(corpus, profile)
 
@@ -142,7 +150,7 @@ def stage1_candidates(
     filter_cache: Dict[Tuple, np.ndarray] = {}
     candidates: Dict[int, np.ndarray] = {}
     universe = np.arange(n_dir)
-    for t in range(ledger.size):
+    for t in token_range:
         mask = np.ones(n_dir, dtype=bool)
         true_dir = int(ledger.directory_index[t])
         for attr, col in disclosed.items():
@@ -332,8 +340,11 @@ def run_pipeline(
     use_token: bool,
     sessions: Optional[Sequence[Session]] = None,
     min_aggregate_size: int = 1,
+    only_tokens: Optional[Sequence[int]] = None,
 ) -> LinkagePipelineResult:
-    candidates = stage1_candidates(corpus, profile, sessions=sessions, active=use_schema)
+    candidates = stage1_candidates(
+        corpus, profile, sessions=sessions, active=use_schema, only_tokens=only_tokens
+    )
     known_amounts = stage2_peel_amounts(
         corpus, sessions=sessions, active=use_agg, min_aggregate_size=min_aggregate_size
     )

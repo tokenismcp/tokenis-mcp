@@ -19,7 +19,7 @@ tool catalogue calls ``disclose_ratio`` / ``disclose_bucket``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
 

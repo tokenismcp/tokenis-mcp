@@ -68,8 +68,13 @@ def d1_epoch_sweep(corpus: Corpus, epoch_lengths: Sequence[int]) -> List[Dict[st
             block = sessions[epoch * E: (epoch + 1) * E]
             if not block:
                 continue
-            result = atl.run_pipeline(corpus, profile, True, True, True, sessions=block)
-            for t in range(ledger.size):
+            block_tokens = sorted({m for s in block for m in s.members})
+            if not block_tokens:
+                continue
+            result = atl.run_pipeline(
+                corpus, profile, True, True, True, sessions=block, only_tokens=block_tokens
+            )
+            for t in block_tokens:
                 cand = result.candidates.get(t)
                 asserted = None
                 if cand is not None and len(cand) == 1:

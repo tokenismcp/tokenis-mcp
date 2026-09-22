@@ -45,3 +45,10 @@ testpaths = ["tests", "research/p3_leakage", "research/p4_admission", "tokenis/c
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
+# UP006/UP035/UP037/UP045 push PEP 585/604 generics (`dict[str, int]`,
+# `X | None`) as bare (non-postponed) annotations, which this repo's
+# Python 3.9 floor does not uniformly support; typing.Dict/List/Optional
+# stay intentionally in place rather than being modernised file by file.
+ignore = ["UP006", "UP035", "UP037", "UP045"]
