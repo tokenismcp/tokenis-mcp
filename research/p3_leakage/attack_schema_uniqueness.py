@@ -33,18 +33,18 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
-from corpus import ATTRIBUTES, Corpus, GeneralizationHierarchy
-
 # Cardinality upper bounds for each attribute's *finest* encoding, used to
 # build a collision-free combined key via mixed-radix ravel. Must match the
 # actual value ranges produced by corpus.generate_directory.
 from corpus import (
-    N_SUBCLASS,
+    ATTRIBUTES,
+    N_BANKS,
+    N_FOUNDING_BANDS,
+    N_HEADCOUNT_BANDS,
     N_LOCALITY,
     N_REVENUE_BANDS,
-    N_HEADCOUNT_BANDS,
-    N_FOUNDING_BANDS,
-    N_BANKS,
+    N_SUBCLASS,
+    Corpus,
 )
 
 _ATTR_CARDINALITY = {
@@ -155,7 +155,7 @@ def _coarsened_columns(corpus: Corpus, g: int, subject: str) -> Dict[str, np.nda
 def generalization_ladder(corpus: Corpus, attributes: Sequence[str] = ATTRIBUTES) -> List[LadderRung]:
     ledger_idx = corpus.ledger.directory_index
     rungs: List[LadderRung] = []
-    for g in range(0, 6):
+    for g in range(6):
         coarse = _coarsened_columns(corpus, g, subject="ladder")
         cols = [coarse[a] for a in attributes]
         # Cardinalities after coarsening are bounded by the finest cardinality
@@ -180,7 +180,7 @@ def generalization_ladder(corpus: Corpus, attributes: Sequence[str] = ATTRIBUTES
                 g=g,
                 unique_in_directory_pct=float(unique_in_dir.mean() * 100.0),
                 isolable_in_ledger_pct=float(isolable_in_ledger.mean() * 100.0),
-                groups_addressable=int(len(values)),
+                groups_addressable=len(values),
             )
         )
     return rungs
@@ -193,7 +193,7 @@ def industry_locality_cell_occupancy(corpus: Corpus) -> Dict[str, float]:
         [directory.industry_subclass, directory.locality], [N_SUBCLASS, N_LOCALITY]
     )
     values, counts = np.unique(key, return_counts=True)
-    occupied_cells = int(len(values))
+    occupied_cells = len(values)
     singleton_cells = int((counts == 1).sum())
     firms_alone = int(counts[counts == 1].sum())
     return {

@@ -50,7 +50,6 @@ paper's App. B) -- never from a bare, unseeded `numpy.random` call.
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -504,7 +503,7 @@ def generate_workload(
             seed = int(rng.choice(ledger.size, p=pop_weights))
             k = int(rng.integers(2, 5))
             extra = rng.choice(ledger.size, size=k, replace=False)
-            members = tuple(sorted(set([seed, *extra.tolist()])))
+            members = tuple(sorted({seed, *extra.tolist()}))
 
         elif template == TEMPLATE_INDUSTRY_ROLLUP:
             level = int(rng.integers(1, 4))  # class/group/division constraint
@@ -544,14 +543,14 @@ def generate_workload(
                 if neigh_ledger:
                     k = min(len(neigh_ledger), int(rng.integers(1, 4)))
                     chosen = rng.choice(neigh_ledger, size=k, replace=False)
-                    members = tuple(sorted(set([seed_ledger, *chosen.tolist()])))
+                    members = tuple(sorted({seed_ledger, *chosen.tolist()}))
                     is_echo = True
                 else:
                     members = (seed_ledger,)
             else:
                 k = int(rng.integers(1, 4))
                 extra = rng.choice(ledger.size, size=k, replace=False)
-                members = tuple(sorted(set([seed_ledger, *extra.tolist()])))
+                members = tuple(sorted({seed_ledger, *extra.tolist()}))
 
         else:  # TEMPLATE_CHURN
             k = int(rng.integers(2, 6))
@@ -563,7 +562,7 @@ def generate_workload(
                 if neigh_ledger:
                     kk = min(len(neigh_ledger), k)
                     chosen = rng.choice(neigh_ledger, size=kk, replace=False)
-                    members = tuple(sorted(set([seed_ledger, *chosen.tolist()])))
+                    members = tuple(sorted({seed_ledger, *chosen.tolist()}))
                     is_echo = True
                 else:
                     members = tuple(sorted(set(rng.choice(ledger.size, size=k, replace=False).tolist())))

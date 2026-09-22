@@ -45,13 +45,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-
 from corpus import (
     ATTRIBUTES,
-    Corpus,
     N_FOUNDING_BANDS,
     N_HEADCOUNT_BANDS,
     N_REVENUE_BANDS,
+    Corpus,
     Session,
 )
 
@@ -153,7 +152,7 @@ def stage1_candidates(
     for t in token_range:
         mask = np.ones(n_dir, dtype=bool)
         true_dir = int(ledger.directory_index[t])
-        for attr, col in disclosed.items():
+        for col in disclosed.values():
             mask &= col == col[true_dir]
         for filt in token_filters.get(t, []):
             mask &= _filter_mask(corpus, filt, filter_cache)
@@ -368,9 +367,8 @@ def _assertions_at_m(
         asserted: Optional[int] = None
         if cand is not None and len(cand) == 1:
             asserted = int(cand[0])
-        elif t in result.propagation.mapped_image:
-            if result.propagation.support.get(t, 0) >= m:
-                asserted = result.propagation.mapped_image[t]
+        elif t in result.propagation.mapped_image and result.propagation.support.get(t, 0) >= m:
+            asserted = result.propagation.mapped_image[t]
         if asserted is not None:
             n_asserted += 1
             if asserted == int(ledger.directory_index[t]):
@@ -485,9 +483,9 @@ def run(corpus: Corpus) -> Dict[str, object]:
     profile_sweep = run_disclosure_profile_sweep(corpus)
 
     max_sessions = len(corpus.workload.sessions)
-    growth_points = sorted(set(
+    growth_points = sorted({
         min(max_sessions, x) for x in (25, 50, 100, max(100, max_sessions // 2), max_sessions)
-    ))
+    })
     growth = run_observation_growth_sweep(corpus, growth_points)
 
     rho_values = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]

@@ -44,11 +44,10 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
-import numpy as np
-
-from corpus import Corpus
-import attack_token_linkage as atl
 import attack_differential_inference as adi
+import attack_token_linkage as atl
+import numpy as np
+from corpus import Corpus
 
 GAUSSIAN_DELTA = 1e-6
 CLIP_PERCENTILE = 99.0
@@ -271,7 +270,6 @@ def beta_agg(corpus: Corpus, rng: np.random.Generator) -> Dict[str, object]:
 
 def four_mode_table(corpus: Corpus, rng: np.random.Generator) -> List[Dict[str, object]]:
     profiles = atl.disclosure_profiles(corpus)
-    k_values = [1, 2, 3, 5, 10, 25, 50, 100]
 
     def reid_pct(profile, m):
         result = atl.run_pipeline(corpus, profile, True, True, True)
@@ -348,7 +346,7 @@ def four_mode_table(corpus: Corpus, rng: np.random.Generator) -> List[Dict[str, 
     # plus a noisy ad-hoc channel, coarse profile, epoch-scoped tokens.
     profile_d = profiles["P1_coarse"]
     bs_d = beta_schema(corpus, profile_d)
-    gm_d = gaussian_mechanism_sweep(corpus, rng, sigma_mults=[1.0])[0]
+    gaussian_mechanism_sweep(corpus, rng, sigma_mults=[1.0])[0]
     modes.append(
         {
             "mode": "D_split_channel",
@@ -372,7 +370,7 @@ def four_mode_table(corpus: Corpus, rng: np.random.Generator) -> List[Dict[str, 
 
 def run(corpus: Corpus, rng_seed: int = 20260923) -> Dict[str, object]:
     rng = np.random.default_rng(rng_seed)
-    profile_typical = atl.disclosure_profiles(corpus)["P2_typical"]
+    atl.disclosure_profiles(corpus)["P2_typical"]
 
     return {
         "beta_schema": {

@@ -42,7 +42,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
-
 from corpus import ATTRIBUTES, Corpus
 
 # ---------------------------------------------------------------------------
@@ -71,7 +70,7 @@ def isolation_setdiff(corpus: Corpus, k_values: Sequence[int]) -> List[Dict[str,
     matrix = _ledger_attribute_matrix(corpus)
     n = matrix.shape[0]
     key = _fine_key(matrix)
-    _, counts = np.unique(key, return_counts=True)
+    _, _counts = np.unique(key, return_counts=True)
     count_of = dict(zip(*np.unique(key, return_counts=True)))
     is_unique = np.array([count_of[k] == 1 for k in key])
     base_fraction = float(is_unique.mean())
@@ -143,8 +142,7 @@ def isolation_conjunction_only(corpus: Corpus, k_values: Sequence[int], attrs: S
                     if len(outlier_local) != 1:
                         continue
                     outlier_idx = members[outlier_local[0]]
-                    if m > best_m[outlier_idx]:
-                        best_m[outlier_idx] = m
+                    best_m[outlier_idx] = max(best_m[outlier_idx], m)
 
     out = []
     for k in k_values:
@@ -181,7 +179,7 @@ def bulk_reconstruction_sweep(
 
     out: List[BulkReconstructionPoint] = []
     for ratio in q_over_n_values:
-        q = max(1, int(round(ratio * n)))
+        q = max(1, round(ratio * n))
         # Random admissible sets: each query includes each account
         # independently with prob. 0.5 (a simple, tractable admissible
         # family; excludes the empty set).
@@ -287,7 +285,7 @@ def noise_averaging_vs_deterministic(
         # A deterministic per-(sigma, n_targets) seed -- NOT Python's builtin
         # hash(), which is fine for floats/ints but we avoid it on principle
         # to keep every seed path in this package obviously reproducible.
-        det_seed = (int(round(sigma_mult * 1_000_000)) * 2_654_435_761 + n_targets) % (2 ** 32)
+        det_seed = (round(sigma_mult * 1_000_000) * 2_654_435_761 + n_targets) % (2 ** 32)
         det_rng = np.random.default_rng(det_seed)
         noisy_once = amounts + det_rng.normal(0, sigma_abs, size=len(amounts))
         rel_err = np.abs(noisy_once - amounts) / np.maximum(np.abs(amounts), 1e-9)

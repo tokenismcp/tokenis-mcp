@@ -33,13 +33,11 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence
 
-import numpy as np
-
-from corpus import Corpus, rebuild_workload
+import attack_differential_inference as adi
 import attack_schema_uniqueness as asu
 import attack_token_linkage as atl
-import attack_differential_inference as adi
-
+import numpy as np
+from corpus import Corpus
 
 # ---------------------------------------------------------------------------
 # D1: epoch-scoped tokens
@@ -224,9 +222,9 @@ def run(corpus: Corpus, rng_seed: int = 20260922) -> Dict[str, object]:
     rng = np.random.default_rng(rng_seed)
     n_sessions = len(corpus.workload.sessions)
 
-    epoch_lengths = sorted(set(
+    epoch_lengths = sorted({
         min(n_sessions, x) for x in (1, 2, 5, 10, max(10, n_sessions // 8), n_sessions)
-    ))
+    })
     d1 = d1_epoch_sweep(corpus, epoch_lengths)
     d2 = d2_generalization_sweep(corpus)
     d3 = d3_min_aggregate_size_sweep(corpus, [1, 3, 5, 10, 25, 50])
