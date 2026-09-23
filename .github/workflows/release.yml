@@ -106,7 +106,7 @@ jobs:
           pattern: "{wheels-*,sdist}"
           merge-multiple: true
           path: dist
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
