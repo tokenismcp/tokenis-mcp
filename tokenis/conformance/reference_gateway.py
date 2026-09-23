@@ -58,7 +58,7 @@ class ReferenceGateway:
         self.tokenizer = ScopedTokenizer(key=seed_key)
         self.engine = AggregateEngine(public_key=self._keypair.public)
         self.trace = DisclosureTrace()
-        self._catalogue = {
+        self._catalogue: Dict[str, Dict[str, Any]] = {
             "revenue": {"protection_class": "sealed", "min_aggregate_size": 3},
             "industry": {"protection_class": "open"},
             "customer_name": {"protection_class": "token"},
@@ -96,9 +96,11 @@ class ReferenceGateway:
 
     def _predicate(self, args: Dict[str, Any]) -> Predicate:
         industry = args.get("industry")
-        return Predicate(
-            f"industry={industry}", lambda row, industry=industry: row["industry"] == industry
-        )
+
+        def matcher(row: Dict[str, Any], industry: Any = industry) -> bool:
+            return bool(row["industry"] == industry)
+
+        return Predicate(f"industry={industry}", matcher)
 
     def _aggregate(self, args: Dict[str, Any], principal: str) -> ToolCallResult:
         pred = self._predicate(args)

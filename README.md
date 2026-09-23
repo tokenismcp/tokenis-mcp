@@ -1,5 +1,10 @@
 # Tokenis
 
+![CI](https://github.com/tokenismcp/tokenis-mcp/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
+![Docs license](https://img.shields.io/badge/docs%20license-CC--BY--4.0-lightgrey.svg)
+![Python](https://img.shields.io/badge/python-3.9%2B%20(core)%20%7C%203.10%2B%20(MCP%20server)-blue.svg)
+
 **A cryptographic disclosure-boundary gateway between an enterprise's protected
 data and a large language model, exposed to the model as an MCP (Model
 Context Protocol) server — plus the research paper series and measurement
@@ -103,21 +108,46 @@ python -m tokenis.mcp_server.server        # speaks stdio
 Mirroring R2 §1.4 (summarized in [`reports/SUMMARY.md`](reports/SUMMARY.md)):
 the specification, this reference SDK, and the conformance suite are
 distributed freely under Apache-2.0. What stays closed is 4Chains Inc.'s
-product: an optimised, audited cryptographic engine, key management and HSM
-integration, the appliance/multi-tenancy layer, and the full confidential
-performance benchmark (R2). The [`tokenis/crypto`](tokenis/crypto) module in
-this repository is explicitly **not** that engine — see its module
-docstring for the reference-implementation disclaimer before using it for
-anything beyond running this repository's own examples and tests.
+product: an audited, key-management/HSM-integrated production engine, the
+appliance/multi-tenancy layer, and the full confidential performance
+benchmark (R2). The [`tokenis/crypto`](tokenis/crypto) module in this
+repository is explicitly **not** that engine: it builds the well-established
+Paillier cryptosystem on top of the maintained `phe` library rather than
+hand-rolling elliptic-curve arithmetic, which is a real improvement over an
+early version of this module — but "built on a peer-reviewed scheme and a
+real library" is not the same claim as "this integration has been
+independently audited," and the module's own docstring says so plainly
+rather than letting the improvement imply more than it proves.
+
+## Quality signal
+
+Every claim below is something CI (`.github/workflows/ci.yml`) actually
+checks on every push, not just documentation:
+
+- `ruff check .` — zero lint findings across the whole repository.
+- `mypy tokenis` — zero type errors on the product SDK.
+- All six well-formedness conditions (W1-W6,
+  [`tokenis/spec/well-formedness.md`](tokenis/spec/well-formedness.md)) have
+  passing conformance tests — none are stubbed, skipped, or marked `xfail`.
+- The full test suite (100+ tests) passes on Python 3.9, 3.11 and 3.13 for
+  the core SDK/research code, and 3.10, 3.12 and 3.13 for the MCP server.
+- `research/p3_leakage/verify_claims.py` and
+  `research/p4_admission/verify_claims.py` each run their full pipeline
+  twice from the same seeds and hard-fail on any non-determinism.
 
 ## Status
 
-Early — see each paper's page and each package's docstrings for what's
-implemented versus what's a documented, deliberate gap (e.g.
-[`tokenis/spec/well-formedness.md`](tokenis/spec/well-formedness.md)'s note
-on W6/latency quantization). Issues and PRs welcome.
+Early-stage but no longer a rough sketch: see
+[CHANGELOG.md](CHANGELOG.md) for what's landed, and each package's
+docstrings for the specific, named simplifications that remain (e.g.
+`tokenis/gateway/service.py`'s notes on `principal` not being real
+authentication, or `credential_id == principal`) — these are stated
+deliberately rather than silently assumed away. Issues and PRs welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Found a security issue? See
+[SECURITY.md](SECURITY.md) rather than opening a public issue.
 
 ## License
 
 Code is [Apache-2.0](LICENSE). Papers and other documentation are
-[CC BY 4.0](papers/LICENSE-CC-BY-4.0).
+[CC BY 4.0](papers/LICENSE-CC-BY-4.0). See also
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

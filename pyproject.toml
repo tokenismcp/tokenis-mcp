@@ -33,7 +33,7 @@ dependencies = [
 # research/ reproduction code stay usable on Python 3.9.
 server = ["mcp>=1.0"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8"]
 
 [project.urls]
 Homepage = "https://github.com/j1729labs/tokenis-mcp"
@@ -61,3 +61,32 @@ target-version = "py39"
 # Python 3.9 floor does not uniformly support; typing.Dict/List/Optional
 # stay intentionally in place rather than being modernised file by file.
 ignore = ["UP006", "UP035", "UP037", "UP045"]
+
+[tool.mypy]
+# Scoped to tokenis/ (the product SDK) rather than the whole repository:
+# research/p3_leakage and research/p4_admission use bare same-directory
+# imports (`import corpus`) by design, so they don't share one consistent
+# module-resolution root with tokenis/ or with each other, and mypy's
+# module-path uniqueness check rejects checking both trees in one run.
+# `mypy tokenis` is what CI runs; see .github/workflows/ci.yml.
+#
+# python_version is pinned to 3.12, well above this package's actual 3.9
+# floor, for two independent reasons: (1) recent mypy releases dropped
+# the ability to type-check *against* a target as old as 3.9 at all (they
+# still run fine *under* a 3.9 interpreter -- those are different
+# things); (2) numpy's own bundled .pyi stubs use PEP 695 `type` alias
+# syntax, which mypy only parses when the target is 3.12+, regardless of
+# mypy's own version -- targeting anything lower fails on numpy's stub
+# file itself, before it ever reaches this repository's code. tokenis/
+# doesn't use any version-gated syntax (`from __future__ import
+# annotations` plus typing.Dict/List throughout, matching ruff's
+# target-version above), so raising the target here only affects what
+# mypy permits while checking, not what the package requires at runtime.
+python_version = "3.12"
+warn_unused_configs = true
+no_implicit_optional = true
+# warn_return_any is deliberately off: tokenis/gateway/admission.py does
+# heavy numpy array algebra, and numpy's own type stubs still return `Any`
+# from several operations mypy can't see through -- turning this on trades
+# real signal in tokenis/gateway/service.py's own code for noise from
+# numpy's stub gaps in admission.py.

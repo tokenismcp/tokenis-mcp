@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -399,10 +399,13 @@ class TokenisGatewayService:
         pred = self._predicate(industry=industry)
         if customer_token is not None:
             base_matcher = pred.matcher
-            pred = Predicate(
-                pred.name + f",token={customer_token}",
-                lambda row, base=base_matcher: base(row) and row.get("customer_token") == customer_token,
-            )
+
+            def matcher(
+                row: Dict[str, object], base: Callable[[Dict[str, object]], bool] = base_matcher
+            ) -> bool:
+                return base(row) and row.get("customer_token") == customer_token
+
+            pred = Predicate(pred.name + f",token={customer_token}", matcher)
         found = self.engine.count(pred) > 0
         self.trace.record_aggregate_result(
             AuditRecord(
