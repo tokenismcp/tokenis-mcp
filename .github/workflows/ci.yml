@@ -95,7 +95,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -106,7 +106,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Built package loads on the oldest supported Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
       - run: node -e "import('./dist/index.js').then(m => { const k = m.keygen(); if (m.decrypt(k.privateKey, m.encrypt(k.publicKey, 7n)) !== 7n) process.exit(1); })"
@@ -124,7 +124,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - uses: actions/setup-python@v5
@@ -154,7 +154,7 @@ jobs:
         run: pip install -e ".[dev,research,server]"
       - name: pip-audit (PyPA advisories + OSV)
         run: pip-audit --skip-editable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: npm audit
