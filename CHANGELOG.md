@@ -18,7 +18,7 @@ project has not yet made a tagged release, so everything so far is under
 - `research/p4_admission/`: the D1-D5 admission-control ladder, an exact
   GF(2^31-1) RREF auditor, eight evaluation attacks, and the containment
   bounds from P4, with the same verify_claims.py pattern.
-- `tokenis/`: the reference SDK — a Paillier-based additively homomorphic
+- `tokenis/`: the reference SDK — an EC-FHE-based additively homomorphic
   compute engine, a scope-confined tokenizer, the D1-D5 admission engine
   (adopted from `research/p4_admission`), a gated/audited Reveal
   operation with a hash-chained disclosure trace, and an MCP server
@@ -38,11 +38,27 @@ project has not yet made a tagged release, so everything so far is under
   (Python 3.9+ for the core/research code, 3.10+ for the MCP server).
 
 ### Changed
-- Replaced a hand-rolled additive-ElGamal construction over raw
-  elliptic-curve point arithmetic with `tokenis/crypto/paillier.py`, built
-  on `phe` (python-paillier) — the Paillier cryptosystem (1999) rather
-  than an in-repository EC construction, with direct/unbounded decryption
-  in place of a range-limited baby-step-giant-step search.
+- The crypto backend went through two revisions before settling on its
+  current form, `tokenis/crypto/ec_fhe.py`:
+  1. A hand-rolled additive-ElGamal construction over raw elliptic-curve
+     point arithmetic (the original).
+  2. A brief replacement with `tokenis/crypto/paillier.py`, built on `phe`
+     (python-paillier) — a well-established non-EC scheme, chosen at the
+     time to get unbounded/direct decryption and offload the arithmetic to
+     a purpose-built library instead of this repository's own point-adding
+     code. This was reverted after the maintainer pointed out it silently
+     abandoned the EC-based architecture the paper series specifies,
+     without that tradeoff being discussed first.
+  3. `tokenis/crypto/ec_fhe.py`, the current module: EC-based again, and
+     built to match a set of "EC-FHE" / "elliptic rational number" source
+     papers as literally as possible. Those papers have three specific,
+     documented problems (a core "isomorphism" function that cancels to a
+     no-op in every formula that uses it, a ciphertext-times-ciphertext
+     multiplicative-homomorphism construction that doesn't type-check, and
+     a "bootstrap" operation that requires the private key and so isn't
+     usable by an untrusted evaluator) — see that module's docstring for
+     the full explanation. The scheme's actual capability is the same
+     class as both predecessors: additive homomorphism only.
 
 ### Fixed
 - A Python 3.11+ `dataclasses` incompatibility in the (now-removed)

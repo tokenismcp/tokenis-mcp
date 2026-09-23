@@ -69,7 +69,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
-from tokenis.crypto.paillier import Decryptor, KeyPair, keygen
+from tokenis.crypto.ec_fhe import Decryptor, KeyPair, keygen
 from tokenis.gateway.admission import (
     AdmissionPolicy,
     And,

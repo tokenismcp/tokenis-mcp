@@ -6,7 +6,7 @@ This repository contains:
 
 - **A reference SDK** (`tokenis/`) demonstrating the disclosure-boundary
   architecture described in the [J1729Labs paper series](papers/). Its
-  crypto module (`tokenis/crypto/paillier.py`) is explicitly documented as
+  crypto module (`tokenis/crypto/ec_fhe.py`) is explicitly documented as
   a reference integration, not an independently audited implementation —
   see that module's docstring for exactly what that does and doesn't mean.
 - **Research reproduction code** (`research/`) for measuring leakage (P3)
@@ -41,8 +41,8 @@ you for reporting responsibly rather than disclosing publicly first.
 - Logic errors in `tokenis/gateway/reveal.py` or `tokenis/audit/trace.py`
   that let a value cross the disclosure boundary without being logged, or
   let a logged entry be altered without `verify_chain()` detecting it.
-- Bugs in `tokenis/crypto/paillier.py`'s integration (not in the
-  underlying `phe` library itself — report those upstream) that break the
+- Bugs in `tokenis/crypto/ec_fhe.py`'s integration (not in the
+  underlying `ecdsa` library itself — report those upstream) that break the
   stated `Dec(Enc(x) (+) Enc(y)) = x + y` property or leak key material.
 - Any `tokenis/mcp_server` code path that lets a tool argument reach a
   place principal/subject identity should have gated it instead (see the
@@ -55,8 +55,12 @@ you for reporting responsibly rather than disclosing publicly first.
 ## What is explicitly out of scope
 
 - The absence of a formal third-party security audit of the crypto
-  module — this is a known, stated limitation, not a vulnerability to
-  report (see `tokenis/crypto/paillier.py`'s docstring).
+  module, or the specific, already-documented problems in the "EC-FHE"
+  source papers that module's docstring describes (a decorative core
+  function, a multiplicative-homomorphism construction that doesn't
+  type-check, a "bootstrap" that needs the private key) — these are known,
+  stated limitations, not vulnerabilities to report (see
+  `tokenis/crypto/ec_fhe.py`'s docstring).
 - Findings against `research/` code that only affect the synthetic,
   fabricated corpora those scripts generate — there is no real data to
   expose there.

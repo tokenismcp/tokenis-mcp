@@ -4,7 +4,7 @@
 
 This is the "ground truth" oracle: it resolves a query's characteristic set
 against PUBLIC attributes and evaluates its function over the PROTECTED
-column, exactly as the real Paillier aggregation engine
+column, exactly as the real EC-FHE aggregation engine
 (:mod:`tokenis.gateway.compute`) would (minus the cryptography, which is
 out of scope here). It performs no
 admission control at all; :mod:`admission` sits in front of it, and attacks.py

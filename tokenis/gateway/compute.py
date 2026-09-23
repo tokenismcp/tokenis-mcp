@@ -5,7 +5,7 @@ over ``SEALED`` attributes homomorphically, so that the store never holds
 and the infrastructure operator never observes a plaintext sensitive value
 (P2 Theorem 29). Its adversary is the infrastructure operator, ``A_infra``.
 
-Every method here returns a :class:`~tokenis.crypto.paillier.Ciphertext`
+Every method here returns a :class:`~tokenis.crypto.ec_fhe.Ciphertext`
 (or, for ``COUNT``, a plain ``int`` -- a set size is public information, not
 a function of protected values: P4 §5.2 exempts it from the admission
 audit's rowspace basis for exactly this reason). **Decryption happens only
@@ -15,8 +15,10 @@ at the disclosure boundary**, after the admission-control layer
 covers both explicit ``Reveal`` outputs and the plaintext results of
 admitted aggregate calls).
 
-Variance needs a second moment. Paillier (see :mod:`tokenis.crypto.paillier`)
-has no multiplicative homomorphism either, so ``VAR`` requires a
+Variance needs a second moment. The EC-FHE scheme this repository uses (see
+:mod:`tokenis.crypto.ec_fhe`) has no ciphertext-times-ciphertext
+multiplicative homomorphism either -- see that module's docstring for why
+-- so ``VAR`` requires a
 precomputed, separately-encrypted "squared value" column, populated at
 ingest time (when the data owner still holds the plaintext) -- see
 :meth:`AggregateEngine.ingest`. This mirrors P2 §3.3's note that a scheme
@@ -31,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from tokenis.crypto.paillier import Ciphertext, PublicKey, encrypt
+from tokenis.crypto.ec_fhe import Ciphertext, PublicKey, encrypt
 
 
 @dataclass

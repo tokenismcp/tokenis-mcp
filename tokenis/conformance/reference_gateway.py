@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
-from tokenis.crypto.paillier import Decryptor, keygen
+from tokenis.crypto.ec_fhe import Decryptor, keygen
 from tokenis.gateway.compute import AggregateEngine, Predicate
 from tokenis.gateway.reveal import RevealObject, reveal
 from tokenis.semantic.tokenizer import ScopedTokenizer

@@ -9,7 +9,8 @@ a PR — it saves everyone rework.
 
 - **Read the honesty disclaimers before changing what they describe.**
   Several modules carry an explicit, deliberate scope statement — e.g.
-  `tokenis/crypto/paillier.py` ("reference integration, not audited"),
+  `tokenis/crypto/ec_fhe.py` ("reference integration, not audited," plus
+  three documented problems in its source papers),
   `research/p3_leakage/README.md` and `research/p4_admission/README.md`
   ("verifies internal consistency, not the paper's literal numbers"). A
   PR that makes the code claim more than it can honestly claim (e.g. "this
@@ -56,7 +57,7 @@ CI runs the same checks across Python 3.9/3.11/3.13 (core) and
 Explain *why*, not just *what* — this repository's own commit history is
 written that way on purpose (`git log --oneline` gives a good sense of the
 expected level of detail for anything touching security-relevant logic).
-A one-line "fix bug" for a change to `admission.py` or `paillier.py` isn't
+A one-line "fix bug" for a change to `admission.py` or `ec_fhe.py` isn't
 enough; say what the bug was and how you verified the fix.
 
 ## Scope of changes we're likely to accept

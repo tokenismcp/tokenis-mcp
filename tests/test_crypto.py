@@ -2,12 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from tokenis.crypto.paillier import (
+from tokenis.crypto.ec_fhe import (
+    DEFAULT_MAX_VALUE,
     Decryptor,
+    EllipticRational,
     add,
+    bootstrap,
     decrypt,
+    decrypt_rational,
     encrypt,
+    encrypt_rational,
     keygen,
+    multiply,
     negate,
     scalar_mul,
     subtract,
@@ -58,14 +64,14 @@ def test_sum_over_many_values(keypair):
     assert decrypt(keypair.private, total) == sum(range(50))
 
 
-def test_sum_over_large_values(keypair):
-    """Unlike the discrete-log-based scheme this module replaced, Paillier
-    decryption has no bounded search range -- confirm a large sum still
-    decrypts exactly."""
-    total = encrypt(keypair.public, 0)
-    for v in (10**9, 10**12, -(10**11), 10**15):
-        total = add(total, encrypt(keypair.public, v))
-    assert decrypt(keypair.private, total) == 10**9 + 10**12 - 10**11 + 10**15
+def test_decrypt_outside_range_raises(keypair):
+    """Unlike Paillier, this scheme encodes the message in the exponent and
+    decrypts via a bounded baby-step-giant-step search (see the module
+    docstring's DEFAULT_MAX_VALUE comment) -- a value outside that range is
+    a real, expected failure mode, not a bug."""
+    ct = encrypt(keypair.public, DEFAULT_MAX_VALUE + 10**6)
+    with pytest.raises(ValueError):
+        decrypt(keypair.private, ct, max_value=1000)
 
 
 def test_operator_overloads(keypair):
@@ -94,3 +100,86 @@ def test_different_keys_cannot_decrypt_each_other(keypair):
     ct = encrypt(keypair.public, 42)
     with pytest.raises(ValueError):
         decrypt(other.private, ct)
+
+
+def test_multiply_is_not_implemented(keypair):
+    """See tokenis.crypto.ec_fhe's module docstring, point 2: the source
+    paper's ciphertext x ciphertext multiplication does not type-check, so
+    this raises rather than silently doing something else."""
+    a = encrypt(keypair.public, 3)
+    b = encrypt(keypair.public, 4)
+    with pytest.raises(NotImplementedError):
+        multiply(a, b)
+
+
+class TestEllipticRational:
+    def test_equivalence(self):
+        assert EllipticRational(1, 2) == EllipticRational(2, 4)
+        assert EllipticRational(1, 2) == EllipticRational(3, 6)
+        assert EllipticRational(1, 2) != EllipticRational(1, 3)
+
+    def test_canonical_form(self):
+        assert EllipticRational(6, 8).canonical() == EllipticRational(3, 4)
+        assert EllipticRational(3, -4).canonical() == EllipticRational(-3, 4)
+
+    def test_addition(self):
+        # 1/2 + 1/3 = 5/6, per [RATIONAL] Definition 4.4.
+        assert EllipticRational(1, 2) + EllipticRational(1, 3) == EllipticRational(5, 6)
+
+    def test_negation_and_subtraction(self):
+        a = EllipticRational(3, 4)
+        assert -a == EllipticRational(-3, 4)
+        assert a - a == EllipticRational(0, 1)
+
+    def test_from_float_continued_fraction(self):
+        r = EllipticRational.from_float(0.75)
+        assert r == EllipticRational(3, 4)
+
+    def test_from_float_fixed_point(self):
+        r = EllipticRational.from_float_fixed_point(1.5, precision=2)
+        assert r == EllipticRational(150, 100)
+        assert r.to_float() == 1.5
+
+    def test_to_points_matches_scalar_multiples(self):
+        from ecdsa import SECP256k1
+
+        g = SECP256k1.generator
+        r = EllipticRational(3, 4)
+        num_point, den_point = r.to_points(g)
+        assert num_point == 3 * g
+        assert den_point == 4 * g
+
+    def test_zero_denominator_rejected(self):
+        with pytest.raises(ValueError):
+            EllipticRational(1, 0)
+
+
+def test_encrypt_decrypt_rational_roundtrip(keypair):
+    ct = encrypt_rational(keypair.public, 3.14, precision=4)
+    assert decrypt_rational(keypair.private, ct, precision=4) == pytest.approx(3.14)
+
+
+def test_encrypt_decrypt_rational_negative(keypair):
+    ct = encrypt_rational(keypair.public, -2.5, precision=2)
+    assert decrypt_rational(keypair.private, ct, precision=2) == pytest.approx(-2.5)
+
+
+def test_homomorphic_add_rational(keypair):
+    """Addition under a shared fixed-point denominator -- see
+    encrypt_rational's docstring for why the denominator must match."""
+    a = encrypt_rational(keypair.public, 1.5, precision=3)
+    b = encrypt_rational(keypair.public, 2.25, precision=3)
+    total = decrypt_rational(keypair.private, add(a, b), precision=3)
+    assert total == pytest.approx(3.75)
+
+
+def test_bootstrap_preserves_plaintext(keypair):
+    """[ECFHE] Algorithm 5, literal implementation: decrypt-then-re-encrypt
+    under the private key -- see bootstrap()'s docstring for what this does
+    and does not provide."""
+    ct = encrypt(keypair.public, 123)
+    fresh = bootstrap(keypair.private, keypair.public, ct)
+    assert decrypt(keypair.private, fresh) == 123
+    # Fresh ElGamal randomness means the ciphertext components differ even
+    # though the plaintext is unchanged.
+    assert fresh.c1 != ct.c1 or fresh.c2 != ct.c2

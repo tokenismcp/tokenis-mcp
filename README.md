@@ -52,7 +52,7 @@ architecture of P2 has runnable code next to it.
                                      │               └────────────────────┘
                      ┌───────────────▼───────────┐
                      │  tokenis/gateway/compute   │  ciphertext SUM/COUNT/
-                     │  (Paillier, additive HE)   │  AVG/VAR — no plaintext
+                     │  (EC-FHE, additive HE)     │  AVG/VAR — no plaintext
                      └───────────────┬────────────┘  ever stored (P2 Thm 29)
                                      │
                      ┌───────────────▼───────────┐
@@ -111,13 +111,17 @@ distributed freely under Apache-2.0. What stays closed is 4Chains Inc.'s
 product: an audited, key-management/HSM-integrated production engine, the
 appliance/multi-tenancy layer, and the full confidential performance
 benchmark (R2). The [`tokenis/crypto`](tokenis/crypto) module in this
-repository is explicitly **not** that engine: it builds the well-established
-Paillier cryptosystem on top of the maintained `phe` library rather than
-hand-rolling elliptic-curve arithmetic, which is a real improvement over an
-early version of this module — but "built on a peer-reviewed scheme and a
-real library" is not the same claim as "this integration has been
-independently audited," and the module's own docstring says so plainly
-rather than letting the improvement imply more than it proves.
+repository is explicitly **not** that engine: it is an elliptic-curve
+additive-ElGamal construction (`tokenis/crypto/ec_fhe.py`), built to match a
+set of "EC-FHE" / "elliptic rational number" source papers as literally as
+possible. Those papers have real, specific problems — a core function that
+cancels to a no-op, a multiplicative-homomorphism construction that does
+not type-check, a "bootstrap" that requires the private key — and this
+module's own docstring documents each one rather than quietly working
+around it, because implementing broken cryptography and presenting it as
+solid is a worse outcome than implementing it faithfully and saying so.
+Read that docstring before using anything in this package for more than
+running this repository's own examples and tests.
 
 ## Quality signal
 
