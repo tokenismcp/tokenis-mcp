@@ -28,6 +28,13 @@ def test_blind_unblind_roundtrip(owner):
     assert owner.unblind(masked, mask) == 42
 
 
+def test_unblind_rejects_mismatched_modulus(owner):
+    other_owner = Owner(n=97)
+    masked, mask = other_owner.blind(5)
+    with pytest.raises(ValueError):
+        owner.unblind(masked, mask)
+
+
 def test_blind_hides_the_value(owner):
     """The masked value the untrusted party would see is not, in general,
     equal to the plaintext -- a minimal sanity check that masking actually
@@ -141,14 +148,23 @@ class TestMaskedMultiplication:
         result = reconstruct_multiplication(triple, opening, eg)
         assert result == (s * s_prime) % owner.n
 
-    def test_reusing_a_triple_still_computes_correctly_once(self, owner):
-        """Not a secrecy test (this module doesn't enforce single-use
-        triples at the type level -- see the module docstring's (P3)
-        note); confirms the arithmetic identity holds regardless."""
+    def test_reusing_a_triple_raises(self, owner):
+        """[NOKEY] (P3), "fresh one-time randomness": reusing a Beaver
+        triple across two products leaks (s1-s2) and (s1'-s2') to the
+        Server, breaking the secrecy proof Theorem 28 depends on. This is
+        enforced, not just documented -- see open_multiplication's
+        docstring."""
         triple = owner.prepare_triple()
-        opening = open_multiplication(owner, 5, 6, triple)
-        eg = combine_multiplication(opening)
-        assert reconstruct_multiplication(triple, opening, eg) == 30 % owner.n
+        open_multiplication(owner, 5, 6, triple)
+        with pytest.raises(ValueError):
+            open_multiplication(owner, 7, 8, triple)
+
+    def test_triple_from_a_different_modulus_owner_rejected(self):
+        owner_a = Owner(n=10007)
+        triple = owner_a.prepare_triple()
+        different_modulus_owner = Owner(n=97)
+        with pytest.raises(ValueError):
+            open_multiplication(different_modulus_owner, 5, 6, triple)
 
 
 class TestBlindedBootstrap:

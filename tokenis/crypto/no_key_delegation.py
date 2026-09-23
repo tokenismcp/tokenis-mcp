@@ -83,7 +83,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
 
 from tokenis.crypto.ec_fhe import DEFAULT_CURVE
 
@@ -115,18 +115,24 @@ class MaskedValue:
 class MultiplicationTriple:
     """A Beaver triple ``(u, v, w = u*v mod n)`` over Z/nZ, [NOKEY]
     Definitions 17-18. Input-independent -- generate a pool of these ahead
-    of time, before any data arrives, via `Owner.prepare_triple`."""
+    of time, before any data arrives, via `Owner.prepare_triple`.
+
+    ``id`` is an opaque, per-``Owner`` unique token `Owner.prepare_triple`
+    assigns; `open_multiplication` uses it to enforce that each triple is
+    consumed by at most one multiplication (see that function's docstring
+    for why reuse is a real, not theoretical, secrecy break)."""
 
     u: int
     v: int
     w: int
     n: int
+    id: int
 
     @classmethod
-    def generate(cls, n: int, rng: Optional[Any] = None) -> "MultiplicationTriple":
+    def generate(cls, n: int, id: int, rng: Optional[Any] = None) -> "MultiplicationTriple":
         u = _random_scalar(n, rng)
         v = _random_scalar(n, rng)
-        return cls(u=u, v=v, w=(u * v) % n, n=n)
+        return cls(u=u, v=v, w=(u * v) % n, n=n, id=id)
 
 
 @dataclass(frozen=True)
@@ -168,6 +174,8 @@ class Owner:
 
     n: int = field(default_factory=_default_order)
     rng: Optional[Any] = None
+    _next_triple_id: int = field(default=0, repr=False)
+    _consumed_triple_ids: Set[int] = field(default_factory=set, repr=False)
 
     def blind(self, value: int) -> Tuple[MaskedValue, int]:
         """One-time-pad-mask a scalar ([NOKEY] Construction 16 step 1 /
@@ -179,14 +187,25 @@ class Owner:
 
     def unblind(self, masked: MaskedValue, mask: int) -> int:
         """Inverse of `blind`."""
+        if masked.n != self.n:
+            raise ValueError(
+                "MaskedValue.n does not match this Owner's modulus -- it was "
+                "likely produced by a different Owner (different curve order "
+                "or a caller error), and unblinding it here would silently "
+                "produce garbage rather than fail loudly."
+            )
         return (masked.masked - mask) % self.n
 
     def prepare_triple(self) -> MultiplicationTriple:
         """Precompute one Beaver triple ([NOKEY] Definitions 17-18) for a
         future masked multiplication. Triples are input-independent:
         generate a pool of these before data arrives, since each one is
-        consumed by exactly one `open_multiplication` call."""
-        return MultiplicationTriple.generate(self.n, self.rng)
+        consumed by exactly one `open_multiplication` call -- see that
+        function's docstring for why reuse is enforced, not just advised.
+        """
+        triple = MultiplicationTriple.generate(self.n, self._next_triple_id, self.rng)
+        self._next_triple_id += 1
+        return triple
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +257,29 @@ def open_multiplication(
     owner: Owner, s: int, s_prime: int, triple: MultiplicationTriple
 ) -> MultiplicationOpening:
     """Owner's side, step 1: blind the two secret operands by a fresh
-    triple's factors. Each triple must be used for exactly one
-    multiplication -- reusing a triple breaks the secrecy guarantee
-    (see [NOKEY] (P3), "fresh one-time randomness")."""
+    triple's factors.
+
+    Each triple must be used for exactly one multiplication -- this is not
+    a stylistic preference. Reusing ``(u, v)`` across two products lets a
+    Server that observes both openings ``(e1, g1)`` and ``(e2, g2)``
+    recover ``s1 - s2 = e1 - e2`` and ``s1' - s2' = g1 - g2`` outright,
+    breaking exactly the independence [NOKEY]'s Theorem 28 depends on
+    (its proof requires a *fresh* uniform ``(u, v)``, drawn once). This
+    function enforces the requirement rather than merely documenting it:
+    every `MultiplicationTriple` carries the id `Owner.prepare_triple`
+    assigned it, and a second call with the same triple raises.
+    """
+    if triple.n != owner.n:
+        raise ValueError("MultiplicationTriple.n does not match this Owner's modulus")
+    if triple.id in owner._consumed_triple_ids:
+        raise ValueError(
+            "this MultiplicationTriple has already been consumed by a "
+            "previous open_multiplication() call -- reusing a Beaver "
+            "triple across two products breaks the secrecy proof (see "
+            "this function's docstring); call Owner.prepare_triple() to "
+            "get a fresh one for each multiplication."
+        )
+    owner._consumed_triple_ids.add(triple.id)
     n = owner.n
     e = (s - triple.u) % n
     g = (s_prime - triple.v) % n

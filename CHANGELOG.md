@@ -7,6 +7,20 @@ project has not yet made a tagged release, so everything so far is under
 
 ## [Unreleased]
 
+### Security
+- `tokenis/crypto/no_key_delegation.py`'s `open_multiplication` now
+  enforces that each `MultiplicationTriple` is consumed by at most one
+  multiplication, raising instead of silently succeeding on reuse. Reusing
+  a Beaver triple across two products lets an observing party recover the
+  difference between the two calls' secret operands (`s1-s2`, `s1'-s2'`
+  from the two openings), which breaks the independence the module's
+  secrecy proof (its cited paper's Theorem 28) depends on -- previously
+  documented as a caller obligation, now a checked invariant.
+- `Owner.unblind` and `open_multiplication` now reject a `MaskedValue` /
+  `MultiplicationTriple` whose modulus doesn't match the `Owner`'s,
+  instead of silently computing a wrong result under a mismatched key or
+  curve.
+
 ### Added
 - The J1729Labs paper series (P2 Disclosure Boundaries, P3 Leakage
   Quantification, P4 Admission Control) with per-paper navigation pages.
@@ -47,6 +61,9 @@ project has not yet made a tagged release, so everything so far is under
 - Standard OSS project files: `SECURITY.md`, `CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, this changelog, and a two-track CI workflow
   (Python 3.9+ for the core/research code, 3.10+ for the MCP server).
+- `tokenis/py.typed` (PEP 561): ships this package's inline type
+  annotations to consumers' own type checkers instead of the package
+  silently being treated as untyped by anything that imports it.
 
 ### Changed
 - The crypto backend went through two revisions before settling on its
@@ -70,6 +87,11 @@ project has not yet made a tagged release, so everything so far is under
      usable by an untrusted evaluator) — see that module's docstring for
      the full explanation. The scheme's actual capability is the same
      class as both predecessors: additive homomorphism only.
+- `pyproject.toml`'s license metadata moved from the deprecated
+  `license = {text = "Apache-2.0"}` table plus a `License ::` trove
+  classifier to the SPDX license expression form (`license =
+  "Apache-2.0"`, PEP 639) that current `setuptools`/`build` expect;
+  the old form emitted a deprecation warning on every build.
 
 ### Fixed
 - A Python 3.11+ `dataclasses` incompatibility in the (now-removed)

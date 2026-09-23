@@ -7,7 +7,10 @@ name = "tokenis-mcp"
 version = "0.1.0"
 description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool calling (MCP), with the research pipeline behind it"
 readme = "README.md"
-license = { text = "Apache-2.0" }
+# SPDX license expression (PEP 639), not the deprecated `License ::`
+# trove classifier / `{text = ...}` table form -- `python -m build` warns
+# on the old form as of setuptools >=77.
+license = "Apache-2.0"
 authors = [
     { name = "Caleb Lee", email = "jlabsrd@gmail.com" },
 ]
@@ -16,7 +19,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Topic :: Security :: Cryptography",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -41,6 +43,14 @@ Papers = "https://github.com/j1729labs/tokenis-mcp/tree/main/papers"
 
 [tool.setuptools.packages.find]
 include = ["tokenis*"]
+
+[tool.setuptools.package-data]
+# PEP 561: ships this package's inline type annotations to consumers'
+# type checkers (mypy/pyright) instead of silently being treated as
+# untyped. `mypy tokenis` (this repo's own CI check) verifies the
+# annotations are correct; this marker is what tells *other* projects
+# that installed this package they can trust them.
+tokenis = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = [
