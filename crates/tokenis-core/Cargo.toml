@@ -16,7 +16,7 @@ exclude = ["proptest-regressions/"]
 [dependencies]
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "precomputed-tables", "std"] }
 getrandom = "0.2"
-rand_core = "0.6"
+rand_core = "0.9"
 subtle = "2"
 zeroize = "1"
 
