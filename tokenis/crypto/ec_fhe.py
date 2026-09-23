@@ -73,43 +73,69 @@ rational-number plaintext encoding layered on top and a bootstrap
 operation that only the key holder can run.
 
 --------------------------------------------------------------------------
-STILL A REFERENCE INTEGRATION -- READ BEFORE USING FOR REAL SECRETS
+IMPLEMENTATION AND SECURITY PROPERTIES -- READ BEFORE USING FOR REAL SECRETS
 --------------------------------------------------------------------------
-This is plain-Python, non-constant-time point arithmetic (via the `ecdsa`
-package) with no side-channel hardening, no key-management story, and no
-independent security review -- on top of source papers that are themselves
-unpublished/unreviewed preprints with the specific, demonstrated problems
-above. Do not point this at real production data or real secret values.
+Group arithmetic is delegated to libsecp256k1 (via the `coincurve`
+bindings) -- the C library Bitcoin Core uses, widely deployed and
+extensively reviewed -- not implemented in Python. Concretely:
+
+- Every scalar multiplication involving a secret scalar (the private key,
+  per-encryption randomness, the plaintext itself) runs through
+  libsecp256k1's constant-time routines.
+- Every point parsed from untrusted bytes (`PublicKey.from_bytes`,
+  `Ciphertext.from_bytes`, or constructing either directly) is validated
+  to lie on secp256k1, rejecting invalid-curve inputs rather than doing
+  arithmetic on them.
+- Decryption's baby-step-giant-step search runs a fixed number of
+  iterations for a given ``max_value`` regardless of the plaintext, rather
+  than returning at the first match (which would leak the plaintext's
+  magnitude through timing). Python-level operations (dict lookups, big-int
+  arithmetic) still vary slightly, so this is "no plaintext-dependent early
+  exit," not "constant-time"; the gateway's W6 latency quantization
+  (:mod:`tokenis.gateway.latency`) pads whole tool calls on top of this.
+- Secrets never appear in ``repr`` output, and `PrivateKey` refuses to be
+  pickled or copied, so a key doesn't leak into logs, tracebacks or caches
+  by accident.
+- All secret randomness comes from the OS CSPRNG unless a caller
+  explicitly passes ``rng``, which raises `InsecureRandomnessWarning` (see
+  :mod:`tokenis.crypto.randomness`).
+
+What this module cannot provide, and why: secret scalars live in Python
+``int`` objects, which are immutable and may be copied by the interpreter,
+so they cannot be reliably zeroised from memory after use; and keys are
+generated and held in-process rather than in an HSM/KMS. Both need either
+native key-handling code or dedicated hardware -- the key-management and
+HSM integration R2 places in the closed product engine, not in this SDK.
+No independent audit of this integration has been performed, and the
+source papers remain unreviewed preprints with the problems listed above.
 """
 from __future__ import annotations
 
 import math
-import secrets
+import operator
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any, Dict, Optional, Tuple
 
-from ecdsa import SECP256k1
-from ecdsa.ellipticcurve import INFINITY, PointJacobi
+from coincurve import PublicKey as _CPoint
 
-#: Default curve. secp256k1 was chosen for wide availability in the `ecdsa`
-#: package used here; nothing about the construction depends on this
-#: particular curve, and none of the source papers name a specific curve
-#: either (the [ECFHE] paper's "pairing-friendly BN curve, k=12" requirement
-#: is for the Weil-pairing tensor product this module does not implement --
-#: see the module docstring's point 2).
-DEFAULT_CURVE = SECP256k1
+from tokenis.crypto.randomness import random_nonzero_below
+
+#: The curve every key and ciphertext in this module lives on.
+CURVE_NAME = "secp256k1"
+
+#: Order of secp256k1's generator (the size of the scalar field Z/nZ).
+CURVE_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
 #: Default bound on plaintexts (and on sums of plaintexts) that decryption
 #: will search for via baby-step-giant-step -- see [ECFHE] Theorem 10.6 and
-#: [ECHC] §5.1's "Weil Pairing Computation" analysis, both of which note
-#: that recovering an integer from its point representation costs
-#: O(sqrt(n)) via baby-step-giant-step or Pollard's rho; this module uses
-#: the former. 2**24 (~16.8M) keeps a one-shot decrypt at a fraction of a
-#: second and comfortably covers aggregate sums over every corpus in this
-#: repository. Callers needing a wider range should construct one
-#: `Decryptor` (amortising the table build across many decryptions) with an
-#: explicit, larger `max_value`.
+#: [ECHC] §5.1, both of which note that recovering an integer from its point
+#: representation costs O(sqrt(n)). 2**24 (~16.8M) keeps a decrypt in the
+#: tens of milliseconds and comfortably covers aggregate sums over every
+#: corpus in this repository. Callers needing a wider range should construct
+#: one `Decryptor` with an explicit, larger ``max_value`` -- decryption cost
+#: grows with sqrt(max_value) on every call, by design (see the module
+#: docstring on fixed-iteration decryption).
 DEFAULT_MAX_VALUE = 2**24
 
 #: Default fixed-point scaling exponent for `encrypt_rational` /
@@ -122,28 +148,123 @@ DEFAULT_MAX_VALUE = 2**24
 #: (see `encrypt_rational`'s docstring).
 DEFAULT_PRECISION = 6
 
+_CIPHERTEXT_VERSION = 1
+_INFINITY = b"\x00"
 
-def _order(curve) -> int:
-    return curve.generator.order()
+# ---------------------------------------------------------------------------
+# Point arithmetic. A point is a coincurve PublicKey, or None for the point
+# at infinity (which libsecp256k1 cannot represent as a public key).
+# ---------------------------------------------------------------------------
+
+_Point = Optional[_CPoint]
 
 
-@dataclass(frozen=True)
+def _scalar_bytes(k: int) -> bytes:
+    return k.to_bytes(32, "big")
+
+
+def _base_mul(k: int) -> _Point:
+    k %= CURVE_ORDER
+    return None if k == 0 else _CPoint.from_secret(_scalar_bytes(k))
+
+
+def _mul(p: _Point, k: int) -> _Point:
+    k %= CURVE_ORDER
+    if p is None or k == 0:
+        return None
+    return p.multiply(_scalar_bytes(k))
+
+
+def _add(a: _Point, b: _Point) -> _Point:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    try:
+        return _CPoint.combine_keys([a, b])
+    except ValueError:
+        # libsecp256k1 rejects a sum equal to the point at infinity.
+        return None
+
+
+def _neg(p: _Point) -> _Point:
+    return _mul(p, CURVE_ORDER - 1)
+
+
+def _encode(p: _Point) -> bytes:
+    return _INFINITY if p is None else p.format(compressed=True)
+
+
+def _decode(data: bytes) -> _Point:
+    """Parse a SEC1-compressed point (or ``b"\\x00"`` for infinity),
+    rejecting anything that is not a valid secp256k1 point."""
+    if data == _INFINITY:
+        return None
+    if len(data) != 33 or data[0] not in (2, 3):
+        raise ValueError("invalid point encoding (expected 33-byte SEC1 compressed)")
+    try:
+        return _CPoint(data)
+    except ValueError as exc:
+        raise ValueError("point is not on secp256k1") from exc
+
+
+def _split_point(buf: bytes) -> Tuple[bytes, bytes]:
+    if not buf:
+        raise ValueError("truncated ciphertext")
+    if buf[0] == 0:
+        return buf[:1], buf[1:]
+    if len(buf) < 33:
+        raise ValueError("truncated ciphertext")
+    return buf[:33], buf[33:]
+
+
+# ---------------------------------------------------------------------------
+# Keys and ciphertexts
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, eq=False)
 class PrivateKey:
-    """A scalar secret key. Never serialize or log this."""
+    """A secret scalar in ``[1, n)``. Redacted from ``repr`` and refuses to
+    be pickled or copied -- see the module docstring."""
 
-    scalar: int
-    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
+    scalar: int = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scalar, int) or not 1 <= self.scalar < CURVE_ORDER:
+            raise ValueError("private scalar must be an integer in [1, curve order)")
 
     def public_key(self) -> "PublicKey":
-        return PublicKey(point=self.scalar * self.curve.generator, curve=self.curve)
+        return PublicKey(_encode(_base_mul(self.scalar)))
+
+    def __reduce__(self) -> Any:
+        raise TypeError(
+            "refusing to pickle or copy a PrivateKey: secret key material must "
+            "not be serialized implicitly (caches, task queues, deep copies)"
+        )
 
 
 @dataclass(frozen=True)
 class PublicKey:
-    """An elliptic-curve point ``sk * G``. Safe to distribute."""
+    """A secp256k1 point ``sk * G``, held as its 33-byte SEC1 compressed
+    encoding (validated on construction). Safe to distribute."""
 
-    point: PointJacobi
-    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
+    encoded: bytes
+    _point: Any = field(default=None, init=False, repr=False, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        point = _decode(bytes(self.encoded))
+        if point is None:
+            raise ValueError("a public key cannot be the point at infinity")
+        object.__setattr__(self, "encoded", bytes(self.encoded))
+        object.__setattr__(self, "_point", point)
+
+    def to_bytes(self) -> bytes:
+        return self.encoded
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "PublicKey":
+        return cls(bytes(data))
 
 
 @dataclass(frozen=True)
@@ -155,19 +276,58 @@ class KeyPair:
 @dataclass(frozen=True)
 class Ciphertext:
     """An elliptic-curve additive-ElGamal ciphertext ``(c1, c2) = (r*G,
-    r*Pub + m*G)``. In [ECHC]'s notation this is exactly what
-    ``(sigma^-1(C1), sigma^-1(C2))`` reduces to (see module docstring).
+    r*Pub + m*G)``, each component held as a SEC1 compressed point (or
+    ``b"\\x00"`` for infinity) and validated on construction. In [ECHC]'s
+    notation this is exactly what ``(sigma^-1(C1), sigma^-1(C2))`` reduces
+    to (see module docstring).
 
-    Carries the public key it was encrypted under (``public``, compared but
-    not hashed) so that combining ciphertexts encrypted under different
-    keys fails loudly (see `add`/`subtract`) instead of silently producing
-    a ciphertext that decrypts to garbage under either key.
+    ``public`` records the key it was encrypted under so that combining
+    ciphertexts from different keys fails loudly (`add`/`subtract`) instead
+    of silently decrypting to garbage. It is not part of the wire format:
+    pass it to `from_bytes` if you want that check on deserialized values.
     """
 
-    c1: PointJacobi
-    c2: PointJacobi
+    c1: bytes
+    c2: bytes
     public: Optional[PublicKey] = None
-    curve: Any = field(default_factory=lambda: DEFAULT_CURVE, compare=False)
+    _p1: Any = field(default=None, init=False, repr=False, compare=False, hash=False)
+    _p2: Any = field(default=None, init=False, repr=False, compare=False, hash=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "c1", bytes(self.c1))
+        object.__setattr__(self, "c2", bytes(self.c2))
+        object.__setattr__(self, "_p1", _decode(self.c1))
+        object.__setattr__(self, "_p2", _decode(self.c2))
+
+    @classmethod
+    def _from_points(cls, p1: _Point, p2: _Point, public: Optional[PublicKey]) -> "Ciphertext":
+        # Internal fast path: p1/p2 came out of libsecp256k1 arithmetic and
+        # are already valid, so skip re-parsing them.
+        ct = object.__new__(cls)
+        for name, value in (
+            ("c1", _encode(p1)),
+            ("c2", _encode(p2)),
+            ("public", public),
+            ("_p1", p1),
+            ("_p2", p2),
+        ):
+            object.__setattr__(ct, name, value)
+        return ct
+
+    def to_bytes(self) -> bytes:
+        """Versioned wire format: ``0x01 || c1 || c2``."""
+        return bytes([_CIPHERTEXT_VERSION]) + self.c1 + self.c2
+
+    @classmethod
+    def from_bytes(cls, data: bytes, public: Optional[PublicKey] = None) -> "Ciphertext":
+        data = bytes(data)
+        if not data or data[0] != _CIPHERTEXT_VERSION:
+            raise ValueError("unsupported ciphertext encoding version")
+        c1, rest = _split_point(data[1:])
+        c2, rest = _split_point(rest)
+        if rest:
+            raise ValueError("trailing bytes after ciphertext")
+        return cls(c1=c1, c2=c2, public=public)
 
     def __add__(self, other: "Ciphertext") -> "Ciphertext":
         return add(self, other)
@@ -179,44 +339,22 @@ class Ciphertext:
         return scalar_mul(self, k)
 
 
-def keygen(curve=DEFAULT_CURVE, rng: Optional[Any] = None) -> KeyPair:
+def keygen(rng: Optional[Any] = None) -> KeyPair:
     """Generate a fresh keypair ([ECHC] Algorithm 1 / [ECFHE] Algorithm 8's
     non-bootstrap-key portion -- see `bootstrap`'s docstring for why this
     module does not generate a separate "bootstrap key": the paper's own
     Algorithm 5 uses it only to decrypt, so it is the private key under
-    another name).
-
-    ``rng`` may be a :class:`random.Random`/``numpy.random.Generator``-like
-    object exposing ``randrange(n)`` / ``integers(1, n)``; if omitted, the
-    stdlib :mod:`secrets` module is used.
-    """
-    n = _order(curve)
-    if rng is None:
-        sk = 1 + secrets.randbelow(n - 1)
-    elif hasattr(rng, "integers"):  # numpy.random.Generator
-        sk = int(rng.integers(1, n))
-    else:  # random.Random-like
-        sk = rng.randrange(1, n)
-    priv = PrivateKey(scalar=sk, curve=curve)
+    another name). Leave ``rng`` unset outside tests."""
+    priv = PrivateKey(random_nonzero_below(CURVE_ORDER, rng))
     return KeyPair(private=priv, public=priv.public_key())
 
 
-def _random_scalar(curve, rng: Optional[Any]) -> int:
-    n = _order(curve)
-    if rng is None:
-        return 1 + secrets.randbelow(n - 1)
-    if hasattr(rng, "integers"):
-        return int(rng.integers(1, n))
-    return rng.randrange(1, n)
-
-
 def encrypt(pk: PublicKey, m: int, rng: Optional[Any] = None) -> Ciphertext:
-    """Encrypt integer ``m`` (may be negative) under ``pk``."""
-    curve = pk.curve
-    r = _random_scalar(curve, rng)
-    c1 = r * curve.generator
-    c2 = r * pk.point + m * curve.generator
-    return Ciphertext(c1=c1, c2=c2, public=pk, curve=curve)
+    """Encrypt integer ``m`` (may be negative) under ``pk``. Leave ``rng``
+    unset outside tests."""
+    m = operator.index(m)  # rejects floats instead of silently truncating
+    r = random_nonzero_below(CURVE_ORDER, rng)
+    return Ciphertext._from_points(_base_mul(r), _add(_mul(pk._point, r), _base_mul(m)), pk)
 
 
 def _check_same_key(a: Ciphertext, b: Ciphertext) -> None:
@@ -227,12 +365,12 @@ def _check_same_key(a: Ciphertext, b: Ciphertext) -> None:
 def add(a: Ciphertext, b: Ciphertext) -> Ciphertext:
     """Homomorphic addition: ``Dec(add(Enc(x), Enc(y))) == x + y``."""
     _check_same_key(a, b)
-    return Ciphertext(c1=a.c1 + b.c1, c2=a.c2 + b.c2, public=a.public or b.public, curve=a.curve)
+    return Ciphertext._from_points(_add(a._p1, b._p1), _add(a._p2, b._p2), a.public or b.public)
 
 
 def negate(a: Ciphertext) -> Ciphertext:
     """Homomorphic negation: ``Dec(negate(Enc(x))) == -x``."""
-    return Ciphertext(c1=-a.c1, c2=-a.c2, public=a.public, curve=a.curve)
+    return Ciphertext._from_points(_neg(a._p1), _neg(a._p2), a.public)
 
 
 def subtract(a: Ciphertext, b: Ciphertext) -> Ciphertext:
@@ -250,9 +388,8 @@ def scalar_mul(a: Ciphertext, k: int) -> Ciphertext:
     ``k`` must be public: this operation is not private with respect to
     ``k``, only with respect to the plaintext ``a`` encrypts.
     """
-    if k == 0:
-        return Ciphertext(c1=INFINITY, c2=INFINITY, public=a.public, curve=a.curve)
-    return Ciphertext(c1=k * a.c1, c2=k * a.c2, public=a.public, curve=a.curve)
+    k = operator.index(k)
+    return Ciphertext._from_points(_mul(a._p1, k), _mul(a._p2, k), a.public)
 
 
 def multiply(a: Ciphertext, b: Ciphertext) -> Ciphertext:
@@ -263,16 +400,19 @@ def multiply(a: Ciphertext, b: Ciphertext) -> Ciphertext:
     ``mu_n`` (a root of unity in a field extension) but ``sigma^-1`` is
     only defined on ``Z_n1 x Z_n2``. That is a domain mismatch in the
     source construction, not an implementation gap on this module's part --
-    see the module docstring's point 2. Raises unconditionally so a caller
-    expecting this capability gets an explanation instead of silently
-    wrong output.
+    see the module docstring's point 2. For genuine multiplication of two
+    secret values, use the interactive Beaver-triple protocol in
+    :mod:`tokenis.crypto.no_key_delegation`. Raises unconditionally so a
+    caller expecting this capability gets an explanation instead of
+    silently wrong output.
     """
     raise NotImplementedError(
         "ciphertext x ciphertext multiplication is not implemented: the "
         "source construction ([ECFHE] Theorem 8) does not type-check -- "
         "see tokenis.crypto.ec_fhe's module docstring, point 2. Use "
-        "scalar_mul() for multiplication by a known plaintext integer, "
-        "which is well-defined and implemented."
+        "scalar_mul() for multiplication by a known plaintext integer, or "
+        "tokenis.crypto.no_key_delegation for interactive multiplication of "
+        "two secret values."
     )
 
 
@@ -280,40 +420,43 @@ class Decryptor:
     """Wraps a private key with a cached baby-step table for repeated
     decryption in a bounded plaintext range ``[-max_value, max_value]``.
 
-    Building the baby-step table is the expensive part of BSGS
-    (``O(sqrt(max_value))`` point additions); this class builds it once and
-    reuses it for every :meth:`decrypt` call.
+    The table (``O(sqrt(max_value))`` points) is built once. Each
+    `decrypt` then performs a fixed number of giant steps -- see the module
+    docstring for why it does not stop at the first match.
     """
 
     def __init__(self, sk: PrivateKey, max_value: int = DEFAULT_MAX_VALUE):
         if max_value <= 0:
             raise ValueError("max_value must be positive")
-        self.sk = sk
+        self._sk = sk
+        self._public = sk.public_key()
         self.max_value = max_value
         self._m = 1 + math.isqrt(max_value)
-        self._table: Dict[bytes, int] = self._build_table(sk.curve)
-
-    def _build_table(self, curve) -> Dict[bytes, int]:
-        table: Dict[bytes, int] = {}
-        point = INFINITY
-        g = curve.generator
+        self._giant = _neg(_base_mul(self._m))
+        self._table: Dict[bytes, int] = {}
+        generator = _base_mul(1)
+        point: _Point = None
         for j in range(self._m + 1):
-            table[_point_key(point)] = j
-            point = point + g
-        return table
+            self._table[_encode(point)] = j
+            point = _add(point, generator)
+
+    def __repr__(self) -> str:
+        return f"Decryptor(max_value={self.max_value})"
+
+    def __reduce__(self) -> Any:
+        raise TypeError("refusing to pickle or copy a Decryptor (it holds a private key)")
 
     def decrypt(self, ct: Ciphertext) -> int:
-        """Recover the integer plaintext (or raise :class:`ValueError` if it
-        lies outside ``[-max_value, max_value]``)."""
-        if ct.public is not None and ct.public.point != self.sk.public_key().point:
+        """Recover the integer plaintext, or raise :class:`ValueError` if it
+        lies outside ``[-max_value, max_value]`` or ``ct`` was encrypted
+        under a different key."""
+        if ct.public is not None and ct.public != self._public:
             raise ValueError("ciphertext was not encrypted under this key's matching public key")
-        shared = self.sk.scalar * ct.c1
-        m_point = ct.c2 + (-shared)
-
-        positive = self._bsgs(m_point)
+        m_point = _add(ct._p2, _neg(_mul(ct._p1, self._sk.scalar)))
+        positive = self._search(m_point)
+        negative = self._search(_neg(m_point))
         if positive is not None:
             return positive
-        negative = self._bsgs(-m_point)
         if negative is not None:
             return -negative
         raise ValueError(
@@ -321,24 +464,19 @@ class Decryptor:
             "increase max_value or check that the ciphertext/key are correct"
         )
 
-    def _bsgs(self, target) -> Optional[int]:
-        g = self.sk.curve.generator
-        giant_step = (-self._m) * g
+    def _search(self, target: _Point) -> Optional[int]:
+        """Find non-negative ``m <= max_value`` with ``m*G == target``.
+        Always walks all ``m + 1`` giant steps (no early return)."""
+        found: Optional[int] = None
         point = target
         for i in range(self._m + 1):
-            key = _point_key(point)
-            if key in self._table:
-                candidate = i * self._m + self._table[key]
+            j = self._table.get(_encode(point))
+            if j is not None and found is None:
+                candidate = i * self._m + j
                 if candidate <= self.max_value:
-                    return candidate
-            point = point + giant_step
-        return None
-
-
-def _point_key(p) -> bytes:
-    if p == INFINITY:
-        return b"inf"
-    return int(p.x()).to_bytes(32, "big") + int(p.y()).to_bytes(32, "big")
+                    found = candidate
+            point = _add(point, self._giant)
+        return found
 
 
 def decrypt(sk: PrivateKey, ct: Ciphertext, max_value: int = DEFAULT_MAX_VALUE) -> int:
@@ -385,11 +523,11 @@ class EllipticRational:
             n, d = -n, -d
         return EllipticRational(n, d)
 
-    def to_points(self, generator: Optional[PointJacobi] = None) -> Tuple[PointJacobi, PointJacobi]:
+    def to_points(self) -> Tuple[bytes, bytes]:
         """Render as the ``(aP, bP)`` pair [RATIONAL] Definition 4.1
-        notates this value as."""
-        g = generator if generator is not None else DEFAULT_CURVE.generator
-        return (self.numerator * g, self.denominator * g)
+        notates this value as, with ``P`` the secp256k1 generator and each
+        point SEC1-compressed (``b"\\x00"`` for the point at infinity)."""
+        return (_encode(_base_mul(self.numerator)), _encode(_base_mul(self.denominator)))
 
     def __eq__(self, other: object) -> bool:
         """Equivalence per [RATIONAL] Definition 4.2: ``(a,b) ~ (c,d)`` iff

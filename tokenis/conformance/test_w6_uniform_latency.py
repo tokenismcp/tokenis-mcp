@@ -23,7 +23,7 @@ def _timed_ms(fn) -> float:
     start = time.perf_counter()
     try:
         fn()
-    except Exception:  # noqa: BLE001, S110 - timing helper cares about elapsed time, not exception type
+    except Exception:  # noqa: BLE001 - timing helper cares about elapsed time, not exception type
         pass
     return (time.perf_counter() - start) * 1000.0
 

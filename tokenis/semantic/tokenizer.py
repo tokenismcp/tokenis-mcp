@@ -48,7 +48,7 @@ class ProtectionClass(Enum):
     """P2 §3.2: the protection class of a schema attribute."""
 
     OPEN = "open"
-    TOKEN = "token"
+    TOKEN = "token"  # noqa: S105 -- a protection-class name, not a credential
     SEALED = "sealed"
 
 

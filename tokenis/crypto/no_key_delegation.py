@@ -81,23 +81,19 @@ sound" is still not "this specific implementation has been audited."
 """
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
 
-from tokenis.crypto.ec_fhe import DEFAULT_CURVE
+from tokenis.crypto.ec_fhe import CURVE_ORDER
+from tokenis.crypto.randomness import random_below
 
 
 def _default_order() -> int:
-    return DEFAULT_CURVE.generator.order()
+    return CURVE_ORDER
 
 
 def _random_scalar(n: int, rng: Optional[Any] = None) -> int:
-    if rng is None:
-        return secrets.randbelow(n)
-    if hasattr(rng, "integers"):  # numpy.random.Generator
-        return int(rng.integers(0, n))
-    return rng.randrange(0, n)  # random.Random-like
+    return random_below(n, rng)
 
 
 @dataclass(frozen=True)
@@ -122,9 +118,9 @@ class MultiplicationTriple:
     consumed by at most one multiplication (see that function's docstring
     for why reuse is a real, not theoretical, secrecy break)."""
 
-    u: int
-    v: int
-    w: int
+    u: int = field(repr=False)
+    v: int = field(repr=False)
+    w: int = field(repr=False)
     n: int
     id: int
 

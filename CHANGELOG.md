@@ -8,6 +8,26 @@ project has not yet made a tagged release, so everything so far is under
 ## [Unreleased]
 
 ### Security
+- Elliptic-curve arithmetic moved from the pure-Python `ecdsa` package to
+  libsecp256k1 (via `coincurve`). `pip-audit` flags `ecdsa` 0.19.2 for
+  PYSEC-2026-1325, a Minerva timing attack affecting key generation and
+  ECDH-style scalar multiplication — exactly the operations `ec_fhe` used
+  it for (`sk*G`, `sk*c1`) — which its maintainers consider out of scope
+  and will not fix. Same curve (secp256k1), same public API.
+- Decryption no longer returns at the first baby-step-giant-step match,
+  which made its running time depend on the plaintext's magnitude; it
+  now always walks the full search.
+- Points parsed from bytes are validated to lie on secp256k1.
+- `PrivateKey` is redacted from `repr` and refuses pickling/copying;
+  `Decryptor` likewise; Beaver-triple factors are redacted from `repr`.
+- A caller-supplied non-cryptographic `rng` now raises
+  `InsecureRandomnessWarning` (`tokenis/crypto/randomness.py`) instead of
+  being accepted silently for keys, encryption randomness and masks.
+- `encrypt`/`scalar_mul` reject floats instead of silently truncating.
+- An `assert` guarding the admission policy in `tokenis/gateway/service.py`
+  replaced with an explicit check (asserts vanish under `python -O`).
+- CI: flake8-bandit (`S`) rules on the SDK, a weekly-scheduled `pip-audit`
+  job, and Dependabot for pip and GitHub Actions.
 - `tokenis/crypto/no_key_delegation.py`'s `open_multiplication` now
   enforces that each `MultiplicationTriple` is consumed by at most one
   multiplication, raising instead of silently succeeding on reuse. Reusing
@@ -61,6 +81,11 @@ project has not yet made a tagged release, so everything so far is under
 - Standard OSS project files: `SECURITY.md`, `CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, this changelog, and a two-track CI workflow
   (Python 3.9+ for the core/research code, 3.10+ for the MCP server).
+- Versioned byte serialization for `Ciphertext` and `PublicKey`
+  (`to_bytes`/`from_bytes`), validated on parse.
+- `tests/test_crypto_security.py` (one test per claimed security property)
+  and `tests/test_properties.py` (hypothesis property-based tests of the
+  homomorphic and delegation identities).
 - `tokenis/py.typed` (PEP 561): ships this package's inline type
   annotations to consumers' own type checkers instead of the package
   silently being treated as untyped by anything that imports it.

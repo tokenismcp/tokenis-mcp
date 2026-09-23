@@ -233,7 +233,8 @@ class TokenisGatewayService:
         (after logging the denial to the trace, per P2 Remark 18) if
         refused; otherwise returns the query's matched count."""
         self._ensure_admission()
-        assert self._admission is not None  # for type-checkers; set by _ensure_admission
+        if self._admission is None:  # not `assert`: must survive `python -O`
+            raise RuntimeError("admission policy failed to initialise; refusing the query")
         predicate = self._admission_predicate(industry, region, customer_token)
         query = AdmQuery(predicate=predicate, function=function, column=column)
         context = AdmQueryContext(subject_id=principal, credential_id=principal, taint=0)

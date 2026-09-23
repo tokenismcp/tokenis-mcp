@@ -123,6 +123,18 @@ solid is a worse outcome than implementing it faithfully and saying so.
 Read that docstring before using anything in this package for more than
 running this repository's own examples and tests.
 
+**Is Python enough for this?** For the gateway, admission control and MCP
+server, yes. For the cryptography, not on its own — which is why none of
+the elliptic-curve arithmetic here runs in Python. It is delegated to
+libsecp256k1 (the C library Bitcoin Core uses) via `coincurve`, so every
+operation on a secret scalar uses that library's constant-time code. An
+earlier revision used the pure-Python `ecdsa` package; `pip-audit` now flags
+that package for a key-recovering timing attack its maintainers consider
+out of scope, which is the concrete reason for the change. What Python
+still cannot give you — zeroising secrets from memory, and hardware-backed
+key storage — is listed in `tokenis/crypto/ec_fhe.py`'s docstring and is
+the part R2 assigns to the closed engine.
+
 `tokenis/crypto/no_key_delegation.py` is a separate, genuinely sound
 addition on the same foundation: an interactive delegation protocol
 (one-time-pad masking + Beaver triples, standard secure-computation
@@ -139,8 +151,17 @@ what it doesn't.
 Every claim below is something CI (`.github/workflows/ci.yml`) actually
 checks on every push, not just documentation:
 
-- `ruff check .` — zero lint findings across the whole repository.
+- `ruff check .` — zero lint findings across the whole repository,
+  including flake8-bandit security rules on the shipped SDK.
 - `mypy tokenis` — zero type errors on the product SDK.
+- `pip-audit` — no known vulnerabilities in the resolved dependency set,
+  re-run weekly by schedule so a newly published advisory fails CI even
+  without a push; Dependabot proposes the upgrades.
+- `tests/test_crypto_security.py` pins each security property the crypto
+  module claims (secrets absent from `repr` and unpicklable, off-curve
+  points rejected, decryption work independent of the plaintext, seeded
+  RNGs flagged), and `tests/test_properties.py` checks the homomorphic
+  identities on hypothesis-generated inputs rather than hand-picked ones.
 - All six well-formedness conditions (W1-W6,
   [`tokenis/spec/well-formedness.md`](tokenis/spec/well-formedness.md)) have
   passing conformance tests — none are stubbed, skipped, or marked `xfail`.

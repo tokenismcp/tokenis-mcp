@@ -41,9 +41,14 @@ you for reporting responsibly rather than disclosing publicly first.
 - Logic errors in `tokenis/gateway/reveal.py` or `tokenis/audit/trace.py`
   that let a value cross the disclosure boundary without being logged, or
   let a logged entry be altered without `verify_chain()` detecting it.
-- Bugs in `tokenis/crypto/ec_fhe.py`'s integration (not in the
-  underlying `ecdsa` library itself — report those upstream) that break the
-  stated `Dec(Enc(x) (+) Enc(y)) = x + y` property or leak key material.
+- Bugs in `tokenis/crypto/ec_fhe.py` or `tokenis/crypto/no_key_delegation.py`
+  (not in libsecp256k1/`coincurve` themselves — report those upstream) that
+  break the stated `Dec(Enc(x) (+) Enc(y)) = x + y` property, leak key
+  material or masks, accept a point that is not on secp256k1, or make
+  decryption work depend on the plaintext value. Each of those properties
+  has a pinning test in `tests/test_crypto_security.py`; a report that one
+  of them doesn't hold in practice despite the test is exactly what we
+  want to hear about.
 - Any `tokenis/mcp_server` code path that lets a tool argument reach a
   place principal/subject identity should have gated it instead (see the
   "`principal` is not authentication" note in

@@ -25,7 +25,10 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "ecdsa>=0.19",
+    # Python bindings to libsecp256k1 (the C library Bitcoin Core uses):
+    # all elliptic-curve group arithmetic in tokenis.crypto runs there, not
+    # in Python -- see tokenis/crypto/ec_fhe.py's module docstring.
+    "coincurve>=20,<22",
 ]
 
 [project.optional-dependencies]
@@ -35,7 +38,7 @@ dependencies = [
 # research/ reproduction code stay usable on Python 3.9.
 server = ["mcp>=1.0"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7"]
 
 [project.urls]
 Homepage = "https://github.com/j1729labs/tokenis-mcp"
@@ -53,6 +56,11 @@ include = ["tokenis*"]
 tokenis = ["py.typed"]
 
 [tool.pytest.ini_options]
+# Tests and research reproductions pass seeded RNGs on purpose (for
+# determinism); tests/test_crypto_security.py asserts the warning still fires.
+filterwarnings = [
+    "ignore::tokenis.crypto.randomness.InsecureRandomnessWarning",
+]
 testpaths = [
     "tests",
     "research/p3_leakage",
@@ -71,6 +79,17 @@ target-version = "py39"
 # Python 3.9 floor does not uniformly support; typing.Dict/List/Optional
 # stay intentionally in place rather than being modernised file by file.
 ignore = ["UP006", "UP035", "UP037", "UP045"]
+# flake8-bandit security rules, enforced on the shipped SDK. Tests use
+# `assert` by design; research/ and the conformance harness are
+# reproduction code over synthetic data, not the product surface.
+extend-select = ["S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+"research/**" = ["S"]
+"examples/**" = ["S"]
+"tokenis/conformance/**" = ["S"]
+"tokenis/mcp_server/test_server.py" = ["S"]
 
 [tool.mypy]
 # Scoped to tokenis/ (the product SDK) rather than the whole repository:
