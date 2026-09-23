@@ -40,7 +40,7 @@
     "check:package": "bash scripts/check-package.sh"
   },
   "devDependencies": {
-    "@types/node": "^24.13.6",
+    "@types/node": "^26.6.2",
     "typescript": "^5.9.3"
   },
   "keywords": [
