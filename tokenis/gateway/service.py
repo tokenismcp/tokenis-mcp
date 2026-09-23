@@ -80,6 +80,7 @@ from tokenis.gateway.admission import All as AdmitAll
 from tokenis.gateway.admission import Query as AdmQuery
 from tokenis.gateway.admission import QueryContext as AdmQueryContext
 from tokenis.gateway.compute import AggregateEngine, Predicate, average
+from tokenis.gateway.latency import quantize_latency
 from tokenis.gateway.reveal import RevealDenied, RevealObject, reveal
 from tokenis.semantic.tokenizer import GeneralizationHierarchy, ScopedTokenizer
 
@@ -107,6 +108,13 @@ class TokenisGatewayService:
     epoch: int = 1
     tokenizer_key: bytes = b"tokenis-demo-tenant-key-32-bytes"
     catalogue: Dict[str, CatalogueEntry] = field(default_factory=dict)
+    #: W6 (P2 Definition 17): every value-bearing tool method is padded to
+    #: the next multiple of this many milliseconds, on both the success and
+    #: the exception path -- see tokenis/gateway/latency.py. 250ms sits
+    #: inside R2's tightest quoted SLO bucket (in-call conversational use,
+    #: p95 <= 200ms for Tokenis's own added latency) with headroom for the
+    #: model host's own latency on top; tune per deployment.
+    latency_granularity_ms: float = 250.0
 
     def __post_init__(self) -> None:
         self._keypair: KeyPair = keygen()
@@ -257,6 +265,7 @@ class TokenisGatewayService:
 
     # -- tool 1: aggregate --------------------------------------------------
 
+    @quantize_latency
     def aggregate(
         self, principal: str, function: str, industry: Optional[str] = None,
         region: Optional[str] = None,
@@ -286,6 +295,7 @@ class TokenisGatewayService:
 
     # -- tool 2: group_by -----------------------------------------------------
 
+    @quantize_latency
     def group_by(self, principal: str, key: str) -> Dict[str, Any]:
         if key not in ("industry", "region"):
             raise ValueError("group_by key must be an OPEN attribute: industry or region")
@@ -322,6 +332,7 @@ class TokenisGatewayService:
 
     # -- tool 3: compare_periods ---------------------------------------------
 
+    @quantize_latency
     def compare_periods(
         self, principal: str, industry: str, period_a_multiplier: float, period_b_multiplier: float,
     ) -> Dict[str, Any]:
@@ -355,6 +366,7 @@ class TokenisGatewayService:
 
     # -- tool 4: similarity_search --------------------------------------------
 
+    @quantize_latency
     def similarity_search(self, principal: str, query_token: str, top_k: int = 3) -> Dict[str, Any]:
         if query_token not in self._embeddings:
             raise ValueError("unknown query_token (no embedding on file)")
@@ -377,6 +389,7 @@ class TokenisGatewayService:
 
     # -- tool 5: exists ------------------------------------------------------
 
+    @quantize_latency
     def exists(
         self, principal: str, industry: Optional[str] = None, customer_token: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -402,6 +415,7 @@ class TokenisGatewayService:
 
     # -- tool 6: disclose_ratio ------------------------------------------------
 
+    @quantize_latency
     def disclose_ratio(
         self, principal: str, numerator_industry: str, denominator_industry: str, purpose: str,
     ) -> Dict[str, Any]:
@@ -438,6 +452,7 @@ class TokenisGatewayService:
 
     # -- tool 7: disclose_bucket -----------------------------------------------
 
+    @quantize_latency
     def disclose_bucket(
         self, principal: str, industry: str, thresholds: List[float], labels: List[str], purpose: str,
     ) -> Dict[str, Any]:

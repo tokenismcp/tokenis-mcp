@@ -16,7 +16,7 @@ its adapter interface.
 | W3 | **Typed interface** | Every tool argument and return is typed by protection class; no free-form field carries an enclosed value without egress screening. | `test_w3_typed_interface.py` |
 | W4 | **Declared scope** | Every TOKEN-class attribute declares a scope function and rotation policy. | `test_w4_declared_scope.py` — every [`ScopedTokenizer`](../semantic/tokenizer.py) call site names an explicit scope (attribute + tenant + epoch), never a bare value |
 | W5 | **Simulatable admission** | The admit/deny decision is computable from exposed state alone (public catalogue, prior decisions, prior responses, policy) — never from the protected value itself. | `test_w5_simulatable_admission.py` — asserts [`tokenis/gateway/admission.py`](../gateway/admission.py)'s decision function's signature and body never receive the protected values array (P4 Proposition 33) |
-| W6 | **Uniform latency** | Response latency and error taxonomy are quantized to a declared granularity independent of the data, so the interface exposes no data-dependent timing channel. | `test_w6_uniform_latency.py` |
+| W6 | **Uniform latency** | Response latency and error taxonomy are quantized to a declared granularity independent of the data, so the interface exposes no data-dependent timing channel. | `test_w6_uniform_latency.py` — asserts an admitted and a D1-denied `aggregate` call (and a Reveal-denied vs. Reveal-permitted `disclose_ratio` call) land in the same declared time bucket, via [`tokenis/gateway/latency.py`](../gateway/latency.py) |
 
 ## Status of W5 in this reference implementation
 
@@ -31,13 +31,20 @@ is built to satisfy W5 by construction — see P4 Proposition 33, "the
 policy is simulatable" — rather than relying on the weaker unconditional
 fallback.
 
-## W6 and this reference implementation
+## Status of W6 in this reference implementation
 
-This reference implementation does **not** currently quantize response
-latency (the Paillier reference crypto's own cost already varies with
-query-set size, and no padding/batching layer sits on top of it — see
-[`tokenis/crypto/paillier.py`](../crypto/paillier.py)'s reference-integration
-disclaimer). `test_w6_uniform_latency.py` documents this as a **known gap**
-(marked `xfail`) rather than silently passing — a real deployment needs a
-latency-quantization layer this repository does not yet provide, which is
-exactly the kind of gap R2's "optimised engine" is expected to close.
+[`tokenis/gateway/latency.py`](../gateway/latency.py)'s `@quantize_latency`
+wraps every value-bearing method on
+[`TokenisGatewayService`](../gateway/service.py) (`aggregate`, `group_by`,
+`compare_periods`, `similarity_search`, `exists`, `disclose_ratio`,
+`disclose_bucket`): each call is padded, via `try`/`finally`, to the next
+multiple of `latency_granularity_ms` (default 250ms, inside R2's tightest
+quoted SLO bucket) — on the success path and the exception path alike, so
+a fast D1 admission denial and a slow permitted aggregate are
+observationally identical in timing. The mechanism is a simple sleep-out,
+not a scheduling or batching system: it does not smooth out contention
+under concurrent load, only the latency of a single call relative to its
+own declared bucket. `test_w6_uniform_latency.py` checks the observable
+property (admitted vs. denied calls land in the same bucket) rather than
+re-deriving the padding arithmetic `tests/test_latency.py` already covers
+directly.
