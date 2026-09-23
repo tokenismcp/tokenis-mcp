@@ -1,12 +1,13 @@
 # Copyright 2026 4Chains Inc.
 # SPDX-License-Identifier: Apache-2.0
-"""Security properties of tokenis.crypto -- each test pins down one claim
-from tokenis/crypto/ec_fhe.py's "IMPLEMENTATION AND SECURITY PROPERTIES"
-docstring section, so the claim can't silently regress."""
+"""Security properties of tokenis.crypto as seen from Python -- each test
+pins down one claim from tokenis/crypto/ec_fhe.py's "IMPLEMENTATION AND
+SECURITY PROPERTIES" section. (The decryption-work-independence property
+is pinned in Rust: crates/tokenis-core/src/elgamal.rs,
+`search_work_is_independent_of_plaintext`.)"""
 import copy
+import inspect
 import pickle
-import random
-import warnings
 
 import pytest
 
@@ -17,12 +18,12 @@ from tokenis.crypto.ec_fhe import (
     Decryptor,
     PrivateKey,
     PublicKey,
+    TokenisCryptoError,
     decrypt,
     encrypt,
     keygen,
     scalar_mul,
 )
-from tokenis.crypto.randomness import InsecureRandomnessWarning, random_below
 
 
 @pytest.fixture(scope="module")
@@ -33,28 +34,54 @@ def keypair():
 # -- secret hygiene ---------------------------------------------------------
 
 
-def test_private_key_scalar_not_in_repr(keypair):
-    scalar = str(keypair.private.scalar)
-    assert scalar not in repr(keypair.private)
-    assert scalar not in repr(keypair)
-    assert scalar not in repr(Decryptor(keypair.private, max_value=16))
+def test_private_key_has_no_scalar_attribute(keypair):
+    assert not hasattr(keypair.private, "scalar")
+    assert not hasattr(keypair.private, "__dict__")
+
+
+def test_secrets_not_in_repr(keypair):
+    secret_hex = keypair.private.export_secret_bytes().hex()
+    for obj in (keypair.private, keypair, Decryptor(keypair.private, 16)):
+        assert secret_hex not in repr(obj)
+        assert "redacted" in repr(keypair.private)
 
 
 @pytest.mark.parametrize("serialize", [pickle.dumps, copy.copy, copy.deepcopy])
-def test_private_key_refuses_serialization(keypair, serialize):
+def test_private_key_and_decryptor_refuse_serialization(keypair, serialize):
     with pytest.raises(TypeError):
         serialize(keypair.private)
-
-
-def test_decryptor_refuses_serialization(keypair):
     with pytest.raises(TypeError):
-        pickle.dumps(Decryptor(keypair.private, max_value=16))
+        serialize(Decryptor(keypair.private, 16))
 
 
-@pytest.mark.parametrize("scalar", [0, -1, CURVE_ORDER, CURVE_ORDER + 5])
-def test_private_key_rejects_out_of_range_scalar(scalar):
-    with pytest.raises(ValueError):
-        PrivateKey(scalar)
+def test_no_way_to_inject_randomness():
+    """Randomness is drawn from the OS CSPRNG inside Rust; no public entry
+    point accepts a caller-supplied RNG."""
+    for fn in (ec_fhe.keygen, ec_fhe.encrypt, ec_fhe.encrypt_rational, ec_fhe.bootstrap):
+        assert "rng" not in inspect.signature(fn).parameters
+
+
+def test_private_key_import_export_roundtrip(keypair):
+    restored = PrivateKey.from_bytes(keypair.private.export_secret_bytes())
+    assert restored.public_key() == keypair.public
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        bytes(32),  # zero
+        CURVE_ORDER.to_bytes(32, "big"),  # n
+        b"\xff" * 32,  # > n
+        b"\x01" * 31,  # wrong length
+    ],
+)
+def test_private_key_rejects_invalid_scalars(raw):
+    with pytest.raises(TokenisCryptoError):
+        PrivateKey.from_bytes(raw)
+
+
+def test_crypto_errors_are_value_errors():
+    assert issubclass(TokenisCryptoError, ValueError)
 
 
 # -- input validation -------------------------------------------------------
@@ -63,6 +90,11 @@ def test_private_key_rejects_out_of_range_scalar(scalar):
 def test_encrypt_rejects_float(keypair):
     with pytest.raises(TypeError):
         encrypt(keypair.public, 1.5)
+
+
+def test_encrypt_rejects_out_of_64_bit_range(keypair):
+    with pytest.raises(OverflowError):
+        encrypt(keypair.public, 2**63)
 
 
 def test_public_key_roundtrip(keypair):
@@ -76,27 +108,21 @@ def test_ciphertext_roundtrip(keypair):
     assert decrypt(keypair.private, restored) == 1234
 
 
-def test_ciphertext_with_infinity_components_roundtrips(keypair):
+def test_ciphertext_with_identity_components_roundtrips(keypair):
     zero = scalar_mul(encrypt(keypair.public, 5), 0)
     assert zero.c1 == b"\x00" and zero.c2 == b"\x00"
-    restored = Ciphertext.from_bytes(zero.to_bytes(), public=keypair.public)
-    assert decrypt(keypair.private, restored) == 0
-
-
-def test_zero_plaintext(keypair):
-    assert decrypt(keypair.private, encrypt(keypair.public, 0)) == 0
+    assert zero.to_bytes() == b"\x01\x00\x00"
+    assert decrypt(keypair.private, Ciphertext.from_bytes(zero.to_bytes())) == 0
 
 
 def _off_curve_x_encoding() -> bytes:
-    """A syntactically valid compressed encoding whose x-coordinate has no
-    matching y on secp256k1 (about half of all x values don't)."""
-    from coincurve import PublicKey as CPoint
-
-    for x in range(1, 1000):
+    """A syntactically valid compressed encoding with no point on the
+    curve (about half of all x-coordinates have none)."""
+    for x in range(1, 256):
         candidate = b"\x02" + x.to_bytes(32, "big")
         try:
-            CPoint(candidate)
-        except ValueError:
+            PublicKey.from_bytes(candidate)
+        except TokenisCryptoError:
             return candidate
     raise AssertionError("no off-curve x found")
 
@@ -108,78 +134,44 @@ def _off_curve_x_encoding() -> bytes:
         lambda b: b[:-1],  # truncated
         lambda b: b + b"\x00",  # trailing bytes
         lambda b: b[:1] + b"\x05" + b[2:],  # invalid SEC1 prefix
+        lambda b: b"",  # empty
     ],
 )
 def test_ciphertext_from_bytes_rejects_malformed(keypair, mutate):
     data = encrypt(keypair.public, 7).to_bytes()
-    with pytest.raises(ValueError):
+    with pytest.raises(TokenisCryptoError):
         Ciphertext.from_bytes(mutate(data))
 
 
-def test_ciphertext_rejects_off_curve_point(keypair):
+def test_off_curve_points_rejected(keypair):
     bad = _off_curve_x_encoding()
-    good = encrypt(keypair.public, 7)
-    with pytest.raises(ValueError):
-        Ciphertext(c1=bad, c2=good.c2)
-    with pytest.raises(ValueError):
+    with pytest.raises(TokenisCryptoError):
         PublicKey.from_bytes(bad)
+    good = encrypt(keypair.public, 7).to_bytes()
+    with pytest.raises(TokenisCryptoError):
+        Ciphertext.from_bytes(b"\x01" + bad + good[34:])
 
 
-def test_public_key_rejects_infinity():
+def test_public_key_rejects_identity():
+    with pytest.raises(TokenisCryptoError):
+        PublicKey.from_bytes(b"\x00")
+
+
+def test_key_mismatch_detected(keypair):
+    other = keygen()
+    with pytest.raises(TokenisCryptoError):
+        encrypt(keypair.public, 1) + encrypt(other.public, 1)
+    with pytest.raises(TokenisCryptoError):
+        decrypt(other.private, encrypt(keypair.public, 1))
+
+
+def test_decryptor_range_validated(keypair):
+    for bad in (0, 2**48 + 1):
+        with pytest.raises(TokenisCryptoError):
+            Decryptor(keypair.private, bad)
+
+
+def test_bootstrap_requires_matching_key(keypair):
+    other = keygen()
     with pytest.raises(ValueError):
-        PublicKey(b"\x00")
-
-
-# -- timing: no plaintext-dependent early exit ------------------------------
-
-
-def test_decrypt_work_is_independent_of_plaintext(keypair, monkeypatch):
-    """Decryption must do the same amount of group work whether the
-    plaintext is found on the first giant step or the last one. Counts
-    point additions rather than measuring wall time, so it's deterministic.
-    """
-    dec = Decryptor(keypair.private, max_value=10_000)
-    small = encrypt(keypair.public, 1)
-    large = encrypt(keypair.public, 9_999)
-    negative = encrypt(keypair.public, -9_999)
-
-    calls = {"n": 0}
-    real_add = ec_fhe._add
-
-    def counting_add(a, b):
-        calls["n"] += 1
-        return real_add(a, b)
-
-    monkeypatch.setattr(ec_fhe, "_add", counting_add)
-
-    counts = []
-    for ct in (small, large, negative):
-        calls["n"] = 0
-        dec.decrypt(ct)
-        counts.append(calls["n"])
-    assert len(set(counts)) == 1, counts
-
-
-# -- randomness -------------------------------------------------------------
-
-
-def test_default_randomness_does_not_warn():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", InsecureRandomnessWarning)
-        random_below(1000)
-        random_below(1000, random.SystemRandom())
-        keygen()
-
-
-def test_seeded_rng_warns():
-    with pytest.warns(InsecureRandomnessWarning):
-        random_below(1000, random.Random(1))
-    with pytest.warns(InsecureRandomnessWarning):
-        keygen(rng=random.Random(1))
-
-
-def test_random_below_is_in_range():
-    for _ in range(200):
-        assert 0 <= random_below(7) < 7
-    with pytest.raises(ValueError):
-        random_below(0)
+        ec_fhe.bootstrap(keypair.private, other.public, encrypt(keypair.public, 1))

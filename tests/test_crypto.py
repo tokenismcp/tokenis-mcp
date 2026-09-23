@@ -141,12 +141,14 @@ class TestEllipticRational:
         assert r.to_float() == 1.5
 
     def test_to_points_matches_scalar_multiples(self):
-        from coincurve import PublicKey as CPoint
+        from tokenis.crypto.ec_fhe import PrivateKey
 
-        r = EllipticRational(3, 4)
-        num_point, den_point = r.to_points()
-        assert num_point == CPoint.from_secret((3).to_bytes(32, "big")).format()
-        assert den_point == CPoint.from_secret((4).to_bytes(32, "big")).format()
+        def k_g(k: int) -> bytes:
+            return PrivateKey.from_bytes(k.to_bytes(32, "big")).public_key().to_bytes()
+
+        num_point, den_point = EllipticRational(3, 4).to_points()
+        assert (num_point, den_point) == (k_g(3), k_g(4))
+        assert EllipticRational(0, 1).to_points()[0] == b"\x00"
 
     def test_zero_denominator_rejected(self):
         with pytest.raises(ValueError):

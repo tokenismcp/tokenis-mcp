@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/tokenis-core", "crates/tokenis-py", "crates/tokenis-wasm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/tokenismcp/tokenis-mcp"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

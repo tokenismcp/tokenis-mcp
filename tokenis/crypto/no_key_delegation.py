@@ -71,257 +71,169 @@ What this does NOT do:
   should have been handled the first time.
 
 --------------------------------------------------------------------------
-STILL A REFERENCE INTEGRATION -- READ BEFORE USING FOR REAL SECRETS
+IMPLEMENTATION
 --------------------------------------------------------------------------
-Plain-Python, non-constant-time modular arithmetic, no independent security
-review. The mathematics here (one-time pads, Beaver triples) is genuinely
-standard and correctly applied, which is a different and stronger claim
-than for :mod:`tokenis.crypto.ec_fhe`'s other modules -- but "the math is
-sound" is still not "this specific implementation has been audited."
+The protocol runs in Rust (``crates/tokenis-core``, via ``tokenis._core``),
+the same code the TypeScript SDK uses. Values are integers mod the
+secp256k1 group order ``n`` (`MODULUS`). Beyond the paper, the API makes
+misuse impossible rather than merely documented: a `Mask`, `Correction` or
+`MultiplicationTriple` is an opaque handle to zeroing Rust memory that is
+emptied by the operation using it (a second use raises), and each is bound
+to the `Owner` that created it. The mathematics (one-time pads, Beaver
+triples) is standard; this particular integration has not been
+independently audited.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass
+from typing import Callable, List, NoReturn, Sequence, Tuple
 
+from tokenis import _core
+from tokenis._core import (
+    Correction,
+    Mask,
+    MaskedValue,
+    MultiplicationOpening,
+    MultiplicationTriple,
+    TokenisCryptoError,
+)
 from tokenis.crypto.ec_fhe import CURVE_ORDER
-from tokenis.crypto.randomness import random_below
+
+__all__ = [
+    "MODULUS",
+    "AffineFunctional",
+    "Correction",
+    "Mask",
+    "MaskedValue",
+    "MultiplicationOpening",
+    "MultiplicationTriple",
+    "Owner",
+    "TokenisCryptoError",
+    "blinded_bootstrap",
+    "combine_multiplication",
+    "delegate_affine",
+    "evaluate_affine_masked",
+    "open_multiplication",
+    "reconstruct_multiplication",
+    "unblind_affine_result",
+]
+
+#: Values are integers mod this (secp256k1's group order).
+MODULUS = CURVE_ORDER
 
 
-def _default_order() -> int:
-    return CURVE_ORDER
+def _to_bytes(x: int) -> bytes:
+    return (x % MODULUS).to_bytes(32, "big")
 
 
-def _random_scalar(n: int, rng: Optional[Any] = None) -> int:
-    return random_below(n, rng)
-
-
-@dataclass(frozen=True)
-class MaskedValue:
-    """A one-time-pad-masked scalar: ``masked = (value + mask) mod n``.
-    This is what the untrusted `Server` role holds -- see [NOKEY] Lemma 6
-    and Theorem 27 for why this is *exactly* uniform on Z/nZ and
-    independent of ``value``, not merely "hard to invert"."""
-
-    masked: int
-    n: int
-
-
-@dataclass(frozen=True)
-class MultiplicationTriple:
-    """A Beaver triple ``(u, v, w = u*v mod n)`` over Z/nZ, [NOKEY]
-    Definitions 17-18. Input-independent -- generate a pool of these ahead
-    of time, before any data arrives, via `Owner.prepare_triple`.
-
-    ``id`` is an opaque, per-``Owner`` unique token `Owner.prepare_triple`
-    assigns; `open_multiplication` uses it to enforce that each triple is
-    consumed by at most one multiplication (see that function's docstring
-    for why reuse is a real, not theoretical, secrecy break)."""
-
-    u: int = field(repr=False)
-    v: int = field(repr=False)
-    w: int = field(repr=False)
-    n: int
-    id: int
-
-    @classmethod
-    def generate(cls, n: int, id: int, rng: Optional[Any] = None) -> "MultiplicationTriple":
-        u = _random_scalar(n, rng)
-        v = _random_scalar(n, rng)
-        return cls(u=u, v=v, w=(u * v) % n, n=n, id=id)
-
-
-@dataclass(frozen=True)
-class MultiplicationOpening:
-    """The ``(e, g)`` pair sent to the `Server` in a masked multiplication
-    -- [NOKEY] Construction 19 step 1. Individually and jointly uniform on
-    ``(Z/nZ)^2`` and independent of the secret operands (Theorem 28): the
-    Server sees only the operands blinded by a triple's uniform factors."""
-
-    e: int
-    g: int
-    n: int
+def _to_int(b: bytes) -> int:
+    return int.from_bytes(b, "big")
 
 
 @dataclass(frozen=True)
 class AffineFunctional:
     """A public affine functional ``f(x_1, ..., x_t) = sum(a_i * x_i) + b``
-    over Z/nZ -- [NOKEY] eq. (5)."""
+    over Z/nZ -- [NOKEY] eq. (5). Coefficients must fit in 64 bits."""
 
     coefficients: Sequence[int]
     intercept: int = 0
 
-    def evaluate(self, xs: Sequence[int], n: int) -> int:
-        """Plaintext-domain evaluation (for testing/reference only -- the
-        Server never has access to unmasked ``xs``)."""
-        total = self.intercept
-        for a, x in zip(self.coefficients, xs):
-            total += a * x
-        return total % n
+    def evaluate(self, xs: Sequence[int]) -> int:
+        """Plaintext reference evaluation (tests only -- the server never
+        sees unmasked inputs)."""
+        return (sum(a * x for a, x in zip(self.coefficients, xs)) + self.intercept) % MODULUS
 
 
-@dataclass
 class Owner:
-    """The key-holding, offline/guarded party ([NOKEY] §III.A). Generates
-    masks, blinds values before they are sent to a `Server`, and is the
-    only party that ever unblinds a result. Never transmits ``n`` alone is
-    fine (it is public -- the curve order); nothing else in this class's
-    state should leave the Owner's boundary."""
+    """The key-holding party ([NOKEY] §III.A). Generates and consumes every
+    secret; hands the server only `MaskedValue` and `MultiplicationOpening`
+    objects."""
 
-    n: int = field(default_factory=_default_order)
-    rng: Optional[Any] = None
-    _next_triple_id: int = field(default=0, repr=False)
-    _consumed_triple_ids: Set[int] = field(default_factory=set, repr=False)
+    n = MODULUS
 
-    def blind(self, value: int) -> Tuple[MaskedValue, int]:
-        """One-time-pad-mask a scalar ([NOKEY] Construction 16 step 1 /
-        Lemma 6). Returns ``(masked_value_to_send_to_server, mask)`` --
-        retain the mask; never send it anywhere."""
-        value %= self.n
-        mask = _random_scalar(self.n, self.rng)
-        return MaskedValue((value + mask) % self.n, self.n), mask
+    def __init__(self) -> None:
+        self._inner = _core.Owner()
 
-    def unblind(self, masked: MaskedValue, mask: int) -> int:
-        """Inverse of `blind`."""
-        if masked.n != self.n:
-            raise ValueError(
-                "MaskedValue.n does not match this Owner's modulus -- it was "
-                "likely produced by a different Owner (different curve order "
-                "or a caller error), and unblinding it here would silently "
-                "produce garbage rather than fail loudly."
-            )
-        return (masked.masked - mask) % self.n
+    def __repr__(self) -> str:
+        return repr(self._inner)
+
+    def __reduce__(self) -> NoReturn:
+        raise TypeError("refusing to pickle or copy an Owner")
+
+    def blind(self, value: int) -> Tuple[MaskedValue, Mask]:
+        """One-time-pad-mask ``value`` ([NOKEY] Lemma 6). Send the
+        `MaskedValue`; keep the `Mask`."""
+        return self._inner.blind(_to_bytes(value))
+
+    def unblind(self, masked: MaskedValue, mask: Mask) -> int:
+        """Remove (and consume) ``mask``."""
+        return _to_int(self._inner.unblind(masked, mask))
 
     def prepare_triple(self) -> MultiplicationTriple:
-        """Precompute one Beaver triple ([NOKEY] Definitions 17-18) for a
-        future masked multiplication. Triples are input-independent:
-        generate a pool of these before data arrives, since each one is
-        consumed by exactly one `open_multiplication` call -- see that
-        function's docstring for why reuse is enforced, not just advised.
-        """
-        triple = MultiplicationTriple.generate(self.n, self._next_triple_id, self.rng)
-        self._next_triple_id += 1
-        return triple
+        """Precompute one Beaver triple ([NOKEY] Definitions 17-18)."""
+        return self._inner.prepare_triple()
 
 
-# ---------------------------------------------------------------------------
-# Pi_lin: non-interactive affine evaluation -- [NOKEY] Construction 16.
-# ---------------------------------------------------------------------------
+# -- Pi_lin: affine evaluation, [NOKEY] Construction 16 ---------------------
 
 
 def delegate_affine(
     owner: Owner, functional: AffineFunctional, values: Sequence[int]
-) -> Tuple[List[MaskedValue], int]:
-    """Owner's side, steps 1: blind every input value and compute the
-    public correction the Owner will subtract from the Server's answer.
-    Returns ``(masked_values_to_send_to_server, correction)`` -- send only
-    the first element to the Server."""
-    n = owner.n
-    masked_values: List[MaskedValue] = []
-    correction = 0
-    for a, x in zip(functional.coefficients, values):
-        mv, mask = owner.blind(x)
-        masked_values.append(mv)
-        correction = (correction + a * mask) % n
-    return masked_values, correction
+) -> Tuple[List[MaskedValue], Correction]:
+    """Owner, step 1: mask the inputs. Send the list; keep the correction."""
+    return owner._inner.delegate_affine(
+        list(functional.coefficients), [_to_bytes(v) for v in values]
+    )
 
 
 def evaluate_affine_masked(
     functional: AffineFunctional, masked_values: Sequence[MaskedValue]
-) -> int:
-    """Server's side, step 2 -- runs entirely on `masked_values` and the
-    public `functional`; the Server never sees an unmasked input."""
-    n = masked_values[0].n
-    total = functional.intercept
-    for a, mv in zip(functional.coefficients, masked_values):
-        total += a * mv.masked
-    return total % n
+) -> MaskedValue:
+    """Server, step 2: evaluate on masked inputs only."""
+    return _core.evaluate_affine_masked(
+        list(functional.coefficients), _to_bytes(functional.intercept), list(masked_values)
+    )
 
 
-def unblind_affine_result(owner: Owner, masked_result: int, correction: int) -> int:
-    """Owner's side, step 3: recover ``f(values)`` from the Server's
-    masked answer and the correction computed in `delegate_affine`."""
-    return (masked_result - correction) % owner.n
+def unblind_affine_result(owner: Owner, masked_result: MaskedValue, correction: Correction) -> int:
+    """Owner, step 3: recover ``f(values)`` (consumes ``correction``)."""
+    return _to_int(owner._inner.unblind_affine(masked_result, correction))
 
 
-# ---------------------------------------------------------------------------
-# Pi_mult: Beaver-triple masked multiplication -- [NOKEY] Construction 19.
-# ---------------------------------------------------------------------------
+# -- Pi_mult: Beaver-triple multiplication, [NOKEY] Construction 19 ---------
 
 
 def open_multiplication(
     owner: Owner, s: int, s_prime: int, triple: MultiplicationTriple
 ) -> MultiplicationOpening:
-    """Owner's side, step 1: blind the two secret operands by a fresh
-    triple's factors.
-
-    Each triple must be used for exactly one multiplication -- this is not
-    a stylistic preference. Reusing ``(u, v)`` across two products lets a
-    Server that observes both openings ``(e1, g1)`` and ``(e2, g2)``
-    recover ``s1 - s2 = e1 - e2`` and ``s1' - s2' = g1 - g2`` outright,
-    breaking exactly the independence [NOKEY]'s Theorem 28 depends on
-    (its proof requires a *fresh* uniform ``(u, v)``, drawn once). This
-    function enforces the requirement rather than merely documenting it:
-    every `MultiplicationTriple` carries the id `Owner.prepare_triple`
-    assigned it, and a second call with the same triple raises.
-    """
-    if triple.n != owner.n:
-        raise ValueError("MultiplicationTriple.n does not match this Owner's modulus")
-    if triple.id in owner._consumed_triple_ids:
-        raise ValueError(
-            "this MultiplicationTriple has already been consumed by a "
-            "previous open_multiplication() call -- reusing a Beaver "
-            "triple across two products breaks the secrecy proof (see "
-            "this function's docstring); call Owner.prepare_triple() to "
-            "get a fresh one for each multiplication."
-        )
-    owner._consumed_triple_ids.add(triple.id)
-    n = owner.n
-    e = (s - triple.u) % n
-    g = (s_prime - triple.v) % n
-    return MultiplicationOpening(e, g, n)
+    """Owner, step 1: blind both operands by the triple. A triple can be
+    opened once; a second opening raises (it would reveal ``s1 - s2``)."""
+    return owner._inner.open_multiplication(_to_bytes(s), _to_bytes(s_prime), triple)
 
 
 def combine_multiplication(opening: MultiplicationOpening) -> int:
-    """Server's side, step 2: the one nonlinear term the Server is allowed
-    to compute, ``e * g`` -- a product of two quantities it can see."""
-    return (opening.e * opening.g) % opening.n
+    """Server, step 2: ``e * g`` -- the one product the server may compute."""
+    return _to_int(_core.combine_multiplication(opening))
 
 
 def reconstruct_multiplication(
-    triple: MultiplicationTriple, opening: MultiplicationOpening, eg: int
+    owner: Owner, triple: MultiplicationTriple, opening: MultiplicationOpening, eg: int
 ) -> int:
-    """Owner's side, step 3 / [NOKEY] eq. (6): reconstruct ``s * s' mod n``
-    from the triple (known only to the Owner) and the Server's returned
-    ``e*g``. See that paper's Theorem 24 for the algebraic identity this
-    implements: ``s*s' = w + e*v + g*u + e*g (mod n)``."""
-    n = triple.n
-    return (triple.w + opening.e * triple.v + opening.g * triple.u + eg) % n
+    """Owner, step 3 / [NOKEY] eq. (6): ``s*s' = w + e*v + g*u + e*g``
+    (consumes ``triple``)."""
+    return _to_int(owner._inner.reconstruct_multiplication(triple, opening, _to_bytes(eg)))
 
 
-# ---------------------------------------------------------------------------
-# Pi_boot: blinded bootstrapping -- [NOKEY] Construction 20.
-# ---------------------------------------------------------------------------
+# -- Pi_boot: blinded bootstrapping, [NOKEY] Construction 20 ----------------
 
 
 def blinded_bootstrap(
     owner: Owner,
     masked_x: MaskedValue,
-    mask: int,
+    mask: Mask,
     refresh: Callable[[int], int] = lambda x: x,
-) -> Tuple[MaskedValue, int]:
-    """Refresh a Server-held masked value's randomness. The Server sends
-    its masked value back; the *Owner* -- never the Server -- removes the
-    mask, applies ``refresh`` (identity by default; a caller with an
-    actual noise-accumulating encoding, e.g. real-valued approximation
-    error, would pass a function that re-derives a fresh, low-error
-    representation of the same value), and returns a newly masked value
-    plus its new mask. This is [NOKEY] Construction 20, and it is why
-    `blinded_bootstrap` -- unlike `tokenis.crypto.ec_fhe.bootstrap` --
-    genuinely can be invoked by or on behalf of an untrusted party without
-    that party learning the plaintext: the Server only ever sees masked
-    values before *and* after, never the value `refresh` operates on.
-    """
-    x = owner.unblind(masked_x, mask)
-    refreshed = refresh(x) % owner.n
-    return owner.blind(refreshed)
+) -> Tuple[MaskedValue, Mask]:
+    """The owner (never the server) unmasks, applies ``refresh``, and
+    re-masks with a fresh pad; the server sees only masked values before
+    and after. Consumes ``mask``."""
+    return owner.blind(refresh(owner.unblind(masked_x, mask)))

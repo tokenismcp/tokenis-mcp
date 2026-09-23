@@ -1,130 +1,100 @@
 # Changelog
 
 All notable changes to this project are documented here. Format loosely
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this
-project has not yet made a tagged release, so everything so far is under
-`[Unreleased]`.
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). No tagged
+release yet: everything below is `[Unreleased]` and describes the current
+state; "History" records how the crypto layer got here.
 
 ## [Unreleased]
 
-### Security
-- Elliptic-curve arithmetic moved from the pure-Python `ecdsa` package to
-  libsecp256k1 (via `coincurve`). `pip-audit` flags `ecdsa` 0.19.2 for
-  PYSEC-2026-1325, a Minerva timing attack affecting key generation and
-  ECDH-style scalar multiplication — exactly the operations `ec_fhe` used
-  it for (`sk*G`, `sk*c1`) — which its maintainers consider out of scope
-  and will not fix. Same curve (secp256k1), same public API.
-- Decryption no longer returns at the first baby-step-giant-step match,
-  which made its running time depend on the plaintext's magnitude; it
-  now always walks the full search.
-- Points parsed from bytes are validated to lie on secp256k1.
-- `PrivateKey` is redacted from `repr` and refuses pickling/copying;
-  `Decryptor` likewise; Beaver-triple factors are redacted from `repr`.
-- A caller-supplied non-cryptographic `rng` now raises
-  `InsecureRandomnessWarning` (`tokenis/crypto/randomness.py`) instead of
-  being accepted silently for keys, encryption randomness and masks.
-- `encrypt`/`scalar_mul` reject floats instead of silently truncating.
-- An `assert` guarding the admission policy in `tokenis/gateway/service.py`
-  replaced with an explicit check (asserts vanish under `python -O`).
-- CI: flake8-bandit (`S`) rules on the SDK, a weekly-scheduled `pip-audit`
-  job, and Dependabot for pip and GitHub Actions.
-- `tokenis/crypto/no_key_delegation.py`'s `open_multiplication` now
-  enforces that each `MultiplicationTriple` is consumed by at most one
-  multiplication, raising instead of silently succeeding on reuse. Reusing
-  a Beaver triple across two products lets an observing party recover the
-  difference between the two calls' secret operands (`s1-s2`, `s1'-s2'`
-  from the two openings), which breaks the independence the module's
-  secrecy proof (its cited paper's Theorem 28) depends on -- previously
-  documented as a caller obligation, now a checked invariant.
-- `Owner.unblind` and `open_multiplication` now reject a `MaskedValue` /
-  `MultiplicationTriple` whose modulus doesn't match the `Owner`'s,
-  instead of silently computing a wrong result under a mismatched key or
-  curve.
-
 ### Added
-- The J1729Labs paper series (P2 Disclosure Boundaries, P3 Leakage
-  Quantification, P4 Admission Control) with per-paper navigation pages.
-- `research/p3_leakage/`: corpus generator, three leakage attacks, D1-D5
-  defense frontiers, and the four-component disclosure budget from P3,
+- **Rust cryptographic core** (`crates/tokenis-core`): EC-ElGamal over
+  secp256k1 (RustCrypto `k256`, audited by NCC Group in 2023) and the
+  no-key delegation protocol. It is the only implementation of any
+  cryptographic operation in the repository. `unsafe` is forbidden and
+  `unwrap`/`expect`/`panic`/slice indexing are denied, so malformed input
+  from a binding returns an error instead of aborting the host process.
+  Unit and property tests, including arbitrary-bytes fuzzing of every
+  parser.
+- **Python SDK** (`tokenis/`) over the core via PyO3 (`crates/tokenis-py`,
+  `tokenis._core`, abi3 — one build per platform serves CPython 3.9+), built
+  with maturin. Also: the gateway (ciphertext compute, D1-D5 admission
+  control, gated/audited Reveal, hash-chained disclosure trace, W6 latency
+  quantization), a scope-confined tokenizer, and an MCP server exposing all
+  seven tools in `tokenis/spec/tool-surface.md`.
+- **TypeScript SDK** (`sdk/typescript`, `@tokenis/crypto`) over the same
+  core compiled to WebAssembly (`crates/tokenis-wasm`), for Node 20+.
+- `tokenis/crypto/no_key_delegation.py` / `Owner` in both SDKs: an
+  interactive protocol (one-time-pad masking + Beaver triples) that lets an
+  untrusted server evaluate affine functions and products while provably
+  learning nothing about the plaintext, from "No-Key Delegation of
+  Elliptic-Curve Fully Homomorphic Encryption" (J1729 Labs, 2026).
+- Versioned, validated wire formats for ciphertexts, public keys, masked
+  values and multiplication openings, identical across Rust, Python and
+  TypeScript; `tests/test_interop.py` has Python and TypeScript exchange
+  real keys, ciphertexts and masked values (TypeScript acting as the
+  untrusted delegation server for a Python owner).
+- `tokenis/conformance/`: all six well-formedness conditions (W1-W6, P2
+  Definition 17) tested against the SDK.
+- The J1729Labs paper series (P2, P3, P4) with per-paper navigation pages;
+  `research/p3_leakage/` and `research/p4_admission/` reproduction code,
   each with a `verify_claims.py` that checks determinism and internal
-  consistency rather than claiming to reproduce the paper's literal
-  published percentages (see that directory's README for why).
-- `research/p4_admission/`: the D1-D5 admission-control ladder, an exact
-  GF(2^31-1) RREF auditor, eight evaluation attacks, and the containment
-  bounds from P4, with the same verify_claims.py pattern.
-- `tokenis/`: the reference SDK — an EC-FHE-based additively homomorphic
-  compute engine, a scope-confined tokenizer, the D1-D5 admission engine
-  (adopted from `research/p4_admission`), a gated/audited Reveal
-  operation with a hash-chained disclosure trace, and an MCP server
-  exposing all seven tools from `tokenis/spec/tool-surface.md`.
-- `tokenis/conformance/`: a pytest suite checking all six well-formedness
-  conditions (W1-W6, P2 Definition 17) against the reference SDK.
-- `tokenis/gateway/latency.py`: response-latency quantization (W6) so an
-  admission denial and a permitted call are observationally identical in
-  timing.
-- `reports/SUMMARY.md`: excerpted findings from the R1 (utility) and R2
-  (performance) technical reports, with customer-identifying and
-  not-yet-measured confidential figures excluded per those reports' own
-  classification markings.
-- `examples/quickstart.py`: an in-process, seven-tool tour of the SDK.
-- `tokenis/crypto/no_key_delegation.py`: an interactive delegation
-  protocol (one-time-pad masking of `tokenis.crypto.ec_fhe`'s
-  plaintext-domain group elements, plus Beaver-triple masked
-  multiplication and blinded bootstrapping) letting an untrusted party
-  evaluate affine functions and products while provably learning nothing
-  about the plaintext, including against a quantum adversary that fully
-  compromises it — see that module's docstring for what this does and
-  does not provide, and for why (unlike the three papers `ec_fhe.py`
-  documents problems in) its source paper is sound: it avoids the broken
-  Weil-pairing multiplication entirely, and never lets an untrusted party
-  bootstrap without the key.
-- Standard OSS project files: `SECURITY.md`, `CONTRIBUTING.md`,
-  `CODE_OF_CONDUCT.md`, this changelog, and a two-track CI workflow
-  (Python 3.9+ for the core/research code, 3.10+ for the MCP server).
-- Versioned byte serialization for `Ciphertext` and `PublicKey`
-  (`to_bytes`/`from_bytes`), validated on parse.
-- `tests/test_crypto_security.py` (one test per claimed security property)
-  and `tests/test_properties.py` (hypothesis property-based tests of the
-  homomorphic and delegation identities).
-- `tokenis/py.typed` (PEP 561): ships this package's inline type
-  annotations to consumers' own type checkers instead of the package
-  silently being treated as untyped by anything that imports it.
+  consistency (not the papers' literal published percentages — see their
+  READMEs).
+- `reports/SUMMARY.md` (excerpts of R1/R2, excluding confidential and
+  customer-identifying content), `examples/quickstart.py`.
+- Release workflow: wheels for Linux (glibc x86_64/aarch64, musl), macOS
+  (arm64, x86_64) and Windows, an sdist, and the npm tarball on each
+  version tag; PyPI trusted publishing and npm publishing with build
+  provenance, gated behind the `PUBLISH` repository variable.
+- Project files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+  issue/PR templates, `py.typed` + `_core.pyi` (PEP 561).
 
-### Changed
-- The crypto backend went through two revisions before settling on its
-  current form, `tokenis/crypto/ec_fhe.py`:
-  1. A hand-rolled additive-ElGamal construction over raw elliptic-curve
-     point arithmetic (the original).
-  2. A brief replacement with `tokenis/crypto/paillier.py`, built on `phe`
-     (python-paillier) — a well-established non-EC scheme, chosen at the
-     time to get unbounded/direct decryption and offload the arithmetic to
-     a purpose-built library instead of this repository's own point-adding
-     code. This was reverted after the maintainer pointed out it silently
-     abandoned the EC-based architecture the paper series specifies,
-     without that tradeoff being discussed first.
-  3. `tokenis/crypto/ec_fhe.py`, the current module: EC-based again, and
-     built to match a set of "EC-FHE" / "elliptic rational number" source
-     papers as literally as possible. Those papers have three specific,
-     documented problems (a core "isomorphism" function that cancels to a
-     no-op in every formula that uses it, a ciphertext-times-ciphertext
-     multiplicative-homomorphism construction that doesn't type-check, and
-     a "bootstrap" operation that requires the private key and so isn't
-     usable by an untrusted evaluator) — see that module's docstring for
-     the full explanation. The scheme's actual capability is the same
-     class as both predecessors: additive homomorphism only.
-- `pyproject.toml`'s license metadata moved from the deprecated
-  `license = {text = "Apache-2.0"}` table plus a `License ::` trove
-  classifier to the SPDX license expression form (`license =
-  "Apache-2.0"`, PEP 639) that current `setuptools`/`build` expect;
-  the old form emitted a deprecation warning on every build.
+### Security
+- Private keys, one-time masks, affine corrections and Beaver triples live
+  only in Rust memory that is zeroed on drop; Python and JavaScript hold
+  opaque handles that are redacted from `repr`/`toString` and (in Python)
+  refuse pickling and copying. Key export is one explicit, named call.
+- Masks, corrections and triples are consumed by the operation that uses
+  them and bound to the owner that created them; reuse (which would reveal
+  `s1 - s2` to the server) or cross-owner use raises.
+- Randomness is drawn inside Rust from the OS CSPRNG (or
+  `crypto.getRandomValues` under WebAssembly); no API accepts a caller RNG.
+- Every point parsed from bytes must be a canonical compressed encoding on
+  secp256k1.
+- Decryption walks its whole baby-step-giant-step search whatever the
+  plaintext (pinned by a Rust test), and releases the Python GIL.
+- An `assert` guarding the admission policy in `tokenis/gateway/service.py`
+  became an explicit check (asserts vanish under `python -O`).
+- CI: `cargo fmt`/`clippy -D warnings`, `ruff` (incl. flake8-bandit),
+  `mypy`, strict `tsc`, and `cargo audit` + `pip-audit` + `npm audit` on
+  every push and weekly; Dependabot for Cargo, pip, npm and Actions.
 
 ### Fixed
-- A Python 3.11+ `dataclasses` incompatibility in the (now-removed)
-  EC-ElGamal module: `field(default=...)` with an unhashable default
-  raised `ValueError` on Python 3.12 while silently working on 3.9.
-- A baby-step-giant-step sign-handling bug in the same (now-removed)
-  module that made negative-plaintext decryption fail.
-- An admission-control gap where `disclose_ratio`/`disclose_bucket`'s
-  underlying aggregate sums had no minimum-query-set-size check at all —
-  an authorized Reveal purpose was, before this fix, sufficient by itself
-  to read out an aggregate over an arbitrarily small group.
+- k256 0.13's batch point normalisation panics when a point equal to the
+  identity was produced by arithmetic (an unnormalised zero `z`); decrypting
+  a zero plaintext hit it. The core swaps identities for the generator
+  branch-free before normalising.
+- WebAssembly bindings originally took some handles by value, which
+  silently invalidated the caller's JavaScript object (e.g. the public key
+  passed to `Ciphertext.fromBytes`); they now borrow or take bytes, with a
+  regression test.
+- `disclose_ratio`/`disclose_bucket` had no minimum-query-set-size check on
+  their underlying sums: an authorised Reveal purpose alone could read an
+  aggregate over an arbitrarily small group.
+
+### History (crypto layer)
+1. Hand-rolled additive ElGamal over pure-Python point arithmetic (`ecdsa`).
+2. Briefly Paillier (`phe`) — reverted: it abandoned the EC architecture
+   the paper series specifies without that being discussed.
+3. EC-ElGamal matching the "EC-FHE" / "elliptic rational number" source
+   papers as literally as possible. `tokenis/crypto/ec_fhe.py` documents
+   the papers' three problems (a core map that cancels to a no-op, a
+   multiplication construction that doesn't type-check, a "bootstrap" that
+   needs the private key); capability is additive homomorphism only.
+4. Curve arithmetic moved to libsecp256k1 (`coincurve`) after `pip-audit`
+   flagged `ecdsa` 0.19.2 (PYSEC-2026-1325: Minerva timing attack on key
+   generation and ECDH-style scalar multiplication, which its maintainers
+   will not fix).
+5. Everything moved into the Rust core, adding memory zeroisation,
+   consumable one-time values, and a TypeScript SDK on the same code.

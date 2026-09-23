@@ -6,6 +6,8 @@ This repository contains:
 
 - **A reference SDK** (`tokenis/`) demonstrating the disclosure-boundary
   architecture described in the [J1729Labs paper series](papers/). Its
+  cryptography is a Rust core (`crates/tokenis-core`) with Python
+  (`tokenis/crypto`) and TypeScript (`sdk/typescript`) bindings; the Python
   crypto module (`tokenis/crypto/ec_fhe.py`) is explicitly documented as
   a reference integration, not an independently audited implementation —
   see that module's docstring for exactly what that does and doesn't mean.
@@ -41,13 +43,16 @@ you for reporting responsibly rather than disclosing publicly first.
 - Logic errors in `tokenis/gateway/reveal.py` or `tokenis/audit/trace.py`
   that let a value cross the disclosure boundary without being logged, or
   let a logged entry be altered without `verify_chain()` detecting it.
-- Bugs in `tokenis/crypto/ec_fhe.py` or `tokenis/crypto/no_key_delegation.py`
-  (not in libsecp256k1/`coincurve` themselves — report those upstream) that
-  break the stated `Dec(Enc(x) (+) Enc(y)) = x + y` property, leak key
-  material or masks, accept a point that is not on secp256k1, or make
-  decryption work depend on the plaintext value. Each of those properties
-  has a pinning test in `tests/test_crypto_security.py`; a report that one
-  of them doesn't hold in practice despite the test is exactly what we
+- Bugs in `crates/tokenis-core`, its Python or WebAssembly bindings, or
+  `tokenis/crypto/` (not in `k256`/RustCrypto themselves — report those
+  upstream) that break the stated `Dec(Enc(x) (+) Enc(y)) = x + y`
+  property, leak key material or masks, accept a point that is not on
+  secp256k1, make decryption work depend on the plaintext, let a one-time
+  mask or Beaver triple be used twice, or let any input from Python or
+  JavaScript make the core panic or abort. Each of those properties has a
+  pinning test (Rust unit tests in `crates/tokenis-core/src/`,
+  `tests/test_crypto_security.py`, `sdk/typescript/test/`); a report that
+  one of them doesn't hold in practice despite the test is exactly what we
   want to hear about.
 - Any `tokenis/mcp_server` code path that lets a tool argument reach a
   place principal/subject identity should have gated it instead (see the

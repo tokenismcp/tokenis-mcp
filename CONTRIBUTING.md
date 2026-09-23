@@ -30,34 +30,50 @@ a PR — it saves everyone rework.
 
 ## Development setup
 
+Prerequisites: a Rust toolchain ([rustup.rs](https://rustup.rs)), Python
+3.9+ (3.10+ for the MCP server), and — for the TypeScript SDK — Node 20+ and
+[wasm-pack](https://rustwasm.github.io/wasm-pack/).
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,research,server]"   # drop `server` if you're on Python <3.10
+pip install -e ".[dev,research,server]"   # compiles crates/tokenis-core; drop `server` on Python <3.10
+maturin develop --release                 # rebuild the extension after changing Rust code
 ```
 
-Python 3.9+ is required for the core SDK and research code; the MCP
-server (`tokenis/mcp_server`) needs Python 3.10+ (the `mcp` package's own
-floor).
+All cryptography lives in `crates/tokenis-core`. A change to a
+cryptographic operation belongs there (with a Rust test), then gets exposed
+through `crates/tokenis-py` and `crates/tokenis-wasm` — never
+reimplemented in Python or TypeScript.
 
 ## Before opening a PR
 
 ```bash
-ruff check .                                            # lint
+# Rust
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p tokenis-core --release
+
+# Python
+ruff check . && mypy tokenis --ignore-missing-imports
 pytest                                                    # everything the current interpreter can run
 python research/p3_leakage/verify_claims.py               # ~1 minute on the default CI-sized profile
 python research/p4_admission/verify_claims.py              # well under a second
 python examples/quickstart.py                              # needs the `server` extra (Python >=3.10)
+
+# TypeScript (and the Python<->TypeScript interop test, which needs this build)
+(cd sdk/typescript && npm ci && npm run build:wasm && npm run typecheck && npm run build && npm test)
+pytest tests/test_interop.py
 ```
 
-CI runs the same checks across Python 3.9/3.11/3.13 (core) and
-3.10/3.12/3.13 (MCP server) — see `.github/workflows/ci.yml`.
+CI runs all of this, plus `cargo audit`, `pip-audit` and `npm audit` — see
+`.github/workflows/ci.yml`.
 
 ## Commit messages
 
 Explain *why*, not just *what* — this repository's own commit history is
 written that way on purpose (`git log --oneline` gives a good sense of the
 expected level of detail for anything touching security-relevant logic).
-A one-line "fix bug" for a change to `admission.py` or `ec_fhe.py` isn't
+A one-line "fix bug" for a change to `admission.py` or `crates/tokenis-core` isn't
 enough; say what the bug was and how you verified the fix.
 
 ## Scope of changes we're likely to accept

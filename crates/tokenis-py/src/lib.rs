@@ -1,0 +1,490 @@
+// Copyright 2026 4Chains Inc.
+// SPDX-License-Identifier: Apache-2.0
+//! `tokenis._core`: Python bindings for `tokenis-core`.
+//!
+//! Secret material (private keys, masks, corrections, Beaver triples) stays
+//! in Rust memory that is zeroed on drop; Python only ever holds opaque
+//! handles. None of these handles can be pickled or copied. Consumable
+//! handles (masks, corrections, triples) are emptied by the operation that
+//! uses them, so a second use raises instead of silently reusing a pad.
+
+use pyo3::create_exception;
+use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use tokenis_core::delegation as dl;
+use tokenis_core::elgamal as eg;
+
+create_exception!(
+    _core,
+    TokenisCryptoError,
+    PyValueError,
+    "A tokenis cryptographic operation failed (invalid input, key mismatch, reuse of a one-time value, ...)."
+);
+
+fn err(e: tokenis_core::Error) -> PyErr {
+    TokenisCryptoError::new_err(e.to_string())
+}
+
+fn consumed(what: &str) -> PyErr {
+    TokenisCryptoError::new_err(format!(
+        "this {what} has already been used; one-time values cannot be reused"
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// EC-ElGamal
+// ---------------------------------------------------------------------------
+
+/// A secp256k1 private key held in Rust memory (zeroed on drop).
+#[pyclass(module = "tokenis._core", frozen)]
+struct PrivateKey(eg::PrivateKey);
+
+#[pymethods]
+impl PrivateKey {
+    /// Generate a key from the operating system's CSPRNG.
+    #[staticmethod]
+    fn generate() -> Self {
+        Self(eg::PrivateKey::generate())
+    }
+
+    /// Import a 32-byte big-endian scalar in [1, n).
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        eg::PrivateKey::from_bytes(data).map(Self).map_err(err)
+    }
+
+    /// Export the 32-byte secret scalar. Use sparingly: the returned `bytes`
+    /// object is ordinary Python memory and cannot be zeroed.
+    fn export_secret_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, self.0.export_secret_bytes().as_ref())
+    }
+
+    fn public_key(&self) -> PublicKey {
+        PublicKey(self.0.public_key())
+    }
+
+    fn __repr__(&self) -> &'static str {
+        "PrivateKey(<redacted>)"
+    }
+
+    fn __reduce__(&self) -> PyResult<()> {
+        Err(PyTypeError::new_err(
+            "refusing to pickle or copy a PrivateKey",
+        ))
+    }
+}
+
+/// A secp256k1 public key (33-byte SEC1 compressed).
+#[pyclass(module = "tokenis._core", frozen, eq, hash, from_py_object)]
+#[derive(Clone, PartialEq, Eq)]
+struct PublicKey(eg::PublicKey);
+
+impl core::hash::Hash for PublicKey {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bytes().hash(state);
+    }
+}
+
+#[pymethods]
+impl PublicKey {
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        eg::PublicKey::from_bytes(data).map(Self).map_err(err)
+    }
+
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.to_bytes())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+}
+
+/// An EC-ElGamal ciphertext.
+#[pyclass(module = "tokenis._core", frozen, eq, from_py_object)]
+#[derive(Clone, PartialEq)]
+struct Ciphertext(eg::Ciphertext);
+
+#[pymethods]
+impl Ciphertext {
+    /// Parse and validate the versioned wire format; pass `public` to tag the
+    /// result with its key so key mismatches are caught.
+    #[staticmethod]
+    #[pyo3(signature = (data, public=None))]
+    fn from_bytes(data: &[u8], public: Option<&PublicKey>) -> PyResult<Self> {
+        eg::Ciphertext::from_bytes(data, public.map(|p| &p.0))
+            .map(Self)
+            .map_err(err)
+    }
+
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.to_bytes())
+    }
+
+    #[getter]
+    fn c1<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.components().0)
+    }
+
+    #[getter]
+    fn c2<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.components().1)
+    }
+
+    /// The public key this ciphertext is tagged with, if any.
+    #[getter]
+    fn public(&self) -> PyResult<Option<PublicKey>> {
+        self.0
+            .public_key_bytes()
+            .map(|b| eg::PublicKey::from_bytes(&b).map(PublicKey).map_err(err))
+            .transpose()
+    }
+
+    fn __add__(&self, other: &Ciphertext) -> PyResult<Self> {
+        eg::add(&self.0, &other.0).map(Self).map_err(err)
+    }
+
+    fn __sub__(&self, other: &Ciphertext) -> PyResult<Self> {
+        eg::sub(&self.0, &other.0).map(Self).map_err(err)
+    }
+
+    fn __neg__(&self) -> Self {
+        Self(eg::neg(&self.0))
+    }
+
+    fn __mul__(&self, k: i64) -> Self {
+        Self(eg::scalar_mul(&self.0, k))
+    }
+
+    fn __rmul__(&self, k: i64) -> Self {
+        Self(eg::scalar_mul(&self.0, k))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Ciphertext({} bytes)", self.0.to_bytes().len())
+    }
+}
+
+/// Decrypts ciphertexts with plaintexts in [-max_value, max_value]. Holds a
+/// copy of the private key in Rust memory.
+#[pyclass(module = "tokenis._core", frozen)]
+struct Decryptor(eg::Decryptor);
+
+#[pymethods]
+impl Decryptor {
+    #[new]
+    #[pyo3(signature = (sk, max_value=eg::DEFAULT_MAX_VALUE))]
+    fn new(py: Python<'_>, sk: &PrivateKey, max_value: u64) -> PyResult<Self> {
+        let key = sk.0.clone();
+        py.detach(move || eg::Decryptor::new(&key, max_value))
+            .map(Self)
+            .map_err(err)
+    }
+
+    fn decrypt(&self, py: Python<'_>, ct: &Ciphertext) -> PyResult<i64> {
+        let ct = ct.0.clone();
+        py.detach(|| self.0.decrypt(&ct)).map_err(err)
+    }
+
+    /// Re-encrypt under this key with fresh randomness (key holder only).
+    fn refresh(&self, py: Python<'_>, ct: &Ciphertext) -> PyResult<Ciphertext> {
+        let ct = ct.0.clone();
+        py.detach(|| self.0.refresh(&ct))
+            .map(Ciphertext)
+            .map_err(err)
+    }
+
+    #[getter]
+    fn max_value(&self) -> u64 {
+        self.0.max_value()
+    }
+
+    fn public_key(&self) -> PublicKey {
+        PublicKey(self.0.public_key().clone())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __reduce__(&self) -> PyResult<()> {
+        Err(PyTypeError::new_err(
+            "refusing to pickle or copy a Decryptor",
+        ))
+    }
+}
+
+#[pyfunction]
+fn encrypt(pk: &PublicKey, m: i64) -> Ciphertext {
+    Ciphertext(eg::encrypt(&pk.0, m))
+}
+
+#[pyfunction]
+fn base_point_multiple<'py>(py: Python<'py>, k: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+    eg::base_point_multiple(k)
+        .map(|b| PyBytes::new(py, &b))
+        .map_err(err)
+}
+
+#[pyfunction]
+fn fixed_point_encode(x: f64, precision: u32) -> PyResult<i64> {
+    eg::fixed_point_encode(x, precision).map_err(err)
+}
+
+// ---------------------------------------------------------------------------
+// No-key delegation
+// ---------------------------------------------------------------------------
+
+/// A one-time pad (opaque; consumed by `Owner.unblind`/`Owner.refresh`).
+#[pyclass(module = "tokenis._core")]
+struct Mask(Option<dl::Mask>);
+
+/// The affine correction term (opaque; consumed by `Owner.unblind_affine`).
+#[pyclass(module = "tokenis._core")]
+struct Correction(Option<dl::Correction>);
+
+/// A Beaver triple (opaque; consumed by `Owner.reconstruct_multiplication`).
+#[pyclass(module = "tokenis._core")]
+struct MultiplicationTriple(Option<dl::MultiplicationTriple>);
+
+macro_rules! opaque_repr {
+    ($ty:ident, $name:literal) => {
+        #[pymethods]
+        impl $ty {
+            fn __repr__(&self) -> String {
+                let state = if self.0.is_some() {
+                    "unused"
+                } else {
+                    "consumed"
+                };
+                format!("{}(<redacted>, {state})", $name)
+            }
+            fn __reduce__(&self) -> PyResult<()> {
+                Err(PyTypeError::new_err(concat!(
+                    "refusing to pickle or copy a ",
+                    $name
+                )))
+            }
+            #[getter]
+            fn consumed(&self) -> bool {
+                self.0.is_none()
+            }
+        }
+    };
+}
+opaque_repr!(Mask, "Mask");
+opaque_repr!(Correction, "Correction");
+opaque_repr!(MultiplicationTriple, "MultiplicationTriple");
+
+/// A masked value: uniform, safe to hand to an untrusted server.
+#[pyclass(module = "tokenis._core", frozen, eq, from_py_object)]
+#[derive(Clone, PartialEq)]
+struct MaskedValue(dl::MaskedValue);
+
+#[pymethods]
+impl MaskedValue {
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        dl::MaskedValue::from_bytes(data).map(Self).map_err(err)
+    }
+
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.to_bytes())
+    }
+
+    fn __repr__(&self) -> &'static str {
+        "MaskedValue(<32 bytes>)"
+    }
+}
+
+/// The (e, g) opening a server sees in one masked multiplication.
+#[pyclass(module = "tokenis._core", frozen, eq, from_py_object)]
+#[derive(Clone, PartialEq)]
+struct MultiplicationOpening(dl::MultiplicationOpening);
+
+#[pymethods]
+impl MultiplicationOpening {
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        dl::MultiplicationOpening::from_bytes(data)
+            .map(Self)
+            .map_err(err)
+    }
+
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.0.to_bytes())
+    }
+}
+
+fn scalar(data: &[u8]) -> PyResult<dl::Scalar> {
+    dl::value_from_bytes(data).map_err(err)
+}
+
+/// The key-holding party of the no-key delegation protocol. Values cross
+/// this API as 32-byte big-endian encodings of integers mod n.
+#[pyclass(module = "tokenis._core")]
+struct Owner(dl::Owner);
+
+#[pymethods]
+impl Owner {
+    #[new]
+    fn new() -> Self {
+        Self(dl::Owner::new())
+    }
+
+    fn blind(&self, value: &[u8]) -> PyResult<(MaskedValue, Mask)> {
+        let (m, mask) = self.0.blind(&scalar(value)?);
+        Ok((MaskedValue(m), Mask(Some(mask))))
+    }
+
+    fn unblind<'py>(
+        &self,
+        py: Python<'py>,
+        masked: &MaskedValue,
+        mut mask: PyRefMut<'_, Mask>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let mask = mask.0.take().ok_or_else(|| consumed("Mask"))?;
+        let value = self.0.unblind(&masked.0, mask).map_err(err)?;
+        Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
+    }
+
+    fn delegate_affine(
+        &self,
+        coefficients: Vec<i64>,
+        values: Vec<Vec<u8>>,
+    ) -> PyResult<(Vec<MaskedValue>, Correction)> {
+        let values = values
+            .iter()
+            .map(|v| scalar(v))
+            .collect::<PyResult<Vec<_>>>()?;
+        let (masked, correction) = self
+            .0
+            .delegate_affine(&coefficients, &values)
+            .map_err(err)?;
+        Ok((
+            masked.into_iter().map(MaskedValue).collect(),
+            Correction(Some(correction)),
+        ))
+    }
+
+    fn unblind_affine<'py>(
+        &self,
+        py: Python<'py>,
+        result: &MaskedValue,
+        mut correction: PyRefMut<'_, Correction>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let correction = correction.0.take().ok_or_else(|| consumed("Correction"))?;
+        let value = self.0.unblind_affine(&result.0, correction).map_err(err)?;
+        Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
+    }
+
+    fn prepare_triple(&mut self) -> MultiplicationTriple {
+        MultiplicationTriple(Some(self.0.prepare_triple()))
+    }
+
+    fn open_multiplication(
+        &mut self,
+        s: &[u8],
+        t: &[u8],
+        triple: PyRef<'_, MultiplicationTriple>,
+    ) -> PyResult<MultiplicationOpening> {
+        let triple = triple
+            .0
+            .as_ref()
+            .ok_or_else(|| consumed("MultiplicationTriple"))?;
+        self.0
+            .open_multiplication(&scalar(s)?, &scalar(t)?, triple)
+            .map(MultiplicationOpening)
+            .map_err(err)
+    }
+
+    fn reconstruct_multiplication<'py>(
+        &self,
+        py: Python<'py>,
+        mut triple: PyRefMut<'_, MultiplicationTriple>,
+        opening: &MultiplicationOpening,
+        eg_value: &[u8],
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let eg_scalar = scalar(eg_value)?;
+        let triple = triple
+            .0
+            .take()
+            .ok_or_else(|| consumed("MultiplicationTriple"))?;
+        let value = self
+            .0
+            .reconstruct_multiplication(triple, &opening.0, &eg_scalar)
+            .map_err(err)?;
+        Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
+    }
+
+    /// Blinded bootstrap: unmask, replace the value with `new_value`
+    /// (computed by the caller from the unmasked value it already holds), and
+    /// re-mask with a fresh pad. Consumes `mask`.
+    fn refresh(
+        &self,
+        masked: &MaskedValue,
+        mut mask: PyRefMut<'_, Mask>,
+    ) -> PyResult<(MaskedValue, Mask)> {
+        let mask = mask.0.take().ok_or_else(|| consumed("Mask"))?;
+        let (m, fresh) = self.0.refresh(&masked.0, mask, |x| x).map_err(err)?;
+        Ok((MaskedValue(m), Mask(Some(fresh))))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __reduce__(&self) -> PyResult<()> {
+        Err(PyTypeError::new_err("refusing to pickle or copy an Owner"))
+    }
+}
+
+#[pyfunction]
+fn evaluate_affine_masked(
+    coefficients: Vec<i64>,
+    intercept: &[u8],
+    masked: Vec<MaskedValue>,
+) -> PyResult<MaskedValue> {
+    let masked: Vec<dl::MaskedValue> = masked.into_iter().map(|m| m.0).collect();
+    dl::evaluate_affine_masked(&coefficients, &scalar(intercept)?, &masked)
+        .map(MaskedValue)
+        .map_err(err)
+}
+
+#[pyfunction]
+fn combine_multiplication<'py>(
+    py: Python<'py>,
+    opening: &MultiplicationOpening,
+) -> Bound<'py, PyBytes> {
+    let v = dl::combine_multiplication(&opening.0);
+    PyBytes::new(py, &dl::value_to_bytes(&v))
+}
+
+#[pymodule]
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add(
+        "TokenisCryptoError",
+        m.py().get_type::<TokenisCryptoError>(),
+    )?;
+    m.add("DEFAULT_MAX_VALUE", eg::DEFAULT_MAX_VALUE)?;
+    m.add("MAX_SUPPORTED_RANGE", eg::MAX_SUPPORTED_RANGE)?;
+    m.add("CIPHERTEXT_VERSION", eg::CIPHERTEXT_VERSION)?;
+    m.add_class::<PrivateKey>()?;
+    m.add_class::<PublicKey>()?;
+    m.add_class::<Ciphertext>()?;
+    m.add_class::<Decryptor>()?;
+    m.add_class::<Mask>()?;
+    m.add_class::<Correction>()?;
+    m.add_class::<MultiplicationTriple>()?;
+    m.add_class::<MaskedValue>()?;
+    m.add_class::<MultiplicationOpening>()?;
+    m.add_class::<Owner>()?;
+    m.add_function(wrap_pyfunction!(encrypt, m)?)?;
+    m.add_function(wrap_pyfunction!(fixed_point_encode, m)?)?;
+    m.add_function(wrap_pyfunction!(base_point_multiple, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate_affine_masked, m)?)?;
+    m.add_function(wrap_pyfunction!(combine_multiplication, m)?)?;
+    Ok(())
+}

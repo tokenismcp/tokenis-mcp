@@ -19,6 +19,7 @@ from tokenis.crypto.ec_fhe import (
     subtract,
 )
 from tokenis.crypto.no_key_delegation import (
+    MODULUS,
     AffineFunctional,
     Owner,
     combine_multiplication,
@@ -96,26 +97,26 @@ def test_elliptic_rational_addition_matches_fractions(a, b, c, d):
     assert Fraction(total.numerator, total.denominator) == Fraction(a, b) + Fraction(c, d)
 
 
-N = 2**61 - 1  # a prime modulus keeps these fast; correctness is modulus-independent
-
-
 @given(
     coeffs=st.lists(st.integers(-(10**9), 10**9), min_size=1, max_size=6),
     data=st.data(),
 )
 def test_affine_delegation_is_correct(coeffs, data):
-    values = data.draw(st.lists(st.integers(0, N - 1), min_size=len(coeffs), max_size=len(coeffs)))
-    intercept = data.draw(st.integers(0, N - 1))
-    owner = Owner(n=N)
+    values = data.draw(
+        st.lists(st.integers(0, MODULUS - 1), min_size=len(coeffs), max_size=len(coeffs))
+    )
+    intercept = data.draw(st.integers(0, MODULUS - 1))
+    owner = Owner()
     f = AffineFunctional(coefficients=coeffs, intercept=intercept)
     masked, correction = delegate_affine(owner, f, values)
     result = unblind_affine_result(owner, evaluate_affine_masked(f, masked), correction)
-    assert result == f.evaluate(values, N)
+    assert result == f.evaluate(values)
 
 
-@given(s=st.integers(0, N - 1), t=st.integers(0, N - 1))
+@given(s=st.integers(0, MODULUS - 1), t=st.integers(0, MODULUS - 1))
 def test_masked_multiplication_is_correct(s, t):
-    owner = Owner(n=N)
+    owner = Owner()
     triple = owner.prepare_triple()
     opening = open_multiplication(owner, s, t, triple)
-    assert reconstruct_multiplication(triple, opening, combine_multiplication(opening)) == (s * t) % N
+    eg = combine_multiplication(opening)
+    assert reconstruct_multiplication(owner, triple, opening, eg) == (s * t) % MODULUS

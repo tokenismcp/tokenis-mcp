@@ -1,15 +1,16 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+# The cryptographic core is Rust (crates/tokenis-core), compiled into the
+# `tokenis._core` extension module; maturin builds it and packages it with
+# the pure-Python `tokenis` package. abi3: one wheel per platform serves
+# every CPython >= 3.9.
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "tokenis-mcp"
 version = "0.1.0"
 description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool calling (MCP), with the research pipeline behind it"
 readme = "README.md"
-# SPDX license expression (PEP 639), not the deprecated `License ::`
-# trove classifier / `{text = ...}` table form -- `python -m build` warns
-# on the old form as of setuptools >=77.
 license = "Apache-2.0"
 authors = [
     { name = "Caleb Lee", email = "jlabsrd@gmail.com" },
@@ -20,15 +21,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
     "Topic :: Security :: Cryptography",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "numpy>=1.24",
-    # Python bindings to libsecp256k1 (the C library Bitcoin Core uses):
-    # all elliptic-curve group arithmetic in tokenis.crypto runs there, not
-    # in Python -- see tokenis/crypto/ec_fhe.py's module docstring.
-    "coincurve>=20,<22",
 ]
 
 [project.optional-dependencies]
@@ -38,29 +36,22 @@ dependencies = [
 # research/ reproduction code stay usable on Python 3.9.
 server = ["mcp>=1.0"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7", "maturin>=1.7,<2"]
 
 [project.urls]
 Homepage = "https://github.com/j1729labs/tokenis-mcp"
 Papers = "https://github.com/j1729labs/tokenis-mcp/tree/main/papers"
 
-[tool.setuptools.packages.find]
-include = ["tokenis*"]
-
-[tool.setuptools.package-data]
-# PEP 561: ships this package's inline type annotations to consumers'
-# type checkers (mypy/pyright) instead of silently being treated as
-# untyped. `mypy tokenis` (this repo's own CI check) verifies the
-# annotations are correct; this marker is what tells *other* projects
-# that installed this package they can trust them.
-tokenis = ["py.typed"]
+[tool.maturin]
+manifest-path = "crates/tokenis-py/Cargo.toml"
+module-name = "tokenis._core"
+python-source = "."
+python-packages = ["tokenis"]
+features = ["pyo3/extension-module"]
+# Ships tokenis/py.typed and tokenis/_core.pyi with the package (PEP 561).
+include = [{ path = "tokenis/py.typed", format = ["sdist", "wheel"] }]
 
 [tool.pytest.ini_options]
-# Tests and research reproductions pass seeded RNGs on purpose (for
-# determinism); tests/test_crypto_security.py asserts the warning still fires.
-filterwarnings = [
-    "ignore::tokenis.crypto.randomness.InsecureRandomnessWarning",
-]
 testpaths = [
     "tests",
     "research/p3_leakage",

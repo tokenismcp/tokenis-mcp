@@ -1,0 +1,41 @@
+{
+  "name": "@tokenis/crypto",
+  "version": "0.1.0",
+  "description": "Tokenis cryptographic SDK for TypeScript/JavaScript: EC-ElGamal additive homomorphic encryption and no-key delegation, compiled from the same Rust core as the Python SDK",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tokenismcp/tokenis-mcp.git",
+    "directory": "sdk/typescript"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm/*.js",
+    "wasm/*.d.ts",
+    "wasm/*.wasm",
+    "wasm/package.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:wasm": "wasm-pack build ../../crates/tokenis-wasm --release --target nodejs --weak-refs --out-dir ../../sdk/typescript/wasm --out-name tokenis_wasm --no-pack && node -e \"require('fs').writeFileSync('wasm/package.json', JSON.stringify({type: 'commonjs'}) + '\\n')\"",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "typescript": "^5.9.3"
+  }
+}
