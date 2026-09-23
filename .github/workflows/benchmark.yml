@@ -1,0 +1,39 @@
+name: Benchmark
+
+# Manual: reproduces BENCHMARKS.md on a clean runner. The report is written
+# to the job summary and results.json is uploaded as an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      sizes:
+        description: "Dataset sizes (space-separated)"
+        default: "10000 100000 1000000"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Run
+        env:
+          SIZES: ${{ inputs.sizes }}
+        run: |
+          # shellcheck disable=SC2086 -- SIZES is a list of numbers
+          python benchmarks/bench.py --sizes $SIZES 2>/dev/null | tee report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: |
+            benchmarks/results.json
+            report.md

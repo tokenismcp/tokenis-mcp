@@ -513,7 +513,14 @@ How to read them:
   admissible query can tell apart -- so its cost does not grow with the
   record count (3,000 cells here for 10k to 1M records).
 - Laptop measurements are sensitive to background load; the environment
-  line records the load average when the run started.
+  line records the load average when the run started. The results below
+  come from a developer laptop that was also running other workloads, and
+  across four full runs the same operations varied 2-5x. For example, one
+  decryption at range 2^32 took a steady 1.9 ms on its own but 5-25 ms
+  inside full runs, and loading 1M records took 50-135 s. Treat these
+  numbers as orders of magnitude. `.github/workflows/benchmark.yml`
+  reproduces the suite on a clean GitHub runner (run it from the Actions
+  tab); its report lands in the job summary.
 
 """
 
