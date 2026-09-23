@@ -123,6 +123,17 @@ solid is a worse outcome than implementing it faithfully and saying so.
 Read that docstring before using anything in this package for more than
 running this repository's own examples and tests.
 
+`tokenis/crypto/no_key_delegation.py` is a separate, genuinely sound
+addition on the same foundation: an interactive delegation protocol
+(one-time-pad masking + Beaver triples, standard secure-computation
+technique, not something this repository invented) that lets an untrusted
+party evaluate affine functions and products over masked values while
+provably learning nothing about the plaintext — including against a
+quantum adversary — without ever holding key material. It does not make
+the underlying scheme post-quantum, and it is not wired into the gateway's
+trust model; see that module's docstring for exactly what it proves and
+what it doesn't.
+
 ## Quality signal
 
 Every claim below is something CI (`.github/workflows/ci.yml`) actually

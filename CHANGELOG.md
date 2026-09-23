@@ -33,6 +33,17 @@ project has not yet made a tagged release, so everything so far is under
   not-yet-measured confidential figures excluded per those reports' own
   classification markings.
 - `examples/quickstart.py`: an in-process, seven-tool tour of the SDK.
+- `tokenis/crypto/no_key_delegation.py`: an interactive delegation
+  protocol (one-time-pad masking of `tokenis.crypto.ec_fhe`'s
+  plaintext-domain group elements, plus Beaver-triple masked
+  multiplication and blinded bootstrapping) letting an untrusted party
+  evaluate affine functions and products while provably learning nothing
+  about the plaintext, including against a quantum adversary that fully
+  compromises it — see that module's docstring for what this does and
+  does not provide, and for why (unlike the three papers `ec_fhe.py`
+  documents problems in) its source paper is sound: it avoids the broken
+  Weil-pairing multiplication entirely, and never lets an untrusted party
+  bootstrap without the key.
 - Standard OSS project files: `SECURITY.md`, `CONTRIBUTING.md`,
   `CODE_OF_CONDUCT.md`, this changelog, and a two-track CI workflow
   (Python 3.9+ for the core/research code, 3.10+ for the MCP server).
