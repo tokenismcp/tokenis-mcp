@@ -43,7 +43,7 @@ row values) let the model plan without seeing data:
 
 ## Why `disclose_ratio` / `disclose_bucket` are separate tools
 
-Division and threshold comparison cannot be performed over EC-ElGamal
+Division and threshold comparison cannot be performed over Paillier
 ciphertext (no multiplicative homomorphism — see
 [`tokenis/gateway/compute.py`](../gateway/compute.py)). The wrong response
 to that limitation is to hide the decrypt-and-compute step inside another

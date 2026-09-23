@@ -47,7 +47,7 @@ architecture of P2 has runnable code next to it.
                                      │               └────────────────────┘
                      ┌───────────────▼───────────┐
                      │  tokenis/gateway/compute   │  ciphertext SUM/COUNT/
-                     │  (EC-ElGamal, additive HE) │  AVG/VAR — no plaintext
+                     │  (Paillier, additive HE)   │  AVG/VAR — no plaintext
                      └───────────────┬────────────┘  ever stored (P2 Thm 29)
                                      │
                      ┌───────────────▼───────────┐

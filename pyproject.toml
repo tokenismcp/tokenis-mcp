@@ -23,8 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "ecdsa>=0.19",
-    "cryptography>=41",
+    "phe>=1.5",
 ]
 
 [project.optional-dependencies]

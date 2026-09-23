@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from tokenis.crypto.ec_elgamal import (
+from tokenis.crypto.paillier import (
     Decryptor,
     add,
     decrypt,
@@ -58,16 +58,39 @@ def test_sum_over_many_values(keypair):
     assert decrypt(keypair.private, total) == sum(range(50))
 
 
-def test_decryptor_reuse_and_out_of_range(keypair):
-    dec = Decryptor(keypair.private, max_value=10_000)
-    assert dec.decrypt(encrypt(keypair.public, 9_999)) == 9_999
-    assert dec.decrypt(encrypt(keypair.public, -9_999)) == -9_999
+def test_sum_over_large_values(keypair):
+    """Unlike the discrete-log-based scheme this module replaced, Paillier
+    decryption has no bounded search range -- confirm a large sum still
+    decrypts exactly."""
+    total = encrypt(keypair.public, 0)
+    for v in (10**9, 10**12, -(10**11), 10**15):
+        total = add(total, encrypt(keypair.public, v))
+    assert decrypt(keypair.private, total) == 10**9 + 10**12 - 10**11 + 10**15
+
+
+def test_operator_overloads(keypair):
+    a = encrypt(keypair.public, 10)
+    b = encrypt(keypair.public, 3)
+    assert decrypt(keypair.private, a + b) == 13
+    assert decrypt(keypair.private, a - b) == 7
+    assert decrypt(keypair.private, a * 5) == 50
+
+
+def test_decryptor_convenience_wrapper(keypair):
+    dec = Decryptor(keypair.private)
+    assert dec.decrypt(encrypt(keypair.public, 99)) == 99
+
+
+def test_different_keys_cannot_be_combined(keypair):
+    other = keygen()
+    a = encrypt(keypair.public, 5)
+    b = encrypt(other.public, 5)
     with pytest.raises(ValueError):
-        dec.decrypt(encrypt(keypair.public, 50_000))
+        add(a, b)
 
 
-def test_different_keys_do_not_decrypt_each_other(keypair):
+def test_different_keys_cannot_decrypt_each_other(keypair):
     other = keygen()
     ct = encrypt(keypair.public, 42)
     with pytest.raises(ValueError):
-        decrypt(other.private, ct, max_value=1000)
+        decrypt(other.private, ct)

@@ -69,7 +69,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
-from tokenis.crypto.ec_elgamal import Decryptor, KeyPair, keygen
+from tokenis.crypto.paillier import Decryptor, KeyPair, keygen
 from tokenis.gateway.admission import (
     AdmissionPolicy,
     And,
@@ -110,7 +110,7 @@ class TokenisGatewayService:
 
     def __post_init__(self) -> None:
         self._keypair: KeyPair = keygen()
-        self._decryptor = Decryptor(self._keypair.private, max_value=10_000_000)
+        self._decryptor = Decryptor(self._keypair.private)
         self.tokenizer = ScopedTokenizer(key=self.tokenizer_key)
         self._scope = self.tokenizer.make_scope(tenant=self.tenant, epoch=self.epoch)
         self.engine = AggregateEngine(public_key=self._keypair.public)

@@ -1,12 +1,12 @@
 # Copyright 2026 4Chains Inc.
 # SPDX-License-Identifier: Apache-2.0
-"""Reference additively-homomorphic encryption primitives.
+"""Additively-homomorphic encryption primitives (Paillier).
 
-See :mod:`tokenis.crypto.ec_elgamal` for the important reference-implementation
+See :mod:`tokenis.crypto.paillier` for the reference-integration
 disclaimer before using anything in this package.
 """
 
-from tokenis.crypto.ec_elgamal import (
+from tokenis.crypto.paillier import (
     Ciphertext,
     Decryptor,
     KeyPair,

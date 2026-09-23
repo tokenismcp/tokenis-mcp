@@ -5,7 +5,7 @@ over ``SEALED`` attributes homomorphically, so that the store never holds
 and the infrastructure operator never observes a plaintext sensitive value
 (P2 Theorem 29). Its adversary is the infrastructure operator, ``A_infra``.
 
-Every method here returns a :class:`~tokenis.crypto.ec_elgamal.Ciphertext`
+Every method here returns a :class:`~tokenis.crypto.paillier.Ciphertext`
 (or, for ``COUNT``, a plain ``int`` -- a set size is public information, not
 a function of protected values: P4 §5.2 exempts it from the admission
 audit's rowspace basis for exactly this reason). **Decryption happens only
@@ -15,24 +15,23 @@ at the disclosure boundary**, after the admission-control layer
 covers both explicit ``Reveal`` outputs and the plaintext results of
 admitted aggregate calls).
 
-Variance needs a second moment. This additive-only EC-ElGamal reference
-scheme (see :mod:`tokenis.crypto.ec_elgamal`) has no multiplicative
-homomorphism, so ``VAR`` requires a precomputed, separately-encrypted
-"squared value" column, populated at ingest time (when the data owner still
-holds the plaintext) -- see :meth:`AggregateEngine.ingest`. This mirrors P2
-§3.3's note that a scheme "supporting a bounded multiplicative depth" would
-let ``VAR`` be computed directly; P1 (not included in this repository)
-is presumably that scheme. Final variance arithmetic (``E[x^2] - E[x]^2``)
-is plain post-processing over two already-decrypted aggregate values, not
-an operation on hidden data, so it happens after both sums cross the
-boundary.
+Variance needs a second moment. Paillier (see :mod:`tokenis.crypto.paillier`)
+has no multiplicative homomorphism either, so ``VAR`` requires a
+precomputed, separately-encrypted "squared value" column, populated at
+ingest time (when the data owner still holds the plaintext) -- see
+:meth:`AggregateEngine.ingest`. This mirrors P2 §3.3's note that a scheme
+"supporting a bounded multiplicative depth" would let ``VAR`` be computed
+directly; P1 (not included in this repository) is presumably that scheme.
+Final variance arithmetic (``E[x^2] - E[x]^2``) is plain post-processing
+over two already-decrypted aggregate values, not an operation on hidden
+data, so it happens after both sums cross the boundary.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from tokenis.crypto.ec_elgamal import Ciphertext, PublicKey, encrypt
+from tokenis.crypto.paillier import Ciphertext, PublicKey, encrypt
 
 
 @dataclass
@@ -78,7 +77,6 @@ class AggregateEngine:
         record_id: str,
         public_fields: Dict[str, object],
         sealed_value: int,
-        rng: Optional[object] = None,
         with_square: bool = False,
     ) -> None:
         """Encrypt and store one record. ``sealed_value`` is plaintext here
@@ -87,12 +85,8 @@ class AggregateEngine:
         plaintext database ``D``) -- after this call returns, only
         ciphertext is retained.
         """
-        ct = encrypt(self.public_key, sealed_value, rng=rng)
-        sq_ct = (
-            encrypt(self.public_key, sealed_value * sealed_value, rng=rng)
-            if with_square
-            else None
-        )
+        ct = encrypt(self.public_key, sealed_value)
+        sq_ct = encrypt(self.public_key, sealed_value * sealed_value) if with_square else None
         self._records.append(
             _Record(
                 record_id=record_id,

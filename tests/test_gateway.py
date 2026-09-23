@@ -3,7 +3,7 @@
 import pytest
 
 from tokenis.audit.trace import DisclosureTrace
-from tokenis.crypto.ec_elgamal import Decryptor, keygen
+from tokenis.crypto.paillier import Decryptor, keygen
 from tokenis.gateway.compute import AggregateEngine, Predicate, average, variance
 from tokenis.gateway.reveal import RevealDenied, RevealObject, reveal
 

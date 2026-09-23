@@ -34,9 +34,9 @@ fallback.
 ## W6 and this reference implementation
 
 This reference implementation does **not** currently quantize response
-latency (the EC-ElGamal reference crypto's own cost already varies with
+latency (the Paillier reference crypto's own cost already varies with
 query-set size, and no padding/batching layer sits on top of it — see
-[`tokenis/crypto/ec_elgamal.py`](../crypto/ec_elgamal.py)'s reference-only
+[`tokenis/crypto/paillier.py`](../crypto/paillier.py)'s reference-integration
 disclaimer). `test_w6_uniform_latency.py` documents this as a **known gap**
 (marked `xfail`) rather than silently passing — a real deployment needs a
 latency-quantization layer this repository does not yet provide, which is

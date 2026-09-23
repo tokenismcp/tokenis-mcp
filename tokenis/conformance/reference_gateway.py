@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
-from tokenis.crypto.ec_elgamal import Decryptor, keygen
+from tokenis.crypto.paillier import Decryptor, keygen
 from tokenis.gateway.compute import AggregateEngine, Predicate
 from tokenis.gateway.reveal import RevealObject, reveal
 from tokenis.semantic.tokenizer import ScopedTokenizer
@@ -54,7 +54,7 @@ class ReferenceGateway:
 
     def __init__(self, seed_key: bytes = b"conformance-suite-demo-key-32by"):
         self._keypair = keygen()
-        self._decryptor = Decryptor(self._keypair.private, max_value=10_000_000)
+        self._decryptor = Decryptor(self._keypair.private)
         self.tokenizer = ScopedTokenizer(key=seed_key)
         self.engine = AggregateEngine(public_key=self._keypair.public)
         self.trace = DisclosureTrace()
