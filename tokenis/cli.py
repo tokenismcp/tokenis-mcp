@@ -38,11 +38,23 @@ def _source(parser: argparse.ArgumentParser, *, demo: bool = True) -> None:
     group.add_argument("--config", type=Path, help="path to tokenis.toml")
     if demo:
         group.add_argument("--demo", action="store_true", help="use the built-in fictional dataset")
+        group.add_argument(
+            "--config-or-demo", metavar="PATH", dest="config_or_demo",
+            help="for launchers that always pass a path: the config if PATH is non-empty, "
+                 "otherwise the demo dataset (announced on stderr and in describe_dataset)",
+        )
 
 
 def _service(args: argparse.Namespace, *, reset: bool = False, seal: bool = True) -> Any:
     from tokenis.config import ConfigError, build_service, load_config
 
+    fallback = getattr(args, "config_or_demo", None)
+    if fallback is not None:
+        if fallback.strip():
+            args.config = Path(fallback).expanduser()
+        else:
+            args.demo = True
+            log.warning("no config file given: serving the built-in FICTIONAL demo dataset")
     if getattr(args, "demo", False):
         from tokenis.gateway.demo import demo_service
 
@@ -84,7 +96,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         principal = (server_cfg.stdio_principal if server_cfg else None) or local_principal()
         server = create_server(
             service, principal_resolver=fixed_principal(principal), taint_resolver=taint,
-            max_concurrency=concurrency,
+            max_concurrency=concurrency, log_level=args.log_level,
         )
         log.info("serving %d records over stdio as %s", service.record_count, principal)
         anyio.run(server.run_stdio_async)
@@ -131,6 +143,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     server = create_server(
         service, principal_resolver=authenticated_principal, taint_resolver=taint,
         token_verifier=verifier, auth=auth, max_concurrency=concurrency,
+        log_level=args.log_level,
     )
     allowed = list(server_cfg.allowed_hosts) if server_cfg else []
     public_host = urlparse(public_url).netloc
@@ -322,6 +335,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
+    if sys.version_info < (3, 10):
+        _die("the Tokenis server and CLI need Python 3.10 or newer "
+             "(e.g. `uvx --python 3.12 tokenis-mcp ...`); the Python 3.9 install "
+             "provides the tokenis library only")
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     logging.basicConfig(
         stream=sys.stderr, level=str(args.log_level).upper(),

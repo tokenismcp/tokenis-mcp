@@ -14,7 +14,7 @@ categories = ["cryptography"]
 exclude = ["proptest-regressions/"]
 
 [dependencies]
-k256 = { version = "0.13", default-features = false, features = ["arithmetic", "std"] }
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "precomputed-tables", "std"] }
 getrandom = "0.2"
 rand_core = "0.6"
 subtle = "2"

@@ -30,7 +30,7 @@ from tokenis.gateway.schema import (
     RevealPurpose,
     Schema,
 )
-from tokenis.gateway.service import TokenisGatewayService
+from tokenis.gateway.service import IngestError, TokenisGatewayService
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -326,25 +326,40 @@ def iter_rows(source: DataSource) -> Iterator[Tuple[str, Dict[str, Any]]]:
                 yield where, row
 
 
-def load_dataset(service: TokenisGatewayService, source: DataSource) -> int:
-    """Ingest every row of ``source`` into ``service``; returns the count.
-    Any invalid row aborts the load with its file and line."""
+def load_dataset(
+    service: TokenisGatewayService, source: DataSource, batch_size: int = 4096,
+) -> int:
+    """Ingest every row of ``source`` into ``service`` in batches (each
+    encrypted in parallel); returns the count. Any invalid row aborts the
+    load with its file and line."""
     schema = service.schema
     count = 0
+    batch: List[Tuple[str, Any, Any]] = []
+    wheres: List[str] = []
+
+    def flush() -> None:
+        nonlocal count
+        try:
+            count += service.ingest_many(batch)
+        except IngestError as exc:
+            raise ConfigError(f"{wheres[exc.index]}: {exc.reason}") from None
+        batch.clear()
+        wheres.clear()
+
     try:
-        rows = iter_rows(source)
-        for where, row in rows:
-            record_id = row.get(schema.id_column) if schema.id_column else None
-            if schema.id_column and (record_id is None or str(record_id).strip() == ""):
+        for where, row in iter_rows(source):
+            record_id = row.get(schema.id_column) if schema.id_column else where
+            if record_id is None or str(record_id).strip() == "":
                 raise ConfigError(f"{where}: missing {schema.id_column!r}")
             embedding = None
             if schema.embedding_column:
                 embedding = _parse_embedding(row.get(schema.embedding_column), where)
-            try:
-                service.ingest(str(record_id) if record_id is not None else where, row, embedding)
-            except ValueError as exc:
-                raise ConfigError(f"{where}: {exc}") from None
-            count += 1
+            batch.append((str(record_id), row, embedding))
+            wheres.append(where)
+            if len(batch) >= batch_size:
+                flush()
+        if batch:
+            flush()
     except OSError as exc:
         raise ConfigError(f"cannot read {source.path}: {exc}") from None
     return count

@@ -1,5 +1,7 @@
 # Tokenis
 
+<!-- mcp-name: io.github.tokenismcp/tokenis-mcp -->
+
 ![CI](https://github.com/tokenismcp/tokenis-mcp/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Docs license](https://img.shields.io/badge/docs%20license-CC--BY--4.0-lightgrey.svg)
@@ -19,28 +21,34 @@ company's revenue, cannot get it by differencing two overlapping groups, and
 cannot learn *why* a question was refused. Every answer and every refusal is
 recorded, under the authenticated user's identity, in a tamper-evident log.
 
+## Install
+
+One command, whichever client you use. Each starts on built-in fictional
+data; [use your own data](#use-your-own-data) by pointing it at a config
+file.
+
+| Client | Install |
+|---|---|
+| **Claude Code** (plugin: server + analysis skill) | `/plugin marketplace add tokenismcp/tokenis-mcp` then `/plugin install tokenis@tokenis-mcp` |
+| **Claude Code** (server only) | `claude mcp add tokenis -- uvx tokenis-mcp serve --demo` |
+| **Claude Desktop** | Download `tokenis.mcpb` from the [latest release](https://github.com/tokenismcp/tokenis-mcp/releases/latest) and open it |
+| **Any MCP client** (stdio) | `{"command": "uvx", "args": ["tokenis-mcp", "serve", "--demo"]}` |
+| **Docker** | `docker run -i --rm ghcr.io/tokenismcp/tokenis-mcp` |
+| **Python** (library, CLI, `tokenis.llm`) | `pip install tokenis-mcp` (Python 3.10+; the crypto core alone runs on 3.9) |
+
+The package-registry routes (`uvx`, `pip`, the plugin, the `.mcpb` bundle
+and the image) resolve once a release is published; until then, build from
+source as in [Development](#development). CI launches every one of these
+install paths exactly as its host does and drives it with a real MCP client
+(`packaging/check_packaging.py`). It's also listed in the MCP Registry as
+`io.github.tokenismcp/tokenis-mcp`.
+
+For Claude Code and Claude Desktop, the plugin and the bundle ask for an
+optional config file and keys when enabled. Over stdio the caller is the
+local OS user (`local:<user>`), who is charged the query budget and named
+in the audit trail.
+
 ## Connect an LLM
-
-Install (Python 3.10+; prebuilt wheels for Linux, macOS and Windows):
-
-```bash
-pip install "tokenis-mcp[server]"        # add [llm] for the Anthropic/OpenAI clients
-tokenis-mcp tools --demo                  # the tool schemas a model will see
-```
-
-Everything below works with the built-in fictional dataset (`--demo`);
-[Use your own data](#use-your-own-data) swaps in yours.
-
-**Claude Code / Claude Desktop (local, stdio).**
-
-```bash
-claude mcp add tokenis -- tokenis-mcp serve --demo
-```
-
-For Claude Desktop, add the server to `claude_desktop_config.json`
-([example](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/claude_desktop_config.json)).
-Over stdio the caller is the local OS user (`local:<user>`), which is who the
-query budget and audit trail are charged to.
 
 **Any MCP client, remote (Streamable HTTP + authentication).** HTTP always
 requires authentication — API keys or your identity provider's JWTs:
@@ -240,6 +248,9 @@ checks this and five other conditions.
 | `examples/` | Quickstart, LLM agents, annotated config, fictional dataset, Claude Desktop config |
 
 ## Development
+
+Performance figures, and how to reproduce them, are in
+[BENCHMARKS.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/BENCHMARKS.md).
 
 Needs a Rust toolchain ([rustup.rs](https://rustup.rs)); for the TypeScript
 SDK also Node 22.18+ and [wasm-pack](https://rustwasm.github.io/wasm-pack/).

@@ -223,11 +223,20 @@ class RREFBasis:
     row). This is expected, documented behaviour, not a bug.
     """
 
-    def __init__(self, n: int, p: int = GF_PRIME):
+    def __init__(self, n: int, p: int = GF_PRIME, weights: Optional[np.ndarray] = None):
         self.n = n
         self.p = p
         self.rows: List[np.ndarray] = []
         self.pivots: List[int] = []
+        # Coordinate i stands for weights[i] identical records (see
+        # AdmissionPolicy's ``weights``); a row's weight is the number of
+        # records it touches. All ones reproduces the plain Hamming weight.
+        self.weights = weights
+
+    def weight(self, row: np.ndarray) -> int:
+        if self.weights is None:
+            return int(np.count_nonzero(row))
+        return int(self.weights[row != 0].sum())
 
     @property
     def rank(self) -> int:
@@ -247,7 +256,7 @@ class RREFBasis:
 
     def has_row_with_weight_in(self, lo: int, hi: int) -> bool:
         for row in self.rows:
-            w = int(np.count_nonzero(row))
+            w = self.weight(row)
             if lo <= w <= hi:
                 return True
         return False
@@ -299,7 +308,7 @@ class RREFBasis:
             trial_pivots.append(pivot)
 
         for row in trial_rows:
-            w = int(np.count_nonzero(row))
+            w = self.weight(row)
             if weight_lo <= w <= weight_hi:
                 # Refuse: discard the candidate, leave the basis untouched.
                 return False
@@ -582,6 +591,15 @@ class AdmissionPolicy:
         True) shares one first-moment basis between SUM and AVG on a column,
         since an AVG response is affine in the SUM it implies once the
         (public) set size is known.
+    weights: optional, length n. Coordinate i then stands for ``weights[i]``
+        records that no admissible predicate can tell apart (a "cell"):
+        set sizes and D2 row weights count records, not coordinates. Because
+        a predicate is constant on a cell, row reduction over cells is row
+        reduction over the expanded records with duplicated columns, so every
+        decision is identical to the uncompressed policy's -- provided the
+        predicates are evaluated per cell exactly as they would be per
+        record (see ``TokenisGatewayService._cells``). Memory and time then
+        scale with the number of cells instead of records.
     budget_scope: the D3 BudgetScope to use. Defaults to SubjectScopedBudget
         (the only correct choice for production). Passing a
         CredentialScopedBudget is supported ONLY to reproduce Theorem 13's
@@ -611,9 +629,17 @@ class AdmissionPolicy:
         enforce_d5: bool = True,
         audit_avg: bool = True,
         budget_scope: Optional[BudgetScope] = None,
+        weights: Optional[np.ndarray] = None,
     ):
         self.n = n
         self._public_attributes: Dict[str, np.ndarray] = dict(public_attributes)
+        if weights is not None:
+            weights = np.asarray(weights, dtype=np.int64)
+            if weights.shape != (n,) or (weights < 1).any():
+                raise ValueError("weights must be n positive integers")
+        self._weights = weights
+        #: The number of records (the D1 upper tail is population - k).
+        self.population = int(weights.sum()) if weights is not None else n
         self.catalogue = frozenset(catalogue)
         self.k = k
         self.taint_alphabet_size = taint_alphabet_size
@@ -642,13 +668,18 @@ class AdmissionPolicy:
     def _basis_for(self, column: str, moment: int) -> RREFBasis:
         key = (column, moment)
         if key not in self._bases:
-            self._bases[key] = RREFBasis(self.n)
+            self._bases[key] = RREFBasis(self.n, weights=self._weights)
         return self._bases[key]
 
     def _taint_call_slot(self, context: QueryContext) -> Tuple[str, str]:
         return (context.window, context.subject_id or "")
 
     # -- the policy -----------------------------------------------------
+
+    def _size(self, indicator: np.ndarray) -> int:
+        if self._weights is None:
+            return int(indicator.sum())
+        return int(self._weights[indicator.astype(bool)].sum())
 
     def remaining_budget(self, context: QueryContext) -> int:
         """Admissions left for this context's subject in its window (the
@@ -753,8 +784,8 @@ class AdmissionPolicy:
 
         # D1: minimum query-set size, both tails.
         indicator = characteristic_indicator(query.predicate, self._public_attributes, self.n)
-        size = int(indicator.sum())
-        if self.enforce_d1 and not (self.k <= size <= self.n - self.k):
+        size = self._size(indicator)
+        if self.enforce_d1 and not (self.k <= size <= self.population - self.k):
             return Decision(False, "D1", "query set size outside [k, n-k]", size)
 
         # D3: budget (tainted or untainted, per context).

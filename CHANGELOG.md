@@ -8,6 +8,17 @@ state; "History" records how the crypto layer got here.
 ## [Unreleased]
 
 ### Added
+- **One-command installs, like other popular MCP servers:** `uvx tokenis-mcp`
+  (the server now installs by default on Python 3.10+, no extra needed); a
+  Claude Code plugin marketplace (`/plugin marketplace add
+  tokenismcp/tokenis-mcp`) whose plugin bundles the server and an analysis
+  skill; a Claude Desktop extension (`tokenis.mcpb`, MCPB 0.4, uv runtime);
+  a non-root Docker image with the MCP Registry label; and an MCP Registry
+  `server.json`. `packaging/check_packaging.py` launches each exactly as its
+  host does and drives it with a real MCP client, in CI.
+- **Benchmarks** (`benchmarks/bench.py`, `BENCHMARKS.md`): crypto primitives,
+  the gateway at 10k-1M records, server-side W6 under concurrency, and an
+  authenticated end-to-end HTTP load test with a restart.
 - **LLM integration.** `tokenis-mcp` CLI (`serve`, `check`, `tools`, `ask`,
   `keys`, `keygen-secret`, `audit verify`); a TOML configuration with a
   CSV/JSON-lines loader for your own data (`tokenis/config.py`,
@@ -119,6 +130,23 @@ state; "History" records how the crypto layer got here.
   every push and weekly; Dependabot for Cargo, pip, npm and Actions.
 
 ### Changed
+- **Performance.** A single `sum` over 10k records went from ~300 ms to under
+  1 ms, and `group_by` from 9.3 s to ~20 ms. Three changes did it:
+  - Each sealed column's decryptor is sized to that column's own hard bound
+    (the sum of absolute values, which no aggregate can exceed) instead of the
+    configured worst case. The step count stays fixed per column.
+  - Ciphertext columns and masked sums moved into Rust (`CiphertextVector`),
+    with batch encryption on all cores.
+  - Encryption uses k256's constant-time precomputed-table and
+    linear-combination paths.
+
+  Loading is batched (`ingest_many`). The D2 audit now runs over *cells* of
+  records no admissible query can separate. Values held by fewer than k
+  records are merged, and cells are ordered by first record. This keeps
+  memory and time independent of the record count, with decisions verified
+  identical to the per-record policy on 180,000 randomised decisions. A
+  column-ordering bug that this differential test caught is fixed before
+  release.
 - Breaking, pre-1.0: `TokenisGatewayService(schema, tokenizer_key,
   settings)` replaces the hard-coded demo service (`tokenis.gateway.demo`
   has the demo data); tool arguments are `column` / `filters` objects.

@@ -1,0 +1,74 @@
+{
+  "manifest_version": "0.4",
+  "name": "tokenis",
+  "display_name": "Tokenis",
+  "version": "0.1.0",
+  "description": "Ask aggregate questions about confidential data without exposing a single record.",
+  "long_description": "Tokenis serves a dataset to Claude as a few aggregate tools over encrypted columns. Groups smaller than k records are refused, queries that would combine to isolate a record are refused, every call is budgeted per user, and every answer and refusal is written to a signed audit trail. Leave the config empty to try it on built-in fictional data.",
+  "author": {
+    "name": "J1729 Labs / 4Chains Inc.",
+    "email": "director@j1729labs.online",
+    "url": "https://github.com/tokenismcp"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tokenismcp/tokenis-mcp"
+  },
+  "homepage": "https://github.com/tokenismcp/tokenis-mcp",
+  "documentation": "https://github.com/tokenismcp/tokenis-mcp#readme",
+  "support": "https://github.com/tokenismcp/tokenis-mcp/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run", "--directory", "${__dirname}", "src/server.py",
+        "--config-or-demo", "${user_config.config_file}"
+      ],
+      "env": {
+        "TOKENIS_TOKENIZER_KEY": "${user_config.tokenizer_key}",
+        "TOKENIS_AUDIT_KEY": "${user_config.audit_key}"
+      }
+    }
+  },
+  "tools": [
+    {"name": "describe_dataset", "description": "Columns, filterable values, minimum group size and remaining budget"},
+    {"name": "aggregate", "description": "Sum, average or count of a sealed column over filtered records"},
+    {"name": "group_by", "description": "The same, per value of a filterable column; small groups suppressed"},
+    {"name": "compare_periods", "description": "Direction and ratio band between two sealed columns"},
+    {"name": "similarity_search", "description": "Entities most similar to a given one, as tokens"},
+    {"name": "exists", "description": "Whether at least k records match"},
+    {"name": "disclose_ratio", "description": "Audited ratio of two group totals, for a configured purpose"},
+    {"name": "disclose_bucket", "description": "Audited bucket label for a group total, for a configured purpose"}
+  ],
+  "user_config": {
+    "config_file": {
+      "type": "file",
+      "title": "Tokenis config (tokenis.toml)",
+      "description": "Your dataset and policy. Leave empty for the built-in fictional demo data.",
+      "required": false
+    },
+    "tokenizer_key": {
+      "type": "string",
+      "title": "Tokenizer key",
+      "description": "64 hex characters from `tokenis-mcp keygen-secret`; needed with a config file.",
+      "sensitive": true,
+      "required": false
+    },
+    "audit_key": {
+      "type": "string",
+      "title": "Audit-trail signing key",
+      "description": "64 hex characters, if the config sets [state] audit_key_env.",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {"python": ">=3.10"}
+  },
+  "keywords": ["privacy", "encryption", "analytics", "audit"],
+  "license": "Apache-2.0"
+}

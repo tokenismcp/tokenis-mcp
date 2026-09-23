@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "tokenis": {
-      "command": "tokenis-mcp",
+      "command": "uvx",
       "args": [
+        "tokenis-mcp",
         "serve",
         "--config",
         "/absolute/path/to/tokenis.toml"
@@ -13,8 +14,9 @@
       }
     },
     "tokenis-demo": {
-      "command": "tokenis-mcp",
+      "command": "uvx",
       "args": [
+        "tokenis-mcp",
         "serve",
         "--demo"
       ]

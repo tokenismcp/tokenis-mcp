@@ -1,0 +1,53 @@
+{
+  "name": "tokenis",
+  "displayName": "Tokenis",
+  "version": "0.1.0",
+  "description": "Aggregate questions over confidential data without exposing a single record: encrypted columns, admission control against differencing attacks, and a signed audit trail. Leave the config empty to try it on built-in fictional data.",
+  "author": {
+    "name": "J1729 Labs / 4Chains Inc.",
+    "email": "director@j1729labs.online",
+    "url": "https://github.com/tokenismcp"
+  },
+  "homepage": "https://github.com/tokenismcp/tokenis-mcp",
+  "repository": "https://github.com/tokenismcp/tokenis-mcp",
+  "license": "Apache-2.0",
+  "keywords": ["privacy", "encryption", "analytics", "mcp", "audit"],
+  "userConfig": {
+    "config_file": {
+      "type": "file",
+      "title": "Tokenis config (tokenis.toml)",
+      "description": "Your dataset and policy (see examples/tokenis.toml in the repository). Leave empty to use the built-in fictional demo data.",
+      "required": false
+    },
+    "tokenizer_key": {
+      "type": "string",
+      "title": "Tokenizer key",
+      "description": "64 hex characters from `tokenis-mcp keygen-secret` (only needed with a config file). Keep it stable: it defines every token.",
+      "sensitive": true,
+      "required": false
+    },
+    "audit_key": {
+      "type": "string",
+      "title": "Audit-trail signing key",
+      "description": "64 hex characters from `tokenis-mcp keygen-secret`, if your config sets [state] audit_key_env = \"TOKENIS_AUDIT_KEY\".",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "mcpServers": {
+    "tokenis": {
+      "command": "uvx",
+      "args": [
+        "--python", "3.12",
+        "tokenis-mcp@0.1.0",
+        "--log-level", "WARNING",
+        "serve",
+        "--config-or-demo", "${user_config.config_file}"
+      ],
+      "env": {
+        "TOKENIS_TOKENIZER_KEY": "${user_config.tokenizer_key}",
+        "TOKENIS_AUDIT_KEY": "${user_config.audit_key}"
+      }
+    }
+  }
+}

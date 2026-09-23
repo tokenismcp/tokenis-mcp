@@ -12,6 +12,7 @@ use core::fmt;
 
 use k256::elliptic_curve::BatchNormalize;
 use k256::elliptic_curve::group::Group;
+use k256::elliptic_curve::ops::{LinearCombination, MulByGenerator};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{AffinePoint, NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
 use rand_core::{CryptoRng, RngCore};
@@ -88,7 +89,7 @@ impl PrivateKey {
     /// The matching public key.
     pub fn public_key(&self) -> PublicKey {
         let mut s = self.scalar();
-        let point = ProjectivePoint::GENERATOR * *s;
+        let point = ProjectivePoint::mul_by_generator(&*s);
         s.zeroize();
         PublicKey::from_point(point)
     }
@@ -219,8 +220,10 @@ pub fn encrypt_with<R: RngCore + CryptoRng>(pk: &PublicKey, m: i64, rng: &mut R)
 
 fn encrypt_with_scalar(pk: &PublicKey, m: i64, r: &Scalar) -> Ciphertext {
     let mut m_scalar = scalar_from_i64(m);
-    let c1 = ProjectivePoint::GENERATOR * r;
-    let c2 = pk.point * r + ProjectivePoint::GENERATOR * m_scalar;
+    // Both constant-time in k256: a precomputed-table fixed-base
+    // multiplication, and a Straus-style two-point linear combination.
+    let c1 = ProjectivePoint::mul_by_generator(r);
+    let c2 = ProjectivePoint::lincomb(&pk.point, r, &ProjectivePoint::GENERATOR, &m_scalar);
     m_scalar.zeroize();
     Ciphertext {
         c1,
@@ -252,6 +255,23 @@ pub fn sub(a: &Ciphertext, b: &Ciphertext) -> Result<Ciphertext> {
         c2: a.c2 - b.c2,
         key: merge_key(a, b)?,
     })
+}
+
+/// `Dec(sum(cts)) == sum of the plaintexts`: one accumulation instead of a
+/// chain of [`add`] calls. Errors on an empty input or mixed keys.
+pub fn sum<'a>(cts: impl IntoIterator<Item = &'a Ciphertext>) -> Result<Ciphertext> {
+    let mut iter = cts.into_iter();
+    let first = iter.next().ok_or(Error::EmptyInput)?;
+    let (mut c1, mut c2, mut key) = (first.c1, first.c2, first.key);
+    for ct in iter {
+        key = match (key, ct.key) {
+            (Some(x), Some(y)) if x != y => return Err(Error::KeyMismatch),
+            (x, y) => x.or(y),
+        };
+        c1 += ct.c1;
+        c2 += ct.c2;
+    }
+    Ok(Ciphertext { c1, c2, key })
 }
 
 /// `Dec(neg(Enc(x))) == -x`.
@@ -586,6 +606,31 @@ mod tests {
         assert_eq!(dec.decrypt(&neg(&a)).unwrap(), -30);
         assert_eq!(dec.decrypt(&scalar_mul(&a, -3)).unwrap(), -90);
         assert_eq!(dec.decrypt(&scalar_mul(&a, 0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn sum_matches_repeated_add_and_rejects_bad_input() {
+        let (_, pk, dec) = keys();
+        let cts: Vec<Ciphertext> = (-5..=20).map(|m| enc(&pk, m * 37)).collect();
+        let expected: i64 = (-5..=20).map(|m| m * 37).sum();
+        assert_eq!(dec.decrypt(&sum(&cts).unwrap()).unwrap(), expected);
+        assert_eq!(sum(std::iter::empty()), Err(Error::EmptyInput));
+        let other = enc(&PrivateKey::generate().unwrap().public_key(), 1);
+        assert_eq!(sum([&cts[0], &other]), Err(Error::KeyMismatch));
+    }
+
+    #[test]
+    fn fast_paths_match_the_textbook_formulas() {
+        // mul_by_generator / lincomb must agree with plain scalar
+        // multiplication, or ciphertexts would not decrypt.
+        let sk = PrivateKey::generate().unwrap();
+        let pk = sk.public_key();
+        let s = sk.scalar();
+        assert_eq!(pk.point, ProjectivePoint::GENERATOR * *s);
+        let r = Scalar::from(123_456_789u64);
+        let ct = encrypt_with_scalar(&pk, -42, &r);
+        assert_eq!(ct.c1, ProjectivePoint::GENERATOR * r);
+        assert_eq!(ct.c2, pk.point * r - ProjectivePoint::GENERATOR * Scalar::from(42u64));
     }
 
     #[test]

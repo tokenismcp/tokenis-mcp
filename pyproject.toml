@@ -36,18 +36,19 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
+    # The MCP server, CLI, HTTP auth and TOML config: installed by default
+    # wherever they can run (the `mcp` 2.x floor is Python 3.10), so
+    # `uvx tokenis-mcp serve` works with no extras. On Python 3.9 the
+    # crypto/gateway/research core installs on its own.
+    "mcp>=2.2,<3; python_version >= '3.10'",
+    "pyjwt[crypto]>=2.8; python_version >= '3.10'",
+    "tomli>=2.0; python_version >= '3.10' and python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-# The MCP server, its CLI (`tokenis-mcp`), HTTP authentication and the TOML
-# config need Python >=3.10 (the `mcp` 2.x floor) -- kept as an optional
-# extra so the crypto/semantic/gateway/audit core and the research/
-# reproduction code stay usable on Python 3.9.
-server = [
-    "mcp>=2.2,<3",
-    "pyjwt[crypto]>=2.8",
-    "tomli>=2.0; python_version < '3.11'",
-]
+# Kept for compatibility with `pip install tokenis-mcp[server]`; the server
+# dependencies are now part of the default install on Python >= 3.10.
+server = []
 # LLM API clients for `tokenis.llm.ask_*` and `tokenis-mcp ask`.
 llm = ["tokenis-mcp[server]", "anthropic>=0.40", "openai>=1.50"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
@@ -103,6 +104,9 @@ extend-select = ["S"]
 "tokenis/conformance/**" = ["S"]
 "tokenis/mcp_server/test_server.py" = ["S"]
 "scripts/**" = ["S"]
+# Measurement harness, not product code: asserts, seeded PRNGs and
+# subprocesses are the point; long report lines are built by concatenation.
+"benchmarks/**" = ["S", "ISC004", "PLW1510"]
 
 [tool.mypy]
 # Scoped to tokenis/ (the product SDK) rather than the whole repository:

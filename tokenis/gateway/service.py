@@ -49,12 +49,30 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+)
 
 import numpy as np
 
+from tokenis._core import CiphertextVector
 from tokenis.audit.trace import AuditRecord, DisclosureTrace
-from tokenis.crypto.ec_fhe import Ciphertext, Decryptor, TokenisCryptoError, encrypt, keygen
+from tokenis.crypto.ec_fhe import (
+    MAX_TABLE_SIZE,
+    Decryptor,
+    PrivateKey,
+    TokenisCryptoError,
+    keygen,
+)
 from tokenis.gateway.admission import (
     AdmissionPolicy,
     All,
@@ -84,6 +102,17 @@ DENIED_MESSAGE = (
 )
 
 _I63 = 1 << 62  # headroom so sums of a few values cannot overflow i64
+
+
+class _Rare:
+    """Stands for every filterable value held by fewer than k records (see
+    ``TokenisGatewayService._cells``); equal to no filter value."""
+
+    def __repr__(self) -> str:
+        return "<rare>"
+
+
+_RARE = _Rare()
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
@@ -95,6 +124,16 @@ class AdmissionDenied(Exception):
     def __init__(self, rule: str = "") -> None:
         super().__init__(DENIED_MESSAGE)
         self.rule = rule
+
+
+class IngestError(ValueError):
+    """A record in an :meth:`TokenisGatewayService.ingest_many` batch is
+    invalid; ``index`` is its position in the batch."""
+
+    def __init__(self, index: int, reason: str) -> None:
+        super().__init__(reason)
+        self.index = index
+        self.reason = reason
 
 
 class ArgumentError(ValueError):
@@ -198,17 +237,28 @@ class TokenisGatewayService:
 
         keypair = keygen()
         self._public_key = keypair.public
-        dec = self.settings.decryption
-        self._decryptor = Decryptor(keypair.private, dec.max_value, table_size=dec.table_size)
+        self._private_key: PrivateKey = keypair.private
+        #: Sum of |stored value| per sealed column (and of squares): a hard
+        #: bound on any aggregate, so each column's decryptor is sized to it.
+        self._bounds: Dict[str, int] = {}
+        self._decryptors: Dict[str, Decryptor] = {}
         self._tokenizer = ScopedTokenizer(key=tokenizer_key)
         self._scope = ScopedTokenizer.make_scope(tenant=self.settings.tenant, epoch=self.settings.epoch)
 
+        self._filterable = schema.filterable
+        self._sealed_columns = schema.sealed
         self._ids: Dict[str, int] = {}
         self._public: Dict[str, List[str]] = {c.name: [] for c in schema.filterable}
-        self._sealed_cts: Dict[str, List[Ciphertext]] = {c.name: [] for c in schema.sealed}
-        self._square_cts: Dict[str, List[Ciphertext]] = {
-            c.name: [] for c in schema.sealed if c.allow_variance
+        self._sealed_cts: Dict[str, CiphertextVector] = {
+            c.name: CiphertextVector(self._public_key) for c in schema.sealed
         }
+        self._square_cts: Dict[str, CiphertextVector] = {
+            c.name: CiphertextVector(self._public_key) for c in schema.sealed if c.allow_variance
+        }
+        for c in schema.sealed:
+            self._bounds[c.name] = 0
+            if c.allow_variance:
+                self._bounds[c.name + "\x00sq"] = 0
         self._embeddings: Dict[str, np.ndarray] = {}
         self._embedding_dim: Optional[int] = None
 
@@ -217,6 +267,11 @@ class TokenisGatewayService:
             hmac_key=audit_key,
         )
         self._attrs: Dict[str, np.ndarray] = {}
+        # Filled at seal, when the per-record strings are released:
+        self._record_count = 0
+        self._domains: Dict[str, List[str]] = {}
+        self._cell_of_record = np.zeros(0, dtype=np.int64)
+        self._cell_attrs: Dict[str, np.ndarray] = {}
         self._admission: Optional[AdmissionPolicy] = None
         self._log: Optional[AdmissionLog] = None
 
@@ -228,7 +283,7 @@ class TokenisGatewayService:
 
     @property
     def record_count(self) -> int:
-        return len(self._ids)
+        return self._record_count if self._sealed else len(self._ids)
 
     @property
     def k(self) -> int:
@@ -255,68 +310,118 @@ class TokenisGatewayService:
         row: Mapping[str, Any],
         embedding: Optional[Sequence[float]] = None,
     ) -> None:
-        """Add one record. Plaintext enters here and nowhere else: sealed
-        values are encrypted, token values replaced by their pseudonyms, and
-        only those forms are kept."""
+        """Add one record (see :meth:`ingest_many`, which is much faster for
+        many records)."""
+        try:
+            self.ingest_many([(record_id, row, embedding)])
+        except IngestError as exc:
+            raise ValueError(exc.reason) from None
+
+    def ingest_many(
+        self, records: Iterable[Tuple[Any, Mapping[str, Any], Optional[Sequence[float]]]],
+    ) -> int:
+        """Add ``(record_id, row, embedding)`` records as one atomic batch:
+        every record is validated before any is committed, then each sealed
+        column is encrypted in parallel inside the Rust core. Plaintext
+        enters here and nowhere else -- only ciphertexts and pseudonyms are
+        kept. Raises :class:`IngestError` naming the offending record's
+        position; nothing from the batch is kept in that case."""
         with self._lock:
             if self._sealed:
                 raise RuntimeError(
                     "the ledger is sealed (queries have run against it); load a new "
                     "gateway to change the data"
                 )
-            record_id = str(record_id)
-            if record_id in self._ids:
-                raise ValueError(f"duplicate record id {record_id!r}")
-            public: Dict[str, str] = {}
-            for col in self.schema.filterable:
-                raw = row.get(col.name)
-                if raw is None or str(raw).strip() == "":
-                    raise ValueError(f"record {record_id!r}: missing value for {col.name!r}")
-                text = str(raw).strip()
-                if len(text) > 256:
-                    raise ValueError(f"record {record_id!r}: {col.name!r} longer than 256 characters")
-                public[col.name] = (
-                    self._tokenizer.tokenize(col.name, self._scope, text)
-                    if col.protection == "token"
-                    else text
-                )
-            sealed: Dict[str, Ciphertext] = {}
-            squares: Dict[str, Ciphertext] = {}
-            for col in self.schema.sealed:
-                stored = _to_stored(row.get(col.name), col.scale, f"record {record_id!r}: {col.name}")
-                sealed[col.name] = encrypt(self._public_key, stored)
-                if col.allow_variance:
-                    if stored * stored >= (1 << 63):
-                        raise ValueError(
-                            f"record {record_id!r}: {col.name} too large for VAR (its square overflows)"
+            batch = [self._prepare(i, rid, row, emb) for i, (rid, row, emb) in enumerate(records)]
+            seen: Dict[str, int] = {}
+            expected_dim = self._embedding_dim
+            for i, (record_id, _public, _stored, vector) in enumerate(batch):
+                if record_id in seen:
+                    raise IngestError(i, f"duplicate record id {record_id!r}")
+                seen[record_id] = i
+                if vector is not None:
+                    expected_dim = expected_dim or vector.size
+                    if vector.size != expected_dim:
+                        raise IngestError(
+                            i, f"record {record_id!r}: embedding has {vector.size} dimensions, "
+                            f"expected {expected_dim}",
                         )
-                    squares[col.name] = encrypt(self._public_key, stored * stored)
-            vector = None
-            if embedding is not None:
-                if self.schema.embedding_column is None or self.schema.entity is None:
-                    raise ValueError("this schema has no embedding field")
-                vector = np.asarray([float(x) for x in embedding], dtype=np.float64)
-                if vector.ndim != 1 or vector.size == 0 or not np.all(np.isfinite(vector)):
-                    raise ValueError(f"record {record_id!r}: embedding must be a non-empty finite vector")
-                if self._embedding_dim is not None and vector.size != self._embedding_dim:
-                    raise ValueError(
-                        f"record {record_id!r}: embedding has {vector.size} dimensions, "
-                        f"expected {self._embedding_dim}"
+            # Encrypt into fresh vectors first so a failure leaves the ledger
+            # untouched, then move them in.
+            fresh: Dict[str, CiphertextVector] = {}
+            for col in self.schema.sealed:
+                values = [b[2][col.name] for b in batch]
+                fresh[col.name] = CiphertextVector(self._public_key)
+                fresh[col.name].extend_encrypt(values)
+                if col.allow_variance:
+                    squares = CiphertextVector(self._public_key)
+                    squares.extend_encrypt([v * v for v in values])
+                    fresh[col.name + "\x00sq"] = squares
+            for col in self.schema.sealed:
+                self._sealed_cts[col.name].extend(fresh[col.name])
+                values = [b[2][col.name] for b in batch]
+                self._bounds[col.name] += sum(abs(v) for v in values)
+                if col.allow_variance:
+                    self._square_cts[col.name].extend(fresh[col.name + "\x00sq"])
+                    self._bounds[col.name + "\x00sq"] += sum(v * v for v in values)
+            for record_id, public, _stored, vector in batch:
+                self._ids[record_id] = len(self._ids)
+                for name, value in public.items():
+                    self._public[name].append(value)
+                if vector is not None and self.schema.entity is not None:
+                    self._embedding_dim = vector.size
+                    norm = float(np.linalg.norm(vector))
+                    self._embeddings[public[self.schema.entity.name]] = (
+                        vector / norm if norm > 0 else vector
                     )
-            # All validation done: commit the row atomically.
-            self._ids[record_id] = len(self._ids)
-            for name, value in public.items():
-                self._public[name].append(value)
-            for name, ct in sealed.items():
-                self._sealed_cts[name].append(ct)
-            for name, ct in squares.items():
-                self._square_cts[name].append(ct)
-            if vector is not None and self.schema.entity is not None:
-                self._embedding_dim = vector.size
-                norm = float(np.linalg.norm(vector))
-                self._embeddings[public[self.schema.entity.name]] = (
-                    vector / norm if norm > 0 else vector
+            return len(batch)
+
+    def _prepare(
+        self, index: int, record_id: Any, row: Mapping[str, Any],
+        embedding: Optional[Sequence[float]],
+    ) -> Tuple[str, Dict[str, str], Dict[str, int], Optional[np.ndarray]]:
+        record_id = str(record_id)
+        where = f"record {record_id!r}"
+        if record_id in self._ids:
+            raise IngestError(index, f"duplicate record id {record_id!r}")
+        public: Dict[str, str] = {}
+        for col in self._filterable:
+            raw = row.get(col.name)
+            if raw is None or str(raw).strip() == "":
+                raise IngestError(index, f"{where}: missing value for {col.name!r}")
+            text = str(raw).strip()
+            if len(text) > 256:
+                raise IngestError(index, f"{where}: {col.name!r} longer than 256 characters")
+            public[col.name] = (
+                self._tokenizer.tokenize(col.name, self._scope, text)
+                if col.protection == "token"
+                else text
+            )
+        stored: Dict[str, int] = {}
+        for col in self._sealed_columns:
+            try:
+                value = _to_stored(row.get(col.name), col.scale, f"{where}: {col.name}")
+            except ValueError as exc:
+                raise IngestError(index, str(exc)) from None
+            if col.allow_variance and value * value >= (1 << 63):
+                raise IngestError(index, f"{where}: {col.name} too large for VAR (its square overflows)")
+            stored[col.name] = value
+        vector = None
+        if embedding is not None:
+            if self.schema.embedding_column is None or self.schema.entity is None:
+                raise IngestError(index, "this schema has no embedding field")
+            try:
+                vector = np.asarray([float(x) for x in embedding], dtype=np.float64)
+            except (TypeError, ValueError):
+                raise IngestError(index, f"{where}: embedding must contain only numbers") from None
+            if vector.ndim != 1 or vector.size == 0 or not np.all(np.isfinite(vector)):
+                raise IngestError(index, f"{where}: embedding must be a non-empty finite vector")
+            if self._embedding_dim is not None and vector.size != self._embedding_dim:
+                raise IngestError(
+                    index,
+                    f"{where}: embedding has {vector.size} dimensions, expected {self._embedding_dim}",
                 )
+        return record_id, public, stored, vector
 
     def seal(self) -> None:
         """Freeze the ledger and build (or restore) the admission state.
@@ -337,9 +442,12 @@ class TokenisGatewayService:
         self._attrs = {
             name: np.array(values, dtype=object) for name, values in self._public.items()
         }
+        self._domains = {name: sorted(set(values)) for name, values in self._public.items()}
+        cell_attrs, weights, cell_of_record = self._cells()
         self._admission = AdmissionPolicy(
-            n=n,
-            public_attributes=self._attrs,
+            n=len(weights),
+            public_attributes=cell_attrs,
+            weights=weights,
             catalogue=[c.name for c in self.schema.sealed],
             k=k,
             budget=adm.budget,
@@ -347,6 +455,7 @@ class TokenisGatewayService:
             taint_call_cap=adm.taint_call_cap,
             cell_aware=adm.cell_aware,
         )
+        self._build_decryptors()
         if self._state_dir is not None:
             self._log = AdmissionLog(
                 self._state_dir / "admission.jsonl",
@@ -355,7 +464,79 @@ class TokenisGatewayService:
             )
             for record in self._log.records():
                 self._replay(record)
+        # Per-record strings are no longer needed: every predicate is
+        # evaluated per cell and mapped back to records with one gather.
+        self._record_count = n
+        self._cell_attrs = cell_attrs
+        self._cell_of_record = cell_of_record
+        self._attrs = {}
+        self._public = {name: [] for name in self._public}
+        self._ids = {}
         self._sealed = True
+
+    def _cells(self) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
+        """Group records into cells no admissible query can tell apart, so
+        admission control scales with the number of cells, not records.
+
+        Admissible predicates are conjunctions of ``column == value`` over
+        filterable columns. Two records with equal filterable values are
+        therefore always in or out together. Further, a value held by fewer
+        than k records can never appear in an *admitted* predicate: any
+        conjunction naming it matches fewer than k records and D1 refuses
+        it. So such rare values are merged into one sentinel that no filter
+        value equals -- the per-cell result of every predicate then equals
+        the per-record result for everything D1 admits, and the refused ones
+        are refused either way. ``tests/test_admission_cells.py`` checks the
+        decisions against the uncompressed policy (and caught an ordering
+        bug the argument above glosses over -- see below)."""
+        k = self.k
+        names = sorted(self._attrs)
+        codes, domains = [], []
+        for name in names:
+            # Factorise without materialising a fixed-width string copy.
+            index: Dict[str, int] = {}
+            values = self._attrs[name]
+            code = np.fromiter(
+                (index.setdefault(v, len(index)) for v in values), dtype=np.int64, count=len(values)
+            )
+            counts = np.bincount(code, minlength=len(index))
+            code[counts[code] < k] = -1
+            codes.append(code)
+            domains.append(np.array(list(index), dtype=object))
+        matrix = np.stack(codes, axis=1)
+        cells, first, inverse, weights = np.unique(
+            matrix, axis=0, return_index=True, return_inverse=True, return_counts=True
+        )
+        # Order cells by their first record. D2's cell-aware test inspects
+        # the rows of a reduced row-echelon form, which depends on column
+        # order; in first-occurrence order every pivot choice and
+        # elimination step over cells mirrors the per-record computation.
+        order = np.argsort(first, kind="stable")
+        cells, weights = cells[order], weights[order]
+        rank = np.empty_like(order)
+        rank[order] = np.arange(len(order))
+        cell_of_record = rank[inverse.reshape(-1)]
+        attrs = {
+            name: np.array(
+                [str(domain[c]) if c >= 0 else _RARE for c in cells[:, j]], dtype=object
+            )
+            for j, (name, domain) in enumerate(zip(names, domains))
+        }
+        return attrs, weights.astype(np.int64), cell_of_record
+
+    def _build_decryptors(self) -> None:
+        """One decryptor per sealed column (and per squares column), sized to
+        the column's own bound: every aggregate over a column is a subset
+        sum, so |aggregate| <= sum(|v|). Each decryption then walks a fixed,
+        small number of steps -- fixed per column, so timing reveals nothing
+        about the query -- instead of the configured worst case."""
+        cap = self.settings.decryption
+        for key, bound in self._bounds.items():
+            max_value = max(1, min(bound, cap.max_value))
+            span = 2 * max_value + 1
+            balanced = max(4096, math.isqrt(span) * 16)
+            table = min(span, balanced, cap.table_size or MAX_TABLE_SIZE, MAX_TABLE_SIZE)
+            self._decryptors[key] = Decryptor(self._private_key, max_value, table_size=table)
 
     def _fingerprint(self) -> str:
         """Everything past admission decisions depend on, except budgets
@@ -372,8 +553,9 @@ class TokenisGatewayService:
         h.update(json.dumps(meta, sort_keys=True).encode())
         for name in sorted(self._attrs):
             h.update(b"\x1e" + name.encode())
-            for value in self._attrs[name]:
-                h.update(b"\x1f" + str(value).encode())
+            # Values are validated strings; the separator cannot collide
+            # because each column is length-prefixed by its record count.
+            h.update(b"\x1f".join(str(v).encode() for v in self._attrs[name]))
         return h.hexdigest()
 
     def _replay(self, record: Dict[str, Any]) -> None:
@@ -452,17 +634,21 @@ class TokenisGatewayService:
         return decision
 
     def _indicator(self, filters: Mapping[str, str]) -> np.ndarray:
-        return characteristic_indicator(self._predicate(filters), self._attrs, self.record_count)
+        """Records matching ``filters`` -- used only after admission, so every
+        filter value is a common one and the per-cell result is exact."""
+        assert self._admission is not None  # noqa: S101 -- only called after sealing
+        cells = characteristic_indicator(self._predicate(filters), self._cell_attrs, self._admission.n)
+        return cells[self._cell_of_record]
 
     def _decrypt_sum(
-        self, caller: Caller, cts: List[Ciphertext], mask: np.ndarray, obj_ref: str, purpose: str,
+        self, caller: Caller, column: str, mask: np.ndarray, obj_ref: str, purpose: str,
+        squares: bool = False,
     ) -> int:
-        selected = [cts[i] for i in np.flatnonzero(mask)]
-        total = selected[0]
-        for ct in selected[1:]:
-            total = total + ct
+        vector = (self._square_cts if squares else self._sealed_cts)[column]
+        decryptor = self._decryptors[column + "\x00sq" if squares else column]
         try:
-            return self._decryptor.decrypt(total)
+            total = vector.sum_where(mask.astype(np.uint8).tobytes())
+            return decryptor.decrypt(total)
         except TokenisCryptoError:
             raise self._deny(caller, obj_ref, purpose, "decryption-range") from None
 
@@ -471,7 +657,7 @@ class TokenisGatewayService:
     ) -> Tuple[int, int]:
         """An admitted SUM in stored units, and its set size."""
         decision = self._decide(caller, filters, "SUM", column, obj_ref, purpose)
-        total = self._decrypt_sum(caller, self._sealed_cts[column], self._indicator(filters), obj_ref, purpose)
+        total = self._decrypt_sum(caller, column, self._indicator(filters), obj_ref, purpose)
         return total, int(decision.set_size or 0)
 
     def _record(self, caller: Caller, obj_ref: str, purpose: str, value: Any) -> None:
@@ -541,7 +727,7 @@ class TokenisGatewayService:
             if col.unit:
                 info["unit"] = col.unit
             if col.protection == "open":
-                domain = sorted(set(self._public[col.name]))
+                domain = self._domains[col.name]
                 info["filterable"] = True
                 if len(domain) <= limit:
                     info["values"] = domain
@@ -556,7 +742,9 @@ class TokenisGatewayService:
                 info["result"] = "exact" if col.result_mode == "exact" else "banded (1-2-5)"
             columns.append(info)
         context = self._context(caller)
+        notice = {"notice": self.settings.notice} if self.settings.notice else {}
         return {
+            **notice,
             "records": self.record_count,
             "min_query_set_size": self.k,
             "columns": columns,
@@ -591,13 +779,13 @@ class TokenisGatewayService:
         decision = self._decide(caller, where, function.upper(), col.name, obj_ref, "aggregate")
         size = int(decision.set_size or 0)
         mask = self._indicator(where)
-        total = self._decrypt_sum(caller, self._sealed_cts[col.name], mask, obj_ref, "aggregate")
+        total = self._decrypt_sum(caller, col.name, mask, obj_ref, "aggregate")
         if function == "sum":
             value = self._present(col, total)
         elif function == "avg":
             value = self._present(col, total / size)
         else:
-            squares = self._decrypt_sum(caller, self._square_cts[col.name], mask, obj_ref, "aggregate")
+            squares = self._decrypt_sum(caller, col.name, mask, obj_ref, "aggregate", squares=True)
             mean = total / size
             value = self._present(col, max(squares / size - mean * mean, 0.0), power=2)
         self._record(caller, obj_ref, "aggregate", value)
@@ -615,7 +803,7 @@ class TokenisGatewayService:
         filters: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
         key = str(key)
-        if key not in self._public:
+        if key not in self._domains:
             names = ", ".join(c.name for c in self.schema.filterable)
             raise ArgumentError(f"key must be a filterable column: one of {names}")
         function = str(function).lower()
@@ -625,7 +813,7 @@ class TokenisGatewayService:
         if key in where:
             raise ArgumentError("cannot group by a column that is also filtered")
         col = None if function == "count" else self._sealed_column(column)
-        domain = sorted(set(self._public[key]))
+        domain = self._domains[key]
         if len(domain) > self.settings.disclosure.max_groups:
             raise ArgumentError(
                 f"{key!r} has more than {self.settings.disclosure.max_groups} groups; add filters "
@@ -650,7 +838,7 @@ class TokenisGatewayService:
             else:
                 try:
                     total = self._decrypt_sum(
-                        caller, self._sealed_cts[col.name], self._indicator(group_filters),
+                        caller, col.name, self._indicator(group_filters),
                         obj_ref, "group_by",
                     )
                 except AdmissionDenied:
@@ -927,7 +1115,8 @@ class TokenisGatewayService:
         if col.protection != "open":
             raise ArgumentError(f"{column!r} is not an open column")
         with self._lock:
-            return sorted(set(self._public[column]))
+            self._seal_locked()
+            return list(self._domains[column])
 
     def catalogue_resource(self) -> Dict[str, Any]:
         """Schema metadata only: no values, no budgets."""

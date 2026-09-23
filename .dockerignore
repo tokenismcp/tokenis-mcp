@@ -1,0 +1,13 @@
+# Build context is an allow-list: only what the image build copies.
+*
+!Cargo.toml
+!Cargo.lock
+!pyproject.toml
+!README.md
+!LICENSE
+!THIRD-PARTY-NOTICES.md
+!crates/
+!tokenis/
+crates/**/target
+tokenis/**/__pycache__
+tokenis/*.so

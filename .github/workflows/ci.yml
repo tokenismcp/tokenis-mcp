@@ -131,6 +131,35 @@ jobs:
       - name: Packed tarball installs, type-checks and runs (ESM + CJS)
         run: npm run check:package
 
+  packaging:
+    # Every install path, launched exactly as its host launches it and driven
+    # by a real MCP client: the Claude Code plugin (uvx), the Claude Desktop
+    # bundle (uv run) and the Docker image -- plus manifest and version checks.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Build the wheel (stands in for PyPI)
+        run: pip install "maturin>=1.7,<2" && maturin build --release --out wheels
+      - name: Install the checker's dependencies
+        run: pip install "$(ls wheels/*.whl)" jsonschema
+      - name: Claude Code plugin and marketplace validate
+        run: npx -y @anthropic-ai/claude-code plugin validate . --strict && npx -y @anthropic-ai/claude-code plugin validate ./plugins/tokenis --strict
+      - name: Claude Desktop bundle validates and packs
+        run: npx -y @anthropic-ai/mcpb validate packaging/mcpb/manifest.json && npx -y @anthropic-ai/mcpb pack packaging/mcpb tokenis.mcpb
+      - name: Docker image builds
+        run: docker build -t tokenis-mcp:ci .
+      - name: Launch every install path and use it
+        run: python packaging/check_packaging.py --wheel-dir wheels --docker-image tokenis-mcp:ci
+
   interop:
     # Python and TypeScript exchange real ciphertexts, keys and masked
     # values (tests/test_interop.py).

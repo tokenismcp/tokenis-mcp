@@ -1,0 +1,26 @@
+{
+  "name": "tokenis-mcp",
+  "description": "Tokenis: privacy-preserving analytics over confidential data for Claude, as an MCP server with admission control and a signed audit trail.",
+  "owner": {
+    "name": "J1729 Labs / 4Chains Inc.",
+    "email": "director@j1729labs.online",
+    "url": "https://github.com/tokenismcp"
+  },
+  "plugins": [
+    {
+      "name": "tokenis",
+      "displayName": "Tokenis",
+      "source": "./plugins/tokenis",
+      "description": "Ask aggregate questions about confidential data without exposing a single record: encrypted columns, admission control against differencing, and a signed audit trail, as MCP tools.",
+      "version": "0.1.0",
+      "category": "data",
+      "keywords": [
+        "privacy",
+        "encryption",
+        "analytics",
+        "mcp",
+        "audit"
+      ]
+    }
+  ]
+}

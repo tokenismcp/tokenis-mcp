@@ -11,6 +11,12 @@ name: Release
 #     rights to the `@tokenis` scope (confirm you own the scope first).
 #     npm provenance needs a public source repository, so it is added only
 #     when this repository is public.
+#   - GHCR: nothing to configure (GITHUB_TOKEN); the image is pushed to
+#     ghcr.io/<owner>/tokenis-mcp.
+#   - MCP Registry: publishes server.json after PyPI and GHCR, authenticated
+#     by GitHub OIDC (the namespace io.github.tokenismcp/* must match the
+#     repository owner).
+# Every release also attaches the Claude Desktop bundle (tokenis.mcpb).
 
 on:
   push:
@@ -36,6 +42,13 @@ jobs:
           js=$(node -p "require('./sdk/typescript/package.json').version")
           echo "tag=$tag pyproject=$py cargo=$rs npm=$js"
           test "$tag" = "$py" && test "$tag" = "$rs" && test "$tag" = "$js"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Plugin, marketplace, server.json and MCPB versions match too
+        run: |
+          pip install jsonschema
+          python -c "import sys; sys.path.insert(0, 'packaging'); import check_packaging as c; c.check_versions(); c.check_server_json()"
 
   wheels:
     strategy:
@@ -114,6 +127,88 @@ jobs:
         with:
           name: npm-package
           path: sdk/typescript/*.tgz
+
+  mcpb:
+    # The Claude Desktop extension: a manifest plus a uv entry point that
+    # installs tokenis-mcp from PyPI on first run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: npx -y @anthropic-ai/mcpb validate packaging/mcpb/manifest.json
+      - run: npx -y @anthropic-ai/mcpb pack packaging/mcpb tokenis.mcpb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: tokenis.mcpb
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, wheels, sdist, npm-package, mcpb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+
+  publish-image:
+    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # server.json names ghcr.io/tokenismcp/tokenis-mcp:<version> (no "v").
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/tokenis-mcp:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/tokenis-mcp:latest
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/tokenis-mcp
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  publish-mcp-registry:
+    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [publish-pypi, publish-image]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
 
   publish-pypi:
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')

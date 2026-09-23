@@ -1,0 +1,74 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tokenismcp/tokenis-mcp",
+  "title": "Tokenis",
+  "description": "Aggregate analytics over encrypted data with differencing-proof admission control.",
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/tokenismcp/tokenis-mcp",
+  "repository": {
+    "url": "https://github.com/tokenismcp/tokenis-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "tokenis-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve",
+          "description": "Run the MCP server",
+          "isRequired": true
+        },
+        {
+          "type": "named",
+          "name": "--config-or-demo",
+          "valueHint": "tokenis.toml",
+          "description": "Path to your Tokenis config; empty serves the built-in fictional demo data",
+          "default": "",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "TOKENIS_TOKENIZER_KEY",
+          "description": "64 hex characters from `tokenis-mcp keygen-secret`; required with a config file",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TOKENIS_AUDIT_KEY",
+          "description": "Signs the audit trail when the config sets [state] audit_key_env",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/tokenismcp/tokenis-mcp:0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve",
+          "isRequired": true
+        },
+        {
+          "type": "named",
+          "name": "--config-or-demo",
+          "valueHint": "/config/tokenis.toml",
+          "default": "",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}

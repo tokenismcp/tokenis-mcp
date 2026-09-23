@@ -159,10 +159,12 @@ class AdmissionSettings:
 
 @dataclass(frozen=True)
 class DecryptionSettings:
-    """Aggregates must lie in ``[-max_value, max_value]`` (in stored units,
-    i.e. after ``scale``); ``table_size`` trades memory (8 bytes/entry) for
-    decryption speed. Defaults: sums up to about 6.9e10, ~15 ms per
-    decryption, 32 MiB table."""
+    """Caps for decryption. Each sealed column gets its own decryptor sized
+    to that column's hard bound -- the sum of its absolute stored values,
+    which no aggregate can exceed -- so small data decrypts in well under a
+    millisecond. ``max_value`` caps that range (aggregates beyond it are
+    denied) and ``table_size`` caps each decryptor's table (8 bytes per
+    entry; larger tables decrypt proportionally faster)."""
 
     max_value: int = 1 << 36
     table_size: Optional[int] = 1 << 22
@@ -220,6 +222,8 @@ class GatewaySettings:
     decryption: DecryptionSettings = field(default_factory=DecryptionSettings)
     disclosure: DisclosureSettings = field(default_factory=DisclosureSettings)
     purposes: Tuple[RevealPurpose, ...] = ()
+    #: Shown to the model by describe_dataset (e.g. "fictional demo data").
+    notice: str = ""
 
     def __post_init__(self) -> None:
         names = [p.name for p in self.purposes]

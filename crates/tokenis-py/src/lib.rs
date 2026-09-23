@@ -236,6 +236,130 @@ impl Decryptor {
     }
 }
 
+/// Worker threads for batch operations: the machine's parallelism, capped.
+fn workers(items: usize) -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    cores.min(16).min(items / 256 + 1).max(1)
+}
+
+/// A column of ciphertexts held in Rust: batch encryption runs on all cores
+/// with the GIL released, and masked sums never create a Python object per
+/// element.
+#[pyclass(module = "tokenis._core")]
+struct CiphertextVector {
+    public: eg::PublicKey,
+    items: Vec<eg::Ciphertext>,
+}
+
+#[pymethods]
+impl CiphertextVector {
+    #[new]
+    fn new(public: &PublicKey) -> Self {
+        Self {
+            public: public.0.clone(),
+            items: Vec::new(),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Encrypt `values` (in parallel) and append them, in order.
+    fn extend_encrypt(&mut self, py: Python<'_>, values: Vec<i64>) -> PyResult<()> {
+        let public = &self.public;
+        let encrypted = py.detach(|| -> tokenis_core::Result<Vec<eg::Ciphertext>> {
+            let chunk = values.len().div_ceil(workers(values.len())).max(1);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = values
+                    .chunks(chunk)
+                    .map(|part| {
+                        scope.spawn(move || {
+                            part.iter()
+                                .map(|m| eg::encrypt(public, *m))
+                                .collect::<tokenis_core::Result<Vec<_>>>()
+                        })
+                    })
+                    .collect();
+                let mut out = Vec::with_capacity(values.len());
+                for handle in handles {
+                    let part = handle
+                        .join()
+                        .map_err(|_| tokenis_core::Error::RandomnessUnavailable)??;
+                    out.extend(part);
+                }
+                Ok(out)
+            })
+        });
+        self.items.extend(encrypted.map_err(err)?);
+        Ok(())
+    }
+
+    /// Sum of the elements whose byte in `mask` is non-zero (`mask` has one
+    /// byte per element). Errors on a length mismatch or an empty selection.
+    fn sum_where(&self, py: Python<'_>, mask: &[u8]) -> PyResult<Ciphertext> {
+        if mask.len() != self.items.len() {
+            return Err(err(tokenis_core::Error::LengthMismatch));
+        }
+        let items = &self.items;
+        let total = py.detach(|| -> tokenis_core::Result<eg::Ciphertext> {
+            let chunk = items.len().div_ceil(workers(items.len())).max(1);
+            let partials = std::thread::scope(|scope| {
+                let handles: Vec<_> = items
+                    .chunks(chunk)
+                    .zip(mask.chunks(chunk))
+                    .map(|(cts, bits)| {
+                        scope.spawn(move || {
+                            let selected = cts.iter().zip(bits).filter(|(_, b)| **b != 0);
+                            match eg::sum(selected.map(|(ct, _)| ct)) {
+                                Ok(partial) => Ok(Some(partial)),
+                                Err(tokenis_core::Error::EmptyInput) => Ok(None),
+                                Err(e) => Err(e),
+                            }
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().map_err(|_| tokenis_core::Error::EmptyInput)?)
+                    .collect::<tokenis_core::Result<Vec<Option<eg::Ciphertext>>>>()
+            })?;
+            eg::sum(partials.iter().flatten())
+        });
+        total.map(Ciphertext).map_err(err)
+    }
+
+    /// Move every element of `other` (same public key) onto the end of
+    /// this vector, leaving `other` empty.
+    fn extend(&mut self, mut other: PyRefMut<'_, CiphertextVector>) -> PyResult<()> {
+        if other.public != self.public {
+            return Err(err(tokenis_core::Error::KeyMismatch));
+        }
+        self.items.append(&mut other.items);
+        Ok(())
+    }
+
+    fn __getitem__(&self, index: isize) -> PyResult<Ciphertext> {
+        let len = isize::try_from(self.items.len()).unwrap_or(isize::MAX);
+        let i = if index < 0 { index + len } else { index };
+        usize::try_from(i)
+            .ok()
+            .and_then(|i| self.items.get(i))
+            .map(|ct| Ciphertext(ct.clone()))
+            .ok_or_else(|| pyo3::exceptions::PyIndexError::new_err("index out of range"))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CiphertextVector(len={})", self.items.len())
+    }
+}
+
+/// Sum a list of ciphertexts in one pass.
+#[pyfunction]
+fn sum_ciphertexts(cts: Vec<Ciphertext>) -> PyResult<Ciphertext> {
+    eg::sum(cts.iter().map(|c| &c.0)).map(Ciphertext).map_err(err)
+}
+
 #[pyfunction]
 fn encrypt(pk: &PublicKey, m: i64) -> PyResult<Ciphertext> {
     eg::encrypt(&pk.0, m).map(Ciphertext).map_err(err)
@@ -533,6 +657,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PublicKey>()?;
     m.add_class::<Ciphertext>()?;
     m.add_class::<Decryptor>()?;
+    m.add_class::<CiphertextVector>()?;
     m.add_class::<Mask>()?;
     m.add_class::<Correction>()?;
     m.add_class::<MultiplicationTriple>()?;
@@ -540,6 +665,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MultiplicationOpening>()?;
     m.add_class::<Owner>()?;
     m.add_function(wrap_pyfunction!(encrypt, m)?)?;
+    m.add_function(wrap_pyfunction!(sum_ciphertexts, m)?)?;
     m.add_function(wrap_pyfunction!(fixed_point_encode, m)?)?;
     m.add_function(wrap_pyfunction!(base_point_multiple, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate_affine_masked, m)?)?;

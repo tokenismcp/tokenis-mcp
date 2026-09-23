@@ -37,8 +37,12 @@ pub enum Error {
     ForeignOwner,
     /// The operating system's random number generator failed.
     RandomnessUnavailable,
-    /// Affine coefficient and value counts differ.
+    /// Affine coefficient and value counts differ, or a selection mask does
+    /// not match the vector it selects from.
     LengthMismatch,
+    /// An operation that needs at least one element got none (e.g. summing
+    /// an empty selection).
+    EmptyInput,
     /// A fixed-point input was not finite or does not fit after scaling.
     FixedPointOverflow,
 }
@@ -64,7 +68,8 @@ impl fmt::Display for Error {
             Self::ForeignTriple => "Beaver triple was produced by a different Owner",
             Self::ForeignOwner => "mask or correction was produced by a different Owner",
             Self::RandomnessUnavailable => "the operating system's random number generator failed",
-            Self::LengthMismatch => "coefficient and value counts differ",
+            Self::LengthMismatch => "lengths differ (coefficients/values, or mask/vector)",
+            Self::EmptyInput => "at least one element is required",
             Self::FixedPointOverflow => "fixed-point value not finite or out of i64 range",
         };
         f.write_str(msg)

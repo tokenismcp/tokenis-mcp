@@ -185,6 +185,7 @@ def create_server(
     auth: Optional[AuthSettings] = None,
     name: str = "tokenis",
     max_concurrency: int = 16,
+    log_level: str = "WARNING",
 ) -> MCPServer:
     """An :class:`MCPServer` for ``service``. See the module docstring for
     how to choose ``principal_resolver``; ``token_verifier`` and ``auth``
@@ -204,6 +205,9 @@ def create_server(
         instructions=INSTRUCTIONS,
         token_verifier=token_verifier,
         auth=auth,
+        # The SDK configures process-wide logging at this level; WARNING keeps
+        # an embedding application's logs quiet (the CLI passes --log-level).
+        log_level=log_level.upper(),  # type: ignore[arg-type]
     )
 
     async def run(ctx: Context, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:

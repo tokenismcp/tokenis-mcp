@@ -48,6 +48,7 @@ DEMO_SETTINGS = GatewaySettings(
     decryption=DecryptionSettings(max_value=1 << 28, table_size=1 << 15),
     disclosure=DisclosureSettings(latency_granularity_ms=50.0),
     purposes=(DEMO_PURPOSE,),
+    notice="FICTIONAL demonstration data: these companies and figures are made up.",
 )
 
 #: (id, industry, region, revenue_2024, revenue_2025, customer_name, embedding)
@@ -89,7 +90,7 @@ def demo_service(
     service = TokenisGatewayService(
         DEMO_SCHEMA, tokenizer_key or secrets.token_bytes(32), settings, **service_kwargs
     )
-    for row in demo_rows():
-        embedding = row.pop("embedding")
-        service.ingest(row.pop("id"), row, embedding=embedding)
+    service.ingest_many(
+        (row.pop("id"), row, row.pop("embedding")) for row in demo_rows()
+    )
     return service

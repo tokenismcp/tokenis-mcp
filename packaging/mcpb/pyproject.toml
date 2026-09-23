@@ -1,0 +1,6 @@
+[project]
+name = "tokenis-desktop-extension"
+version = "0.1.0"
+description = "Claude Desktop extension (MCPB) that runs the Tokenis MCP server"
+requires-python = ">=3.10"
+dependencies = ["tokenis-mcp==0.1.0"]
