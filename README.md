@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tokenismcp/tokenis-mcp/main/assets/logo.png" width="160" alt="Tokenis logo">
+</p>
+
 # Tokenis
 
 <!-- mcp-name: io.github.tokenismcp/tokenis-mcp -->

@@ -144,3 +144,11 @@ def test_catalogue_resource_and_prompt(server):
 def test_verifier_and_auth_go_together(service):
     with pytest.raises(ValueError):
         create_server(service, principal_resolver=fixed_principal("a"), token_verifier=object())  # type: ignore[arg-type]
+
+
+def test_server_advertises_the_logo():
+    from tokenis.mcp_server.server import server_icons
+
+    [icon] = server_icons()
+    assert icon.src.startswith("data:image/png;base64,iVBORw0K")  # a PNG, inlined
+    assert icon.sizes == ["64x64"]

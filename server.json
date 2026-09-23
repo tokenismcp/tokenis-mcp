@@ -5,6 +5,15 @@
   "description": "Aggregate analytics over encrypted data with differencing-proof admission control.",
   "version": "0.1.0",
   "websiteUrl": "https://github.com/tokenismcp/tokenis-mcp",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/tokenismcp/tokenis-mcp/main/assets/logo-256.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "256x256"
+      ]
+    }
+  ],
   "repository": {
     "url": "https://github.com/tokenismcp/tokenis-mcp",
     "source": "github"

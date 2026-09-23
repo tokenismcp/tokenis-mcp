@@ -46,7 +46,7 @@ from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model
 from typing_extensions import Annotated
 
@@ -80,6 +80,17 @@ audited. Use them only when the user's task matches one of the purposes \
 listed by describe_dataset.
 5. Never try to single out individual records or to reverse tokens. Report \
 aggregates with their group sizes and units."""
+
+
+def server_icons() -> List[Icon]:
+    """The Tokenis logo, inlined as a data URI so any client can show it
+    without fetching anything."""
+    import base64
+    from importlib import resources
+
+    png = resources.files("tokenis").joinpath("assets/icon-64.png").read_bytes()
+    src = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    return [Icon(src=src, mime_type="image/png", sizes=["64x64"])]
 
 
 def fixed_principal(principal: str) -> PrincipalResolver:
@@ -203,6 +214,8 @@ def create_server(
         title="Tokenis disclosure-boundary gateway",
         description="Aggregate questions over encrypted data, under admission control and audit.",
         instructions=INSTRUCTIONS,
+        website_url="https://github.com/tokenismcp/tokenis-mcp",
+        icons=server_icons(),
         token_verifier=token_verifier,
         auth=auth,
         # The SDK configures process-wide logging at this level; WARNING keeps

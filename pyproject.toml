@@ -71,7 +71,10 @@ python-source = "."
 python-packages = ["tokenis"]
 features = ["pyo3/extension-module"]
 # Ships tokenis/py.typed and tokenis/_core.pyi with the package (PEP 561).
-include = [{ path = "tokenis/py.typed", format = ["sdist", "wheel"] }]
+include = [
+    { path = "tokenis/py.typed", format = ["sdist", "wheel"] },
+    { path = "tokenis/assets/*.png", format = ["sdist", "wheel"] },
+]
 
 [tool.pytest.ini_options]
 testpaths = [

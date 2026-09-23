@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/tokenismcp/tokenis-mcp/main/assets/logo.png" width="96" alt="Tokenis logo">
+
 # @tokenis/crypto
 
 TypeScript/JavaScript SDK for [Tokenis](https://github.com/tokenismcp/tokenis-mcp):
