@@ -9,7 +9,7 @@ thin launcher that starts `tokenis-mcp serve` the way its host expects.
 | Claude Code plugin | `.claude-plugin/marketplace.json`, `plugins/tokenis/` | `uvx --python 3.12 tokenis-mcp@<version> serve --config-or-demo <file>` |
 | Claude Desktop extension | `packaging/mcpb/` (MCPB manifest 0.4, `uv` server type) | `uv run --directory <bundle> src/server.py --config-or-demo <file>` |
 | Docker / OCI | `Dockerfile` | `docker run -i --rm ghcr.io/tokenismcp/tokenis-mcp` |
-| MCP Registry | `server.json` (+ the `mcp-name` marker in `README.md`, the OCI label in `Dockerfile`) | points at the PyPI package and the image |
+| MCP Registry | `server.json` (+ the `mcp-name` marker in `README.md`) | points at the PyPI package (add the OCI image once it is public; the `Dockerfile` already carries the label) |
 | npm (`@tokenis/crypto`) | `sdk/typescript/` | the TypeScript crypto SDK, not the server |
 
 `--config-or-demo` exists for launchers that always pass a path: an empty
@@ -22,7 +22,7 @@ maturin build --release --out wheels
 python packaging/check_packaging.py --wheel-dir wheels [--docker-image tokenis-mcp:test]
 ```
 
-The checker confirms that all eleven version declarations agree, validates
+The checker confirms that every version declaration agrees, validates
 `server.json` against the registry schema, then launches the plugin
 command, the Desktop bundle and (optionally) the image exactly as their
 hosts do. `--wheel-dir` stands in for PyPI. Each launch is driven by a real
@@ -37,8 +37,8 @@ denied narrow query. CI runs this on every push, together with
 2. The release workflow builds wheels for every platform, the sdist, the npm
    tarball and `tokenis.mcpb`, and attaches them to a GitHub release.
 3. With the repository variable `PUBLISH=true`, it also publishes to PyPI
-   (trusted publishing), npm, GHCR (multi-arch, with provenance), and then
-   the MCP Registry (GitHub OIDC).
+   (trusted publishing), GHCR (multi-arch, with provenance), and then the
+   MCP Registry (GitHub OIDC). npm has its own switch, `PUBLISH_NPM=true`.
 
 One-time setup only the owner can do:
 

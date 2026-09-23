@@ -48,27 +48,6 @@
           "isSecret": true
         }
       ]
-    },
-    {
-      "registryType": "oci",
-      "identifier": "ghcr.io/tokenismcp/tokenis-mcp:0.1.0",
-      "transport": {
-        "type": "stdio"
-      },
-      "packageArguments": [
-        {
-          "type": "positional",
-          "value": "serve",
-          "isRequired": true
-        },
-        {
-          "type": "named",
-          "name": "--config-or-demo",
-          "valueHint": "/config/tokenis.toml",
-          "default": "",
-          "isRequired": true
-        }
-      ]
     }
   ]
 }

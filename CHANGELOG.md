@@ -1,11 +1,14 @@
 # Changelog
 
 All notable changes to this project are documented here. Format loosely
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). No tagged
-release yet: everything below is `[Unreleased]` and describes the current
-state; "History" records how the crypto layer got here.
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). "History" at
+the end records how the crypto layer got here.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-09-24
+
+First release: `pip install tokenis-mcp` / `uvx tokenis-mcp`.
 
 ### Added
 - **One-command installs, like other popular MCP servers:** `uvx tokenis-mcp`
