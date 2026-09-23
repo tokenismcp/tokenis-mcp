@@ -89,11 +89,17 @@ format. See that crate's documentation for the full list; in brief:
   ``PrivateKey.export_secret_bytes()`` exists for key backup/escrow, and is
   the one deliberate way a secret becomes Python memory.
 - Randomness always comes from the operating system CSPRNG inside Rust;
-  there is no parameter through which a caller can inject a weaker source.
+  the Python API has no parameter through which a caller can inject a
+  weaker source (the Rust crate's ``*_with(rng)`` variants, meant for
+  deterministic tests, are not bound). A failing OS RNG raises
+  ``TokenisCryptoError`` instead of aborting.
 - Points parsed from bytes are validated on-curve and must be canonical
   (compressed) encodings.
-- Decryption walks its entire baby-step-giant-step search whatever the
-  plaintext, and releases the GIL while it does.
+- Decryption walks the same number of baby-step-giant-step steps
+  whatever the plaintext, in bounded memory (``Decryptor(sk, max_value,
+  table_size)``: 8 bytes per table entry), and releases the GIL while it
+  does. Its memory access pattern still depends on the plaintext, so it is
+  not constant-time against a co-located cache-timing attacker.
 - Integer plaintexts must fit in a signed 64-bit integer.
 
 Not provided: hardware-backed key storage (HSM/KMS), and an independent
@@ -110,6 +116,7 @@ from typing import Tuple
 from tokenis._core import (
     DEFAULT_MAX_VALUE,
     MAX_SUPPORTED_RANGE,
+    MAX_TABLE_SIZE,
     Ciphertext,
     Decryptor,
     PrivateKey,
@@ -126,6 +133,7 @@ __all__ = [
     "DEFAULT_MAX_VALUE",
     "DEFAULT_PRECISION",
     "MAX_SUPPORTED_RANGE",
+    "MAX_TABLE_SIZE",
     "Ciphertext",
     "Decryptor",
     "EllipticRational",

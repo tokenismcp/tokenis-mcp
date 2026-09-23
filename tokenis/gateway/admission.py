@@ -586,6 +586,12 @@ class AdmissionPolicy:
         (the only correct choice for production). Passing a
         CredentialScopedBudget is supported ONLY to reproduce Theorem 13's
         regression test and is never the default.
+
+    Concurrency: not thread-safe. ``decide`` is a read-check-write over the
+    D2 basis and the budgets, so concurrent calls can each pass a check the
+    other would have failed -- which is exactly how a differencing attack
+    gets through. Callers must serialise every call (the gateway service
+    holds one lock around admission, computation and audit).
     """
 
     def __init__(
@@ -643,6 +649,61 @@ class AdmissionPolicy:
         return (context.window, context.subject_id or "")
 
     # -- the policy -----------------------------------------------------
+
+    def remaining_budget(self, context: QueryContext) -> int:
+        """Admissions left for this context's subject in its window (the
+        tainted budget when ``context.taint`` is set). Public state only."""
+        tainted = context.taint == 1 and self.enforce_d4
+        return (self._taint_budget if tainted else self._budget).remaining(context)
+
+    def restore(self, query: Optional[Query], context: QueryContext, admitted: bool) -> None:
+        """Re-apply a *logged* decision without re-deciding it (durable-state
+        replay; see ``tokenis/gateway/state.py``). Every tainted call counts
+        against C_tau; an admitted one also consumes budget and, for a
+        value-bearing aggregate, commits its characteristic vector to the D2
+        basis unconditionally -- it was disclosed, whatever the current
+        settings would say about it now. ``query`` is None for a
+        :meth:`charge` call."""
+        tainted = context.taint == 1 and self.enforce_d4
+        if tainted:
+            slot = self._taint_call_slot(context)
+            self._taint_calls[slot] = self._taint_calls.get(slot, 0) + 1
+        if not admitted:
+            return
+        if (
+            query is not None
+            and self.audit_enabled
+            and query.function in ("SUM", "AVG", "VAR")
+            and not (query.function == "AVG" and not self.audit_avg)
+            and query.column is not None
+        ):
+            moment = 2 if query.function == "VAR" else 1
+            vec = characteristic_indicator(query.predicate, self._public_attributes, self.n)
+            # weight range [1, 0] is empty: the row is committed, never refused.
+            self._basis_for(query.column, moment).try_add(vec.astype(np.int64), 1, 0)
+        (self._taint_budget if tainted else self._budget).consume(context)
+
+    def charge(self, context: QueryContext) -> Decision:
+        """Admission for a *lookup* tool that returns no aggregate (e.g. a
+        similarity search): no predicate, so D1/D2/D5 do not apply, but the
+        call still counts against D4's tainted call cap and the D3 (or D4
+        tainted) budget, so lookups cannot be issued without limit."""
+        if not context.subject_id:
+            raise MissingSubjectIdError(
+                "AdmissionPolicy.charge requires an authenticated subject id "
+                "on every call (Corollary 14); received none"
+            )
+        tainted = context.taint == 1 and self.enforce_d4
+        if tainted:
+            slot = self._taint_call_slot(context)
+            self._taint_calls[slot] = self._taint_calls.get(slot, 0) + 1
+            if self._taint_calls[slot] > self._taint_call_cap:
+                return Decision(False, "D4-Ctau", "tainted call cap exceeded")
+        budget_scope = self._taint_budget if tainted else self._budget
+        if not budget_scope.has_budget(context):
+            return Decision(False, "D4-Btau" if tainted else "D3", "budget exhausted")
+        budget_scope.consume(context)
+        return Decision(True, None, "admitted")
 
     def decide(self, query: Query, context: QueryContext) -> Decision:
         """Decide whether to admit a query. A pure function of public state only.

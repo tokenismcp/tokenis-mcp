@@ -32,6 +32,24 @@ from typing import Callable, TypeVar
 _F = TypeVar("_F", bound=Callable)
 
 
+def remaining_in_bucket(start_perf_counter: float, granularity_ms: float) -> float:
+    """Seconds left until the next multiple of ``granularity_ms`` (at least
+    one full bucket) since ``start_perf_counter``."""
+    if granularity_ms <= 0:
+        raise ValueError("granularity_ms must be positive")
+    elapsed_ms = (time.perf_counter() - start_perf_counter) * 1000.0
+    buckets = max(1, math.ceil(elapsed_ms / granularity_ms))
+    return max(0.0, (buckets * granularity_ms - elapsed_ms) / 1000.0)
+
+
+async def pad_to_granularity_async(start_perf_counter: float, granularity_ms: float) -> None:
+    """:func:`pad_to_granularity` for async code: sleeps without holding a
+    worker thread, so padding costs no concurrency."""
+    import anyio
+
+    await anyio.sleep(remaining_in_bucket(start_perf_counter, granularity_ms))
+
+
 def pad_to_granularity(start_perf_counter: float, granularity_ms: float) -> float:
     """Sleep out the remainder of the current time bucket. Returns the
     total elapsed time (including the pad) in milliseconds, for callers

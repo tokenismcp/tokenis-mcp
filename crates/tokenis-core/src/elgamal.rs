@@ -9,18 +9,18 @@
 //! TypeScript SDKs.
 
 use core::fmt;
-use std::collections::HashMap;
 
 use k256::elliptic_curve::BatchNormalize;
 use k256::elliptic_curve::group::Group;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{AffinePoint, NonZeroScalar, ProjectivePoint, Scalar, SecretKey};
-use rand_core::{CryptoRng, OsRng, RngCore};
+use rand_core::{CryptoRng, RngCore};
 use subtle::{Choice, ConditionallySelectable};
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::encoding::{
-    COMPRESSED_LEN, decode_point, encode_point, point_key, scalar_from_i64, split_point,
+    COMPRESSED_LEN, decode_point, encode_point, point_key, random_nonzero_scalar, scalar_from_i64,
+    split_point,
 };
 use crate::{Error, Result};
 
@@ -28,9 +28,17 @@ use crate::{Error, Result};
 pub const CIPHERTEXT_VERSION: u8 = 1;
 /// Default decryptable range `[-2^24, 2^24]`.
 pub const DEFAULT_MAX_VALUE: u64 = 1 << 24;
-/// Largest supported decryptable range (the baby-step table has
-/// `sqrt(max_value)` entries).
-pub const MAX_SUPPORTED_RANGE: u64 = 1 << 48;
+/// Largest supported decryptable range `[-2^40, 2^40]`.
+pub const MAX_SUPPORTED_RANGE: u64 = 1 << 40;
+/// Largest supported baby-step table: 2^24 entries, 8 bytes each (128 MiB).
+pub const MAX_TABLE_SIZE: u64 = 1 << 24;
+/// Largest number of giant steps one decryption may walk.
+pub const MAX_GIANT_STEPS: u64 = 1 << 24;
+/// Points normalised per batch inversion while building and searching; keeps
+/// the search's working memory constant whatever the range.
+const CHUNK: u64 = 1024;
+/// Low bits of a packed table entry that hold the baby-step index.
+const INDEX_BITS: u32 = 24;
 
 /// A secp256k1 private key. Zeroed on drop, redacted from `Debug`.
 #[derive(Clone)]
@@ -40,11 +48,18 @@ pub struct PrivateKey {
 
 impl PrivateKey {
     /// A fresh key from the operating system's CSPRNG.
-    pub fn generate() -> Self {
-        Self::generate_with(&mut OsRng)
+    pub fn generate() -> Result<Self> {
+        let mut s = random_nonzero_scalar()?;
+        let nz = Option::<NonZeroScalar>::from(NonZeroScalar::new(s));
+        s.zeroize();
+        let mut nz = nz.ok_or(Error::InvalidPrivateKey)?;
+        let secret = SecretKey::from(nz);
+        nz.zeroize();
+        Ok(Self { secret })
     }
 
-    /// A fresh key from a caller-supplied CSPRNG.
+    /// A fresh key from a caller-supplied CSPRNG (deterministic testing,
+    /// hardware RNGs). The bindings never expose this.
     pub fn generate_with<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self {
             secret: SecretKey::random(rng),
@@ -64,12 +79,18 @@ impl PrivateKey {
     /// Export the 32-byte big-endian scalar, in a buffer zeroed on drop.
     /// Deliberately named: key export should be rare and auditable.
     pub fn export_secret_bytes(&self) -> Zeroizing<[u8; 32]> {
-        Zeroizing::new(self.secret.to_bytes().into())
+        let mut bytes = self.secret.to_bytes();
+        let out = Zeroizing::new(bytes.into());
+        AsMut::<[u8]>::as_mut(&mut bytes).zeroize();
+        out
     }
 
     /// The matching public key.
     pub fn public_key(&self) -> PublicKey {
-        PublicKey::from_point(self.secret.public_key().to_projective())
+        let mut s = self.scalar();
+        let point = ProjectivePoint::GENERATOR * *s;
+        s.zeroize();
+        PublicKey::from_point(point)
     }
 
     fn scalar(&self) -> NonZeroScalar {
@@ -180,17 +201,26 @@ impl fmt::Debug for Ciphertext {
 }
 
 /// Encrypt `m` under `pk` with OS randomness.
-pub fn encrypt(pk: &PublicKey, m: i64) -> Ciphertext {
-    encrypt_with(pk, m, &mut OsRng)
+pub fn encrypt(pk: &PublicKey, m: i64) -> Result<Ciphertext> {
+    let mut r = random_nonzero_scalar()?;
+    let ct = encrypt_with_scalar(pk, m, &r);
+    r.zeroize();
+    Ok(ct)
 }
 
-/// Encrypt `m` under `pk` with a caller-supplied CSPRNG.
+/// Encrypt `m` under `pk` with a caller-supplied CSPRNG (deterministic
+/// testing). The bindings never expose this.
 pub fn encrypt_with<R: RngCore + CryptoRng>(pk: &PublicKey, m: i64, rng: &mut R) -> Ciphertext {
     let mut r = NonZeroScalar::random(rng);
-    let mut m_scalar = scalar_from_i64(m);
-    let c1 = ProjectivePoint::GENERATOR * *r;
-    let c2 = pk.point * *r + ProjectivePoint::GENERATOR * m_scalar;
+    let ct = encrypt_with_scalar(pk, m, &r);
     r.zeroize();
+    ct
+}
+
+fn encrypt_with_scalar(pk: &PublicKey, m: i64, r: &Scalar) -> Ciphertext {
+    let mut m_scalar = scalar_from_i64(m);
+    let c1 = ProjectivePoint::GENERATOR * r;
+    let c2 = pk.point * r + ProjectivePoint::GENERATOR * m_scalar;
     m_scalar.zeroize();
     Ciphertext {
         c1,
@@ -243,17 +273,6 @@ pub fn scalar_mul(a: &Ciphertext, k: i64) -> Ciphertext {
     }
 }
 
-/// Decrypts ciphertexts whose plaintext lies in `[-max_value, max_value]`.
-/// Holds a copy of the private key (zeroed on drop).
-pub struct Decryptor {
-    secret: PrivateKey,
-    public: PublicKey,
-    max_value: u64,
-    m: u64,
-    giant: ProjectivePoint,
-    table: HashMap<[u8; COMPRESSED_LEN], u64>,
-}
-
 /// Canonical keys for a sequence of points, sharing one field inversion.
 ///
 /// k256 0.13's batch normalization inverts every `z` coordinate at once and
@@ -285,26 +304,103 @@ fn batch_keys(points: &[ProjectivePoint]) -> Vec<[u8; COMPRESSED_LEN]> {
         .collect()
 }
 
+/// The table's 40-bit tag for a point: bytes 1..6 of its canonical key (the
+/// top of the x-coordinate). Tags can collide; every tag hit is verified
+/// against the full point before it is accepted.
+fn tag(key: &[u8; COMPRESSED_LEN]) -> u64 {
+    key.iter()
+        .skip(1)
+        .take(5)
+        .fold(0u64, |acc, b| (acc << 8) | u64::from(*b))
+}
+
+/// Walk `count` points `start, start + step, ...` in batches of [`CHUNK`],
+/// calling `visit(index, key)` for each. Working memory is O(CHUNK).
+fn walk(
+    start: ProjectivePoint,
+    step: ProjectivePoint,
+    count: u64,
+    mut visit: impl FnMut(u64, &[u8; COMPRESSED_LEN]),
+) {
+    let mut point = start;
+    let mut index = 0u64;
+    let mut batch = Vec::new();
+    while index < count {
+        let len = CHUNK.min(count - index);
+        batch.clear();
+        for _ in 0..len {
+            batch.push(point);
+            point += step;
+        }
+        for (offset, key) in (0u64..).zip(batch_keys(&batch)) {
+            visit(index + offset, &key);
+        }
+        index += len;
+    }
+}
+
+/// Decrypts ciphertexts whose plaintext lies in `[-max_value, max_value]`
+/// by baby-step-giant-step over the shifted range `[0, 2*max_value]`.
+/// Holds a copy of the private key (zeroed on drop).
+///
+/// Memory: 8 bytes per baby-step table entry plus a constant-size search
+/// buffer. Time per decryption: one pass over `ceil((2*max_value+1) /
+/// table_size)` giant steps. The default table size balances the two;
+/// [`Decryptor::with_table_size`] trades memory for speed.
+pub struct Decryptor {
+    secret: PrivateKey,
+    public: PublicKey,
+    max_value: u64,
+    table_size: u64,
+    giant_steps: u64,
+    offset: ProjectivePoint,
+    giant: ProjectivePoint,
+    /// Sorted `(tag << INDEX_BITS) | j` for `j*G`, `j < table_size`.
+    table: Vec<u64>,
+}
+
 impl Decryptor {
-    /// Build the baby-step table (`sqrt(max_value) + 2` points).
+    /// A decryptor with a table of about `sqrt(2*max_value)` entries.
     pub fn new(sk: &PrivateKey, max_value: u64) -> Result<Self> {
         if max_value == 0 || max_value > MAX_SUPPORTED_RANGE {
             return Err(Error::InvalidRange);
         }
-        let m = max_value.isqrt().saturating_add(1);
-        let mut steps = Vec::new();
-        let mut point = ProjectivePoint::IDENTITY;
-        for _ in 0..=m {
-            steps.push(point);
-            point += ProjectivePoint::GENERATOR;
+        let span = 2 * max_value + 1;
+        Self::with_table_size(sk, max_value, (span.isqrt() + 1).min(MAX_TABLE_SIZE))
+    }
+
+    /// A decryptor with an explicit baby-step table size (clamped to the
+    /// range): larger tables make each decryption proportionally faster.
+    pub fn with_table_size(sk: &PrivateKey, max_value: u64, table_size: u64) -> Result<Self> {
+        if max_value == 0 || max_value > MAX_SUPPORTED_RANGE {
+            return Err(Error::InvalidRange);
         }
-        let table = batch_keys(&steps).into_iter().zip(0u64..).collect();
+        if table_size == 0 || table_size > MAX_TABLE_SIZE {
+            return Err(Error::InvalidRange);
+        }
+        let span = 2 * max_value + 1;
+        let table_size = table_size.min(span);
+        let giant_steps = span.div_ceil(table_size);
+        if giant_steps > MAX_GIANT_STEPS {
+            return Err(Error::InvalidRange);
+        }
+        let capacity = usize::try_from(table_size).map_err(|_| Error::InvalidRange)?;
+        let mut table = Vec::with_capacity(capacity);
+        walk(
+            ProjectivePoint::IDENTITY,
+            ProjectivePoint::GENERATOR,
+            table_size,
+            |j, key| table.push((tag(key) << INDEX_BITS) | j),
+        );
+        table.sort_unstable();
         Ok(Self {
             secret: sk.clone(),
             public: sk.public_key(),
             max_value,
-            m,
-            giant: -(ProjectivePoint::GENERATOR * Scalar::from(m)),
+            table_size,
+            giant_steps,
+            offset: ProjectivePoint::GENERATOR * Scalar::from(max_value),
+            giant: -(ProjectivePoint::GENERATOR * Scalar::from(table_size)),
             table,
         })
     }
@@ -314,13 +410,18 @@ impl Decryptor {
         self.max_value
     }
 
+    /// The baby-step table size in entries.
+    pub fn table_size(&self) -> u64 {
+        self.table_size
+    }
+
     /// The public key matching this decryptor's private key.
     pub fn public_key(&self) -> &PublicKey {
         &self.public
     }
 
-    /// Recover the plaintext. The search work is identical for every
-    /// ciphertext (see the crate docs).
+    /// Recover the plaintext. Every call walks the same number of giant
+    /// steps (see the crate docs for what that does and does not hide).
     pub fn decrypt(&self, ct: &Ciphertext) -> Result<i64> {
         if ct.key.is_some_and(|k| k != self.public.encoded) {
             return Err(Error::KeyMismatch);
@@ -328,50 +429,56 @@ impl Decryptor {
         let mut sk = self.secret.scalar();
         let m_point = ct.c2 - ct.c1 * *sk;
         sk.zeroize();
-        let (positive, _) = self.search(m_point);
-        let (negative, _) = self.search(-m_point);
-        let to_i64 = |v: u64| i64::try_from(v).map_err(|_| Error::PlaintextOutOfRange);
-        match (positive, negative) {
-            (Some(v), _) => to_i64(v),
-            (None, Some(v)) => to_i64(v)?.checked_neg().ok_or(Error::PlaintextOutOfRange),
-            (None, None) => Err(Error::PlaintextOutOfRange),
-        }
+        let (found, _) = self.search(m_point + self.offset);
+        let shifted = found.ok_or(Error::PlaintextOutOfRange)?;
+        let shifted = i64::try_from(shifted).map_err(|_| Error::PlaintextOutOfRange)?;
+        let max = i64::try_from(self.max_value).map_err(|_| Error::PlaintextOutOfRange)?;
+        Ok(shifted - max)
     }
 
     /// Re-encrypt under this decryptor's own public key with fresh
     /// randomness ([ECFHE] Algorithm 5). Requires the private key -- only
     /// the key holder can run it.
     pub fn refresh(&self, ct: &Ciphertext) -> Result<Ciphertext> {
-        Ok(encrypt(&self.public, self.decrypt(ct)?))
+        encrypt(&self.public, self.decrypt(ct)?)
     }
 
-    /// Find `v <= max_value` with `v*G == target`, walking all `m + 1` giant
-    /// steps. Returns the match and the number of steps taken.
+    /// Find `v <= 2*max_value` with `v*G == target`, walking all giant
+    /// steps whether or not (and wherever) it is found. Returns the match
+    /// and the number of giant steps taken.
     fn search(&self, target: ProjectivePoint) -> (Option<u64>, u64) {
-        let mut walk = Vec::new();
-        let mut point = target;
-        for _ in 0..=self.m {
-            walk.push(point);
-            point += self.giant;
-        }
+        let span = 2 * self.max_value + 1;
         let mut found = None;
         let mut steps = 0u64;
-        for (i, key) in (0u64..).zip(batch_keys(&walk)) {
-            if let Some(&j) = self.table.get(&key) {
-                let candidate = i.checked_mul(self.m).and_then(|v| v.checked_add(j));
-                if found.is_none() && candidate.is_some_and(|c| c <= self.max_value) {
+        walk(target, self.giant, self.giant_steps, |i, key| {
+            steps += 1;
+            let wanted = tag(key) << INDEX_BITS;
+            let first = self.table.partition_point(|e| *e < wanted);
+            for entry in self.table.iter().skip(first) {
+                if entry >> INDEX_BITS != wanted >> INDEX_BITS {
+                    break;
+                }
+                let j = entry & ((1 << INDEX_BITS) - 1);
+                let verified = point_key(&(ProjectivePoint::GENERATOR * Scalar::from(j))) == *key;
+                let candidate = i
+                    .checked_mul(self.table_size)
+                    .and_then(|v| v.checked_add(j));
+                if verified && found.is_none() && candidate.is_some_and(|c| c < span) {
                     found = candidate;
                 }
             }
-            steps = steps.saturating_add(1);
-        }
+        });
         (found, steps)
     }
 }
 
 impl fmt::Debug for Decryptor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Decryptor(max_value={})", self.max_value)
+        write!(
+            f,
+            "Decryptor(max_value={}, table_size={})",
+            self.max_value, self.table_size
+        )
     }
 }
 
@@ -406,33 +513,74 @@ mod tests {
     use proptest::prelude::*;
 
     fn keys() -> (PrivateKey, PublicKey, Decryptor) {
-        let sk = PrivateKey::generate();
+        let sk = PrivateKey::generate().unwrap();
         let pk = sk.public_key();
         let dec = Decryptor::new(&sk, 100_000).unwrap();
         (sk, pk, dec)
     }
 
+    fn enc(pk: &PublicKey, m: i64) -> Ciphertext {
+        encrypt(pk, m).unwrap()
+    }
+
     #[test]
     fn roundtrip_including_zero_and_negative() {
         let (_, pk, dec) = keys();
-        for m in [0, 1, -1, 42, -17, 100_000, -100_000] {
-            assert_eq!(dec.decrypt(&encrypt(&pk, m)).unwrap(), m);
+        for m in [0, 1, -1, 42, -17, 99_999, 100_000, -100_000] {
+            assert_eq!(dec.decrypt(&enc(&pk, m)).unwrap(), m);
         }
     }
 
     #[test]
     fn out_of_range_is_an_error() {
         let (_, pk, dec) = keys();
-        assert_eq!(
-            dec.decrypt(&encrypt(&pk, 100_001)),
-            Err(Error::PlaintextOutOfRange)
-        );
+        for m in [100_001, -100_001, i64::MAX, i64::MIN] {
+            assert_eq!(dec.decrypt(&enc(&pk, m)), Err(Error::PlaintextOutOfRange));
+        }
+    }
+
+    #[test]
+    fn every_value_at_the_range_edges_decrypts_for_many_table_sizes() {
+        let sk = PrivateKey::generate().unwrap();
+        let pk = sk.public_key();
+        for (max, table) in [
+            (1, 1),
+            (7, 2),
+            (7, 15),
+            (300, 1),
+            (300, 17),
+            (300, 1000),
+            (1000, 64),
+        ] {
+            let dec = Decryptor::with_table_size(&sk, max, table).unwrap();
+            let max_i = i64::try_from(max).unwrap();
+            for m in [-max_i, -max_i + 1, -1, 0, 1, max_i - 1, max_i] {
+                assert_eq!(
+                    dec.decrypt(&enc(&pk, m)).unwrap(),
+                    m,
+                    "max={max} table={table}"
+                );
+            }
+            for m in [-max_i - 1, max_i + 1] {
+                assert_eq!(dec.decrypt(&enc(&pk, m)), Err(Error::PlaintextOutOfRange));
+            }
+        }
+    }
+
+    #[test]
+    fn large_tables_decrypt_large_values() {
+        let sk = PrivateKey::generate().unwrap();
+        let pk = sk.public_key();
+        let dec = Decryptor::with_table_size(&sk, 1 << 36, 1 << 20).unwrap();
+        for m in [(1i64 << 36), -(1i64 << 36), 12_345_678_901, -987_654_321] {
+            assert_eq!(dec.decrypt(&enc(&pk, m)).unwrap(), m);
+        }
     }
 
     #[test]
     fn homomorphic_operations() {
         let (_, pk, dec) = keys();
-        let (a, b) = (encrypt(&pk, 30), encrypt(&pk, 12));
+        let (a, b) = (enc(&pk, 30), enc(&pk, 12));
         assert_eq!(dec.decrypt(&add(&a, &b).unwrap()).unwrap(), 42);
         assert_eq!(dec.decrypt(&sub(&a, &b).unwrap()).unwrap(), 18);
         assert_eq!(dec.decrypt(&neg(&a)).unwrap(), -30);
@@ -443,8 +591,8 @@ mod tests {
     #[test]
     fn key_mismatch_detected() {
         let (_, pk, dec) = keys();
-        let other = PrivateKey::generate().public_key();
-        let (a, b) = (encrypt(&pk, 1), encrypt(&other, 1));
+        let other = PrivateKey::generate().unwrap().public_key();
+        let (a, b) = (enc(&pk, 1), enc(&other, 1));
         assert_eq!(add(&a, &b), Err(Error::KeyMismatch));
         assert_eq!(dec.decrypt(&b), Err(Error::KeyMismatch));
     }
@@ -452,19 +600,19 @@ mod tests {
     #[test]
     fn encryption_is_randomized() {
         let (_, pk, _) = keys();
-        assert_ne!(encrypt(&pk, 5).to_bytes(), encrypt(&pk, 5).to_bytes());
+        assert_ne!(enc(&pk, 5).to_bytes(), enc(&pk, 5).to_bytes());
     }
 
     #[test]
     fn serialization_roundtrip_including_identity() {
         let (_, pk, dec) = keys();
-        for ct in [encrypt(&pk, 77), scalar_mul(&encrypt(&pk, 77), 0)] {
+        for ct in [enc(&pk, 77), scalar_mul(&enc(&pk, 77), 0)] {
             let bytes = ct.to_bytes();
             let back = Ciphertext::from_bytes(&bytes, Some(&pk)).unwrap();
             assert_eq!(back, ct);
             assert_eq!(dec.decrypt(&back).unwrap(), dec.decrypt(&ct).unwrap());
         }
-        assert_eq!(scalar_mul(&encrypt(&pk, 1), 0).to_bytes(), vec![1, 0, 0]);
+        assert_eq!(scalar_mul(&enc(&pk, 1), 0).to_bytes(), vec![1, 0, 0]);
         assert_eq!(PublicKey::from_bytes(&pk.to_bytes()).unwrap(), pk);
     }
 
@@ -483,7 +631,7 @@ mod tests {
     #[test]
     fn malformed_inputs_rejected() {
         let (_, pk, _) = keys();
-        let good = encrypt(&pk, 7).to_bytes();
+        let good = enc(&pk, 7).to_bytes();
         let mut bad_version = good.clone();
         bad_version[0] = 2;
         assert_eq!(
@@ -525,45 +673,85 @@ mod tests {
         assert!(PrivateKey::from_bytes(&[0u8; 32]).is_err());
         assert!(PrivateKey::from_bytes(&[0xffu8; 32]).is_err());
         assert!(PrivateKey::from_bytes(&[1u8; 31]).is_err());
-        let sk = PrivateKey::generate();
+        let sk = PrivateKey::generate().unwrap();
         let exported = sk.export_secret_bytes();
         let again = PrivateKey::from_bytes(exported.as_ref()).unwrap();
         assert_eq!(again.public_key(), sk.public_key());
+        assert_eq!(
+            sk.public_key(),
+            PublicKey::from_point(sk.secret.public_key().to_projective())
+        );
         assert_eq!(format!("{sk:?}"), "PrivateKey(<redacted>)");
         let dec = Decryptor::new(&sk, 10).unwrap();
-        assert_eq!(format!("{dec:?}"), "Decryptor(max_value=10)");
+        assert_eq!(format!("{dec:?}"), "Decryptor(max_value=10, table_size=5)");
     }
 
     #[test]
-    fn decryptor_range_validated() {
-        let sk = PrivateKey::generate();
-        assert!(Decryptor::new(&sk, 0).is_err());
-        assert!(Decryptor::new(&sk, MAX_SUPPORTED_RANGE + 1).is_err());
+    fn decryptor_bounds_validated() {
+        let sk = PrivateKey::generate().unwrap();
+        assert_eq!(Decryptor::new(&sk, 0).unwrap_err(), Error::InvalidRange);
+        assert_eq!(
+            Decryptor::new(&sk, MAX_SUPPORTED_RANGE + 1).unwrap_err(),
+            Error::InvalidRange
+        );
+        assert_eq!(
+            Decryptor::with_table_size(&sk, 100, 0).unwrap_err(),
+            Error::InvalidRange
+        );
+        assert_eq!(
+            Decryptor::with_table_size(&sk, 100, MAX_TABLE_SIZE + 1).unwrap_err(),
+            Error::InvalidRange
+        );
+        // A tiny table over a huge range would mean an unbounded walk.
+        assert_eq!(
+            Decryptor::with_table_size(&sk, MAX_SUPPORTED_RANGE, 1).unwrap_err(),
+            Error::InvalidRange
+        );
+        // Oversized tables are clamped to the range.
+        assert_eq!(
+            Decryptor::with_table_size(&sk, 3, 1000)
+                .unwrap()
+                .table_size(),
+            7
+        );
     }
 
     #[test]
-    fn search_work_is_independent_of_plaintext() {
+    fn search_step_count_is_independent_of_plaintext() {
+        // Pins the claim the crate docs make -- a constant number of giant
+        // steps -- and no more: memory access patterns still depend on the
+        // plaintext (see lib.rs).
         let (sk, pk, dec) = keys();
         let mut step_counts = Vec::new();
         for m in [0i64, 1, 99_999, -99_999, 5_000_000] {
-            let ct = encrypt(&pk, m);
+            let ct = enc(&pk, m);
             let mut s = sk.scalar();
             let m_point = ct.c2 - ct.c1 * *s;
             s.zeroize();
-            let (_, pos_steps) = dec.search(m_point);
-            let (_, neg_steps) = dec.search(-m_point);
-            step_counts.push(pos_steps + neg_steps);
+            step_counts.push(dec.search(m_point + dec.offset).1);
         }
         assert!(
-            step_counts.windows(2).all(|w| w[0] == w[1]),
+            step_counts.iter().all(|c| *c == dec.giant_steps),
             "{step_counts:?}"
         );
     }
 
     #[test]
+    fn negative_plaintexts_are_branch_free_encoded() {
+        for m in [i64::MIN, -1, 0, 1, i64::MAX] {
+            let expected = if m < 0 {
+                -Scalar::from(m.unsigned_abs())
+            } else {
+                Scalar::from(m.unsigned_abs())
+            };
+            assert_eq!(scalar_from_i64(m), expected);
+        }
+    }
+
+    #[test]
     fn refresh_preserves_plaintext_and_rerandomizes() {
         let (_, pk, dec) = keys();
-        let ct = encrypt(&pk, 123);
+        let ct = enc(&pk, 123);
         let fresh = dec.refresh(&ct).unwrap();
         assert_eq!(dec.decrypt(&fresh).unwrap(), 123);
         assert_ne!(fresh.to_bytes(), ct.to_bytes());
@@ -585,7 +773,7 @@ mod tests {
             x in -20_000i64..20_000, y in -20_000i64..20_000, k in -4i64..=4
         ) {
             let (_, pk, dec) = keys();
-            let (a, b) = (encrypt(&pk, x), encrypt(&pk, y));
+            let (a, b) = (enc(&pk, x), enc(&pk, y));
             prop_assert_eq!(dec.decrypt(&add(&a, &b).unwrap()).unwrap(), x + y);
             prop_assert_eq!(dec.decrypt(&sub(&a, &b).unwrap()).unwrap(), x - y);
             prop_assert_eq!(dec.decrypt(&scalar_mul(&a, k)).unwrap(), x * k);

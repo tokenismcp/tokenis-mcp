@@ -6,7 +6,13 @@
 //! in Rust memory that is zeroed on drop; Python only ever holds opaque
 //! handles. None of these handles can be pickled or copied. Consumable
 //! handles (masks, corrections, triples) are emptied by the operation that
-//! uses them, so a second use raises instead of silently reusing a pad.
+//! uses them, so a second use raises instead of silently reusing a pad; a
+//! handle offered to the wrong `Owner` is rejected *before* it is emptied.
+//!
+//! Re-entrant use of one `Owner` (for example from an `__index__` hook that
+//! calls back into the same owner mid-operation) raises PyO3's
+//! `RuntimeError: Already borrowed` rather than `TokenisCryptoError`; the
+//! operation is refused either way.
 
 use pyo3::create_exception;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -44,8 +50,8 @@ struct PrivateKey(eg::PrivateKey);
 impl PrivateKey {
     /// Generate a key from the operating system's CSPRNG.
     #[staticmethod]
-    fn generate() -> Self {
-        Self(eg::PrivateKey::generate())
+    fn generate() -> PyResult<Self> {
+        eg::PrivateKey::generate().map(Self).map_err(err)
     }
 
     /// Import a 32-byte big-endian scalar in [1, n).
@@ -168,19 +174,28 @@ impl Ciphertext {
 }
 
 /// Decrypts ciphertexts with plaintexts in [-max_value, max_value]. Holds a
-/// copy of the private key in Rust memory.
+/// copy of the private key in Rust memory. `table_size` (default about
+/// sqrt(2 * max_value)) trades memory, 8 bytes per entry, for speed.
 #[pyclass(module = "tokenis._core", frozen)]
 struct Decryptor(eg::Decryptor);
 
 #[pymethods]
 impl Decryptor {
     #[new]
-    #[pyo3(signature = (sk, max_value=eg::DEFAULT_MAX_VALUE))]
-    fn new(py: Python<'_>, sk: &PrivateKey, max_value: u64) -> PyResult<Self> {
+    #[pyo3(signature = (sk, max_value=eg::DEFAULT_MAX_VALUE, table_size=None))]
+    fn new(
+        py: Python<'_>,
+        sk: &PrivateKey,
+        max_value: u64,
+        table_size: Option<u64>,
+    ) -> PyResult<Self> {
         let key = sk.0.clone();
-        py.detach(move || eg::Decryptor::new(&key, max_value))
-            .map(Self)
-            .map_err(err)
+        py.detach(move || match table_size {
+            None => eg::Decryptor::new(&key, max_value),
+            Some(t) => eg::Decryptor::with_table_size(&key, max_value, t),
+        })
+        .map(Self)
+        .map_err(err)
     }
 
     fn decrypt(&self, py: Python<'_>, ct: &Ciphertext) -> PyResult<i64> {
@@ -201,6 +216,11 @@ impl Decryptor {
         self.0.max_value()
     }
 
+    #[getter]
+    fn table_size(&self) -> u64 {
+        self.0.table_size()
+    }
+
     fn public_key(&self) -> PublicKey {
         PublicKey(self.0.public_key().clone())
     }
@@ -217,8 +237,8 @@ impl Decryptor {
 }
 
 #[pyfunction]
-fn encrypt(pk: &PublicKey, m: i64) -> Ciphertext {
-    Ciphertext(eg::encrypt(&pk.0, m))
+fn encrypt(pk: &PublicKey, m: i64) -> PyResult<Ciphertext> {
+    eg::encrypt(&pk.0, m).map(Ciphertext).map_err(err)
 }
 
 #[pyfunction]
@@ -318,8 +338,23 @@ impl MultiplicationOpening {
     }
 }
 
-fn scalar(data: &[u8]) -> PyResult<dl::Scalar> {
+fn scalar(data: &[u8]) -> PyResult<dl::Value> {
     dl::value_from_bytes(data).map_err(err)
+}
+
+/// Move a one-time secret out of its handle -- but only after checking it
+/// belongs to `owner`, so a mismatch leaves the caller's handle intact.
+fn take_owned<T: dl::OwnedSecret>(
+    owner: &dl::Owner,
+    slot: &mut Option<T>,
+    what: &str,
+    foreign: tokenis_core::Error,
+) -> PyResult<T> {
+    match slot.as_ref() {
+        None => Err(consumed(what)),
+        Some(secret) if !owner.owns(secret) => Err(err(foreign)),
+        Some(_) => slot.take().ok_or_else(|| consumed(what)),
+    }
 }
 
 /// The key-holding party of the no-key delegation protocol. Values cross
@@ -330,12 +365,12 @@ struct Owner(dl::Owner);
 #[pymethods]
 impl Owner {
     #[new]
-    fn new() -> Self {
-        Self(dl::Owner::new())
+    fn new() -> PyResult<Self> {
+        dl::Owner::new().map(Self).map_err(err)
     }
 
     fn blind(&self, value: &[u8]) -> PyResult<(MaskedValue, Mask)> {
-        let (m, mask) = self.0.blind(&scalar(value)?);
+        let (m, mask) = self.0.blind(&scalar(value)?).map_err(err)?;
         Ok((MaskedValue(m), Mask(Some(mask))))
     }
 
@@ -345,7 +380,12 @@ impl Owner {
         masked: &MaskedValue,
         mut mask: PyRefMut<'_, Mask>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let mask = mask.0.take().ok_or_else(|| consumed("Mask"))?;
+        let mask = take_owned(
+            &self.0,
+            &mut mask.0,
+            "Mask",
+            tokenis_core::Error::ForeignOwner,
+        )?;
         let value = self.0.unblind(&masked.0, mask).map_err(err)?;
         Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
     }
@@ -375,13 +415,21 @@ impl Owner {
         result: &MaskedValue,
         mut correction: PyRefMut<'_, Correction>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let correction = correction.0.take().ok_or_else(|| consumed("Correction"))?;
+        let correction = take_owned(
+            &self.0,
+            &mut correction.0,
+            "Correction",
+            tokenis_core::Error::ForeignOwner,
+        )?;
         let value = self.0.unblind_affine(&result.0, correction).map_err(err)?;
         Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
     }
 
-    fn prepare_triple(&mut self) -> MultiplicationTriple {
-        MultiplicationTriple(Some(self.0.prepare_triple()))
+    fn prepare_triple(&mut self) -> PyResult<MultiplicationTriple> {
+        self.0
+            .prepare_triple()
+            .map(|t| MultiplicationTriple(Some(t)))
+            .map_err(err)
     }
 
     fn open_multiplication(
@@ -408,10 +456,12 @@ impl Owner {
         eg_value: &[u8],
     ) -> PyResult<Bound<'py, PyBytes>> {
         let eg_scalar = scalar(eg_value)?;
-        let triple = triple
-            .0
-            .take()
-            .ok_or_else(|| consumed("MultiplicationTriple"))?;
+        let triple = take_owned(
+            &self.0,
+            &mut triple.0,
+            "MultiplicationTriple",
+            tokenis_core::Error::ForeignTriple,
+        )?;
         let value = self
             .0
             .reconstruct_multiplication(triple, &opening.0, &eg_scalar)
@@ -419,16 +469,23 @@ impl Owner {
         Ok(PyBytes::new(py, &dl::value_to_bytes(&value)))
     }
 
-    /// Blinded bootstrap: unmask, replace the value with `new_value`
-    /// (computed by the caller from the unmasked value it already holds), and
-    /// re-mask with a fresh pad. Consumes `mask`.
+    /// Blinded bootstrap: re-mask the same value with a fresh pad, without
+    /// the plaintext ever leaving Rust. Consumes `mask`.
     fn refresh(
         &self,
         masked: &MaskedValue,
         mut mask: PyRefMut<'_, Mask>,
     ) -> PyResult<(MaskedValue, Mask)> {
-        let mask = mask.0.take().ok_or_else(|| consumed("Mask"))?;
-        let (m, fresh) = self.0.refresh(&masked.0, mask, |x| x).map_err(err)?;
+        let mask = take_owned(
+            &self.0,
+            &mut mask.0,
+            "Mask",
+            tokenis_core::Error::ForeignOwner,
+        )?;
+        let (m, fresh) = self
+            .0
+            .refresh(&masked.0, mask, dl::Value::clone)
+            .map_err(err)?;
         Ok((MaskedValue(m), Mask(Some(fresh))))
     }
 
@@ -470,6 +527,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add("DEFAULT_MAX_VALUE", eg::DEFAULT_MAX_VALUE)?;
     m.add("MAX_SUPPORTED_RANGE", eg::MAX_SUPPORTED_RANGE)?;
+    m.add("MAX_TABLE_SIZE", eg::MAX_TABLE_SIZE)?;
     m.add("CIPHERTEXT_VERSION", eg::CIPHERTEXT_VERSION)?;
     m.add_class::<PrivateKey>()?;
     m.add_class::<PublicKey>()?;

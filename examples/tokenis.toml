@@ -1,0 +1,118 @@
+# Tokenis gateway configuration (example). Every key is optional unless
+# marked required; unknown keys are errors. Paths are relative to this file.
+#
+#   export TOKENIS_TOKENIZER_KEY=$(tokenis-mcp keygen-secret)
+#   export TOKENIS_AUDIT_KEY=$(tokenis-mcp keygen-secret)
+#   tokenis-mcp check --config examples/tokenis.toml
+#   tokenis-mcp serve --config examples/tokenis.toml          # stdio
+#
+# Keep both keys stable across restarts (a new tokenizer key changes every
+# token; a new audit key fails verification of the existing trace), and
+# keep them out of this file.
+
+[tenant]
+name = "example-corp"
+epoch = 1                                   # bump to rotate every token
+tokenizer_key_env = "TOKENIS_TOKENIZER_KEY" # env var holding the PRF key (hex/base64, >= 16 bytes)
+
+[data]                                      # required
+path = "data/customers.csv"                 # CSV with a header row, or .jsonl
+id_column = "id"                            # unique record id; never exposed
+embedding_column = "embedding"              # JSON array or ';'-separated floats; never exposed
+
+# One entry per attribute the gateway may use. Columns in the file but not
+# listed here are ignored.
+#   open   -- released verbatim, filterable
+#   token  -- released only as a keyed pseudonym, filterable by token
+#   sealed -- encrypted at load; only aggregates leave the gateway
+[[columns]]
+name = "customer_name"
+protection = "token"
+description = "Customer legal name"
+entity = true                               # what similarity_search returns
+
+[[columns]]
+name = "industry"
+protection = "open"
+description = "Industry sector"
+
+[[columns]]
+name = "region"
+protection = "open"
+description = "Registered region (city-district)"
+
+[[columns]]
+name = "size_band"
+protection = "open"
+description = "Company size band"
+
+[[columns]]
+name = "revenue_2024"
+protection = "sealed"
+description = "Annual revenue, fiscal 2024"
+unit = "KRW million"
+scale = 1                                   # keep one decimal place
+
+[[columns]]
+name = "revenue_2025"
+protection = "sealed"
+description = "Annual revenue, fiscal 2025"
+unit = "KRW million"
+scale = 1
+
+[[columns]]
+name = "employees"
+protection = "sealed"
+description = "Headcount"
+result_mode = "band"                        # report as a 1-2-5 band, not an exact number
+allow_variance = true
+
+[admission]                                 # P4 D1-D5
+min_query_set_size = 5                      # k: no aggregate over fewer records
+budget = 200                                # admitted queries per principal per window
+window = "day"                              # total | day | hour (UTC)
+taint_budget = 20                           # while the caller's context is tainted
+taint_call_cap = 50
+cell_aware = true
+
+[decryption]
+max_value = 68719476736                     # 2^36: largest |aggregate|, in stored units
+table_size = 4194304                        # 2^22 entries = 32 MiB; ~15 ms per decryption
+
+[disclosure]
+latency_granularity_ms = 250                # every call takes a multiple of this (W6)
+max_top_k = 5
+max_buckets = 8
+max_groups = 50
+max_enum_values = 100
+
+[[reveal.purposes]]                         # gates disclose_ratio / disclose_bucket
+name = "quarterly_board_report"
+description = "Figures for the quarterly board pack"
+principals = ["*"]                          # or a list of principals
+
+[state]                                     # omit only for throwaway experiments
+dir = "state"                               # admission history + disclosure trace
+audit_key_env = "TOKENIS_AUDIT_KEY"         # HMAC-signs every trace entry
+
+[server]
+transport = "stdio"                         # stdio | http
+host = "127.0.0.1"
+port = 8000
+# public_url = "https://tokenis.example.com"  # http: the URL clients use
+# allowed_hosts = ["tokenis.example.com"]     # http: Host headers to accept
+# stdio_principal = "analyst@example.com"     # default: local:<os-user>
+# taint_header = "X-Tokenis-Taint"            # http: set by the agent host
+max_concurrency = 16
+
+[auth]                                      # required for transport = "http"
+mode = "api_keys"                           # none (stdio only) | api_keys | jwt
+api_keys_file = "state/api-keys.json"       # tokenis-mcp keys create <principal> --config ...
+
+# [auth.jwt]                                # mode = "jwt": tokens from your IdP
+# issuer = "https://login.example.com/"
+# audience = "tokenis"
+# jwks_url = "https://login.example.com/.well-known/jwks.json"
+# algorithms = ["RS256"]
+# principal_claim = "sub"
+# required_scopes = ["tokenis.query"]

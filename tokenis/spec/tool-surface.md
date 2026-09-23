@@ -17,12 +17,18 @@ is not."
 | Tool | Family | Operation | Return form | Boundary |
 |---|---|---|---|---|
 | `aggregate` | Aggregate | SUM / COUNT / AVG / VAR over a SEALED column, caller-chosen predicate | Band or exact value, per product mode ([`reports/SUMMARY.md`](../../reports/SUMMARY.md) mode table) | Ciphertext domain; decrypted at the boundary, logged to the disclosure trace |
-| `group_by` | Aggregate | `aggregate`, partitioned by an OPEN or TOKEN key | Per-group bands, k-suppressed (P3 §7/§8 D3) | Ciphertext domain |
+| `group_by` | Aggregate | `aggregate`, partitioned by an OPEN or TOKEN key | Per-group value or band (per product mode), k-suppressed (P3 §7/§8 D3); each group is admission-checked like a separate `aggregate` | Ciphertext domain |
 | `compare_periods` | Aggregate | Difference between two aggregates, `Enc(delta)` | Relative ratio or direction only (never the raw difference, which is itself a value disclosure) | Ciphertext domain |
 | `similarity_search` | Lookup | Top-k nearest records over encrypted vectors | Ranked TOKEN-class IDs | Ciphertext domain |
-| `exists` | Lookup | Presence test for a record or attribute value | Boolean | Ciphertext domain |
+| `exists` | Lookup | Presence test for a set of records | Boolean "at least *k* match" — deliberately *not* "at least one": distinguishing 0 from 1 for a filter that includes a token would disclose that entity's attributes | Ciphertext domain |
 | `disclose_ratio` | Reveal | Division — the ciphertext domain cannot perform this under an additive-only scheme (see [`tokenis/gateway/compute.py`](../gateway/compute.py) module docstring) | Numeric ratio | **Crosses the boundary** — gated via [`tokenis/gateway/reveal.py`](../gateway/reveal.py), synchronously audited |
 | `disclose_bucket` | Reveal | Threshold classification into a named bucket | Bucket label | **Crosses the boundary** — gated + audited |
+
+The reference gateway also exposes the catalogue as an eighth, argument-free
+tool, `describe_dataset`, because several MCP hosts and every plain LLM
+tool-calling API surface tools but not resources; it discloses nothing the
+catalogue resource does not, plus the caller's own remaining budget and the
+Reveal purposes it may use.
 
 Two **resources** (not tools — they carry no call arguments and disclose no
 row values) let the model plan without seeing data:

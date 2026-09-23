@@ -137,6 +137,24 @@ class TestMaskedMultiplication:
         with pytest.raises(TokenisCryptoError):
             open_multiplication(owner, 5, 6, triple)
 
+    def test_foreign_secrets_are_rejected_without_being_destroyed(self, owner):
+        """Offering a secret to the wrong owner must not burn the caller's
+        only copy of it."""
+        other = Owner()
+        masked, mask = owner.blind(77)
+        with pytest.raises(TokenisCryptoError, match="different Owner"):
+            other.unblind(masked, mask)
+        assert not mask.consumed
+        assert owner.unblind(masked, mask) == 77
+
+        triple = owner.prepare_triple()
+        opening = open_multiplication(owner, 3, 4, triple)
+        eg = combine_multiplication(opening)
+        with pytest.raises(TokenisCryptoError):
+            reconstruct_multiplication(other, triple, opening, eg)
+        assert not triple.consumed
+        assert reconstruct_multiplication(owner, triple, opening, eg) == 12
+
 
 class TestBlindedBootstrap:
     def test_preserves_value_with_fresh_pad(self, owner):

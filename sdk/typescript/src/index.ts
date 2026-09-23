@@ -11,9 +11,14 @@
  * `.free()`). Randomness comes from `crypto.getRandomValues`.
  *
  * - {@link encrypt} / {@link Decryptor}: additive EC-ElGamal over secp256k1.
- *   Plaintexts are `bigint` in the signed 64-bit range.
+ *   Plaintexts are `bigint` in the signed 64-bit range; anything outside it
+ *   throws rather than wrapping. `Decryptor.withTableSize` trades memory
+ *   (8 bytes per entry) for decryption speed.
  * - {@link Owner} and friends: no-key delegation (one-time-pad masking and
  *   Beaver-triple multiplication) over integers mod {@link CURVE_ORDER}.
+ *
+ * Node.js only (22+): the WebAssembly is loaded with `require`, so browsers
+ * and bundlers are not supported by this package.
  *
  * @packageDocumentation
  */
@@ -47,18 +52,24 @@ export const CURVE_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd
 /** Default decryptable range: plaintexts in [-2^24, 2^24]. */
 export const DEFAULT_MAX_VALUE = 1n << 24n;
 
+/** Largest supported decryptable range: [-2^40, 2^40]. */
+export const MAX_SUPPORTED_RANGE = 1n << 40n;
+
+/** Largest supported decryption table (entries of 8 bytes). */
+export const MAX_TABLE_SIZE = 1n << 24n;
+
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 
-function toI64(m: bigint | number): bigint {
+function toI64(m: bigint | number, what = "plaintext"): bigint {
   if (typeof m === "number") {
     if (!Number.isSafeInteger(m)) {
-      throw new RangeError(`plaintext ${m} is not a safe integer; pass a bigint`);
+      throw new RangeError(`${what} ${m} is not a safe integer; pass a bigint`);
     }
     m = BigInt(m);
   }
   if (m < I64_MIN || m > I64_MAX) {
-    throw new RangeError("plaintext must fit in a signed 64-bit integer");
+    throw new RangeError(`${what} must fit in a signed 64-bit integer`);
   }
   return m;
 }
@@ -137,8 +148,10 @@ function concat32(values: readonly bigint[]): Uint8Array {
   return out;
 }
 
-function coefficientArray(coefficients: readonly (bigint | number)[]): BigInt64Array {
-  return BigInt64Array.from(coefficients.map(toI64));
+/* A plain array, not a BigInt64Array: assigning into the latter silently
+ * wraps out-of-range values. The core range-checks each element again. */
+function coefficientArray(coefficients: readonly (bigint | number)[]): bigint[] {
+  return coefficients.map((c) => toI64(c, "coefficient"));
 }
 
 /** A public affine functional `sum(a_i * x_i) + intercept` mod n. */

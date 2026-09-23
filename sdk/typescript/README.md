@@ -5,7 +5,8 @@ additively homomorphic EC-ElGamal over secp256k1 and the no-key delegation
 protocol, compiled to WebAssembly from the same Rust core as the Python SDK.
 Keys, ciphertexts and masked values are byte-compatible across both.
 
-Requires Node 20+.
+Requires Node 22+. Node.js only: the WebAssembly is loaded with `require`,
+so browsers and bundlers are not supported by this package.
 
 ## Encryption
 
@@ -19,6 +20,10 @@ const total = encrypt(publicKey, 1200n).add(encrypt(publicKey, 34n)).mul(2n);
 
 const decryptor = new Decryptor(privateKey); // range [-2^24, 2^24] by default
 decryptor.decrypt(total); // 2468n
+
+// Larger ranges (up to 2^40): a bigger table (8 bytes/entry) makes each
+// decryption proportionally faster.
+const big = Decryptor.withTableSize(privateKey, 1n << 36n, 1n << 22n);
 
 // Wire format shared with the Python SDK.
 const bytes = total.toBytes();
@@ -60,6 +65,10 @@ using one with a different `Owner`.
 - Randomness comes from `crypto.getRandomValues`.
 - Every byte string parsed (`fromBytes`) is validated; malformed input
   throws rather than being accepted.
+- Integers outside the signed 64-bit range throw instead of wrapping --
+  including on the raw `Ciphertext.mul` and `Decryptor` constructors.
+- A mask, correction or triple offered to the wrong `Owner` throws *without*
+  being consumed, so the right owner can still use it.
 - Ciphertext-times-ciphertext multiplication is not offered; see the
   repository's `tokenis/crypto/ec_fhe.py` for why.
 

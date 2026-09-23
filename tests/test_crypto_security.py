@@ -166,9 +166,24 @@ def test_key_mismatch_detected(keypair):
 
 
 def test_decryptor_range_validated(keypair):
-    for bad in (0, 2**48 + 1):
+    for bad in (0, ec_fhe.MAX_SUPPORTED_RANGE + 1):
         with pytest.raises(TokenisCryptoError):
             Decryptor(keypair.private, bad)
+    for bad_table in (0, ec_fhe.MAX_TABLE_SIZE + 1):
+        with pytest.raises(TokenisCryptoError):
+            Decryptor(keypair.private, 1000, table_size=bad_table)
+    # A tiny table over a huge range would be an unbounded walk: refused
+    # up front rather than hanging the caller.
+    with pytest.raises(TokenisCryptoError):
+        Decryptor(keypair.private, ec_fhe.MAX_SUPPORTED_RANGE, table_size=1)
+
+
+def test_decryptor_table_size_trades_memory_for_speed(keypair):
+    big = Decryptor(keypair.private, 2**32, table_size=2**18)
+    assert big.table_size == 2**18
+    for m in (2**32, -(2**32), 123_456_789_012 // 100):
+        assert big.decrypt(encrypt(keypair.public, m)) == m
+    assert Decryptor(keypair.private, 3, table_size=1000).table_size == 7
 
 
 def test_bootstrap_requires_matching_key(keypair):

@@ -7,7 +7,10 @@ name: Release
 # repository variable PUBLISH is "true", after these are configured:
 #   - PyPI: add this repository as a Trusted Publisher for `tokenis-mcp`
 #     (environment "pypi"); no API token is stored anywhere.
-#   - npm: add an NPM_TOKEN secret with publish rights to `@tokenis`.
+#   - npm: an "npm" environment holding an NPM_TOKEN secret with publish
+#     rights to the `@tokenis` scope (confirm you own the scope first).
+#     npm provenance needs a public source repository, so it is added only
+#     when this repository is public.
 
 on:
   push:
@@ -18,6 +21,22 @@ permissions:
   contents: read
 
 jobs:
+  version:
+    # A tag must match every manifest's version, or the artifacts would
+    # claim a version the source does not.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag matches pyproject.toml, Cargo.toml and package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          py=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          rs=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")
+          js=$(node -p "require('./sdk/typescript/package.json').version")
+          echo "tag=$tag pyproject=$py cargo=$rs npm=$js"
+          test "$tag" = "$py" && test "$tag" = "$rs" && test "$tag" = "$js"
+
   wheels:
     strategy:
       fail-fast: false
@@ -29,12 +48,12 @@ jobs:
           - { os: ubuntu-latest, target: aarch64, manylinux: auto }
           - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
           - { os: macos-14, target: aarch64, smoke: true }
-          - { os: macos-13, target: x86_64, smoke: true }
+          - { os: macos-15-intel, target: x86_64, smoke: true }
           - { os: windows-latest, target: x64, smoke: true }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: PyO3/maturin-action@v1
@@ -46,12 +65,13 @@ jobs:
         if: matrix.smoke
         shell: bash
         run: |
-          pip install dist/*.whl
+          pip install "$(ls dist/*.whl)[server]"
           # Run outside the checkout so the installed wheel is imported, not
           # the uncompiled source tree.
           cd "$RUNNER_TEMP"
           python -c "from tokenis.crypto.ec_fhe import keygen, encrypt, decrypt; k = keygen(); assert decrypt(k.private, encrypt(k.public, 7)) == 7"
-      - uses: actions/upload-artifact@v4
+          tokenis-mcp tools --demo --format anthropic > /dev/null
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
           path: dist
@@ -59,12 +79,14 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
-      - uses: actions/upload-artifact@v4
+      - name: sdist carries the license files
+        run: tar tzf dist/*.tar.gz | grep -E '/(LICENSE|THIRD-PARTY-NOTICES.md)$'
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist
@@ -75,56 +97,58 @@ jobs:
       run:
         working-directory: sdk/typescript
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - run: npm ci && npm run build:wasm && npm run typecheck && npm run build && npm test
+      - run: npm run check:package
       - run: npm pack
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: npm-package
           path: sdk/typescript/*.tgz
 
   publish-pypi:
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [wheels, sdist]
+    needs: [version, wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "{wheels-*,sdist}"
           merge-multiple: true
           path: dist
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-npm:
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [npm-package]
+    needs: [version, npm-package]
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: npm-package
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-      - run: npm publish --provenance --access public ./*.tgz
+      - run: npm publish --access public ${{ github.event.repository.private && ' ' || '--provenance' }} ./*.tgz
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

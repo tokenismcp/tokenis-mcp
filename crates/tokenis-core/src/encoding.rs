@@ -3,8 +3,12 @@
 //! Canonical point and scalar encodings shared by every binding.
 
 use k256::elliptic_curve::PrimeField;
+use k256::elliptic_curve::bigint::U512;
+use k256::elliptic_curve::ops::{Reduce, ReduceNonZero};
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use k256::{AffinePoint, EncodedPoint, FieldBytes, ProjectivePoint, Scalar};
+use k256::{AffinePoint, EncodedPoint, FieldBytes, ProjectivePoint, Scalar, WideBytes};
+use subtle::{Choice, ConditionallySelectable};
+use zeroize::Zeroize;
 
 use crate::{Error, Result};
 
@@ -18,8 +22,8 @@ pub(crate) fn encode_point(p: &ProjectivePoint) -> Vec<u8> {
     p.to_affine().to_encoded_point(true).as_bytes().to_vec()
 }
 
-/// Fixed-width key for hash-table lookups: compressed bytes, or all zeros
-/// for the identity (no valid compressed point starts with 0x00).
+/// Fixed-width canonical key: compressed bytes, or all zeros for the
+/// identity (no valid compressed point starts with 0x00).
 pub(crate) fn point_key(p: &ProjectivePoint) -> [u8; COMPRESSED_LEN] {
     let mut key = [0u8; COMPRESSED_LEN];
     let encoded = p.to_affine().to_encoded_point(true);
@@ -58,10 +62,48 @@ pub(crate) fn split_point(buf: &[u8]) -> Result<(&[u8], &[u8])> {
     Ok(buf.split_at(len))
 }
 
-/// Signed 64-bit integer as a scalar mod n.
+/// Signed 64-bit integer as a scalar mod n. Branch-free in the sign, since
+/// `m` is often a plaintext.
 pub(crate) fn scalar_from_i64(m: i64) -> Scalar {
     let magnitude = Scalar::from(m.unsigned_abs());
-    if m < 0 { -magnitude } else { magnitude }
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let negative = Choice::from(((m as u64) >> 63) as u8);
+    Scalar::conditional_select(&magnitude, &-magnitude, negative)
+}
+
+/// 64 bytes from the operating system's CSPRNG, zeroed after use by the
+/// caller's reduction. Unlike `rand_core::OsRng::fill_bytes`, a failure is an
+/// error rather than a panic, so it can never unwind across an FFI boundary.
+fn os_wide_bytes() -> crate::Result<WideBytes> {
+    let mut wide = WideBytes::default();
+    getrandom::getrandom(AsMut::<[u8]>::as_mut(&mut wide))
+        .map_err(|_| crate::Error::RandomnessUnavailable)?;
+    Ok(wide)
+}
+
+/// A uniformly random scalar in `[0, n)` from OS randomness (512 bits reduced
+/// mod n: statistical distance from uniform below 2^-256).
+pub(crate) fn random_scalar() -> crate::Result<Scalar> {
+    let mut wide = os_wide_bytes()?;
+    let s = <Scalar as Reduce<U512>>::reduce_bytes(&wide);
+    AsMut::<[u8]>::as_mut(&mut wide).zeroize();
+    Ok(s)
+}
+
+/// A uniformly random scalar in `[1, n)` from OS randomness.
+pub(crate) fn random_nonzero_scalar() -> crate::Result<Scalar> {
+    let mut wide = os_wide_bytes()?;
+    let s = <Scalar as ReduceNonZero<U512>>::reduce_nonzero_bytes(&wide);
+    AsMut::<[u8]>::as_mut(&mut wide).zeroize();
+    Ok(s)
+}
+
+/// Random bytes from the OS CSPRNG, as an error rather than a panic on
+/// failure.
+pub(crate) fn random_bytes<const N: usize>() -> crate::Result<[u8; N]> {
+    let mut out = [0u8; N];
+    getrandom::getrandom(&mut out).map_err(|_| crate::Error::RandomnessUnavailable)?;
+    Ok(out)
 }
 
 /// 32-byte big-endian scalar encoding.

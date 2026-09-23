@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "tokenis": {
+      "command": "tokenis-mcp",
+      "args": [
+        "serve",
+        "--config",
+        "/absolute/path/to/tokenis.toml"
+      ],
+      "env": {
+        "TOKENIS_TOKENIZER_KEY": "<64 hex chars from `tokenis-mcp keygen-secret`>",
+        "TOKENIS_AUDIT_KEY": "<64 hex chars from `tokenis-mcp keygen-secret`>"
+      }
+    },
+    "tokenis-demo": {
+      "command": "tokenis-mcp",
+      "args": [
+        "serve",
+        "--demo"
+      ]
+    }
+  }
+}

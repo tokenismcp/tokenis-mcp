@@ -69,6 +69,26 @@ describe("no-key delegation", () => {
     assert.throws(() => new Owner().openMultiplication(1n, 2n, owner.prepareTriple()), /different Owner/);
   });
 
+  test("a secret offered to the wrong owner is rejected without being destroyed", () => {
+    const owner = new Owner();
+    const other = new Owner();
+    const { masked, mask } = owner.blind(77n);
+    assert.throws(() => other.unblind(masked, mask), /different Owner/);
+    assert.equal(mask.consumed, false);
+    assert.equal(owner.unblind(masked, mask), 77n);
+    const triple = owner.prepareTriple();
+    const opening = owner.openMultiplication(3n, 4n, triple);
+    const eg = combineMultiplication(opening);
+    assert.throws(() => other.reconstructMultiplication(triple, opening, eg), /different Owner/);
+    assert.equal(triple.consumed, false);
+    assert.equal(owner.reconstructMultiplication(triple, opening, eg), 12n);
+  });
+
+  test("out-of-range coefficients throw instead of wrapping", () => {
+    const owner = new Owner();
+    assert.throws(() => owner.delegateAffine({ coefficients: [2n ** 64n] }, [1n]), RangeError);
+  });
+
   test("blinded bootstrap refreshes the pad", () => {
     const owner = new Owner();
     const first = owner.blind(99n);

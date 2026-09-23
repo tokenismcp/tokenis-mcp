@@ -4,37 +4,183 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Docs license](https://img.shields.io/badge/docs%20license-CC--BY--4.0-lightgrey.svg)
 ![Rust](https://img.shields.io/badge/core-Rust-orange.svg)
-![Python](https://img.shields.io/badge/python-3.9%2B%20(core)%20%7C%203.10%2B%20(MCP%20server)-blue.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-Node%2020%2B-blue.svg)
+![Python](https://img.shields.io/badge/python-3.9%2B%20(core)%20%7C%203.10%2B%20(server)-blue.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-Node%2022%2B-blue.svg)
 
-**A cryptographic disclosure-boundary gateway between an enterprise's protected
-data and a large language model, exposed to the model as an MCP (Model
-Context Protocol) server — plus the research paper series and measurement
-pipeline this repository's design is accountable to.**
+**A cryptographic disclosure-boundary gateway between an enterprise's
+protected data and a large language model: the model gets a small set of
+tools that answer aggregate questions over encrypted data, under admission
+control and a signed audit trail, and never sees a row.** Plus the research
+papers and measurement code the design is accountable to.
 
-Tokenis sells access to *operations* over encrypted data, not access to the
-data itself. A model gets a small, named tool surface (aggregate, compare,
-search, check existence) instead of a general query interface; every value
-that crosses from ciphertext into the model's view does so through a typed,
-audited path. This repository is the open layer of that design — the
-specification, the reference SDK, the conformance suite, and the papers and
-measurement code behind the claims — while the product's optimised
-cryptographic engine, key management, appliance and multi-tenancy stay
-closed (see [What's open, what's closed](#whats-open-whats-closed) below).
+A model connected to Tokenis can ask "total 2025 revenue for tech companies
+in Seoul?" and get `7,000,000 KRW over 12 records`. It cannot ask for one
+company's revenue, cannot get it by differencing two overlapping groups, and
+cannot learn *why* a question was refused. Every answer and every refusal is
+recorded, under the authenticated user's identity, in a tamper-evident log.
+
+## Connect an LLM
+
+Install (Python 3.10+; prebuilt wheels for Linux, macOS and Windows):
+
+```bash
+pip install "tokenis-mcp[server]"        # add [llm] for the Anthropic/OpenAI clients
+tokenis-mcp tools --demo                  # the tool schemas a model will see
+```
+
+Everything below works with the built-in fictional dataset (`--demo`);
+[Use your own data](#use-your-own-data) swaps in yours.
+
+**Claude Code / Claude Desktop (local, stdio).**
+
+```bash
+claude mcp add tokenis -- tokenis-mcp serve --demo
+```
+
+For Claude Desktop, add the server to `claude_desktop_config.json`
+([example](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/claude_desktop_config.json)).
+Over stdio the caller is the local OS user (`local:<user>`), which is who the
+query budget and audit trail are charged to.
+
+**Any MCP client, remote (Streamable HTTP + authentication).** HTTP always
+requires authentication — API keys or your identity provider's JWTs:
+
+```bash
+tokenis-mcp keys create alice@example.com --config tokenis.toml   # prints the key once
+tokenis-mcp serve --config tokenis.toml --transport http
+claude mcp add --transport http tokenis https://tokenis.example.com/mcp \
+  --header "Authorization: Bearer $TOKENIS_KEY"
+```
+
+The principal is the key's (or token subject's) identity; a model cannot
+choose it. The same URL and key work with Anthropic's MCP connector in the
+Messages API and with any other MCP client.
+
+**Straight from an LLM API (no MCP client needed).** `tokenis.llm` turns the
+tools into Anthropic or OpenAI-compatible tool definitions and runs the
+calls, through exactly the same code path as the MCP server:
+
+```python
+import anthropic
+from tokenis.gateway.demo import demo_service
+from tokenis.llm import TokenisToolkit, ask_anthropic
+
+toolkit = TokenisToolkit(demo_service(), principal=current_user_id)  # your authenticated user
+print(ask_anthropic(toolkit, "Which industry grew fastest from 2024 to 2025?",
+                    client=anthropic.Anthropic()))                    # reads ANTHROPIC_API_KEY
+```
+
+`toolkit.anthropic_tools()` / `toolkit.openai_tools()` and
+`toolkit.anthropic_tool_results(...)` / `toolkit.openai_tool_messages(...)`
+plug into a tool loop you already have; `ask_openai` works with OpenAI,
+Azure OpenAI and local models behind vLLM, Ollama or LiteLLM
+(`OPENAI_BASE_URL`). Runnable versions:
+[`examples/anthropic_agent.py`](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/anthropic_agent.py),
+[`examples/openai_compatible_agent.py`](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/openai_compatible_agent.py).
+Or from the shell: `tokenis-mcp ask --demo "Which region is largest?"`.
+
+Pass `taint=1` (or, over HTTP, have your agent host set the configured
+`X-Tokenis-Taint` header) when the conversation contains untrusted content
+such as retrieved documents or e-mail: the gateway then narrows the tools to
+counts and applies a much smaller budget (P4's D4).
+
+## The tools
+
+| Tool | What it answers | What leaves the gateway |
+|---|---|---|
+| `describe_dataset` | Columns, protection classes, filterable values, k, remaining budget, allowed purposes | Schema and public values only; uses no budget |
+| `aggregate` | SUM / AVG / COUNT (VAR where enabled) of a sealed column over filtered records | The value (or a 1-2-5 band, per column) and the group size |
+| `group_by` | The same, per value of a filterable column | Per-group values; groups the policy refuses are just "suppressed" |
+| `compare_periods` | Two sealed columns over the same records | Direction and a ratio band only |
+| `similarity_search` | Entities most like a given one | Entity tokens and a coarse similarity level |
+| `exists` | Whether at least k records match | A boolean that never distinguishes 0 from a handful |
+| `disclose_ratio` | Ratio of a column's totals over two groups | The ratio — an audited Reveal, only for a configured purpose |
+| `disclose_bucket` | Which named bucket a group's total falls in | The label — an audited Reveal, only for a configured purpose |
+
+Arguments are schema-checked against the actual dataset (column names and
+filter values are enums), so a malformed call never reaches the gateway.
+Every refusal returns one fixed message whatever the reason.
+
+## Use your own data
+
+1. Describe the data in a TOML file — which columns are `open` (released
+   verbatim, filterable), `token` (released only as keyed pseudonyms), and
+   `sealed` (encrypted at load; only aggregates leave). The annotated
+   [`examples/tokenis.toml`](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/tokenis.toml)
+   covers every option: admission budgets, decryption range, Reveal
+   purposes, state directory, transport and authentication.
+2. Provide the secrets through the environment (never in the file):
+
+   ```bash
+   export TOKENIS_TOKENIZER_KEY=$(tokenis-mcp keygen-secret)   # keep stable: it defines every token
+   export TOKENIS_AUDIT_KEY=$(tokenis-mcp keygen-secret)       # signs the audit trail
+   ```
+
+3. Validate, then serve:
+
+   ```bash
+   tokenis-mcp check --config tokenis.toml     # every row, every setting; changes nothing
+   tokenis-mcp serve --config tokenis.toml
+   tokenis-mcp audit verify --config tokenis.toml
+   ```
+
+Data is CSV (with a header) or JSON lines. Money and other decimals are
+stored exactly (`scale = 2` keeps cents). With `[state] dir` set, the
+admission history and the disclosure trace survive restarts; a restart with
+different data refuses to start until you explicitly pass
+`--reset-admission-state` (see
+[SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md)
+for why that matters).
+
+## Security model
+
+What the gateway enforces, rather than asks the model to respect:
+
+- **Identity from credentials, never from arguments.** stdio: the OS user.
+  HTTP: API keys (stored as hashes, revocable without restart) or JWTs from
+  your IdP (asymmetric algorithms only; `exp`/`iss`/`aud` required).
+- **Admission control (P4 D1-D5)** on every value-bearing call: minimum
+  group size k, a differencing audit that refuses any query that would
+  combine with earlier ones to isolate a record, per-user budgets per
+  window, a restricted surface while the context is tainted, and
+  deny-by-default on unclassified columns. Admission, computation and
+  auditing of a call are atomic, so concurrent calls cannot race past the
+  differencing audit.
+- **Refusals disclose nothing extra.** One message for every denial; the
+  rule that fired is recorded for auditors only.
+- **Durable, signed audit trail.** Every answer and refusal is appended,
+  fsync'd and HMAC-signed before the result is returned
+  (`tokenis-mcp audit verify`).
+- **Uniform latency (W6).** Every call takes a multiple of a declared
+  quantum, so timing does not reveal which path ran.
+- **Cryptography in Rust.** Sealed values are EC-ElGamal ciphertexts from
+  the moment they are loaded; keys and one-time secrets live in memory that
+  is zeroed when freed.
+
+What it does not do, stated plainly: plaintext exists inside the gateway
+process at load time and at decryption (it is the trusted boundary; run it
+on a host you control); embeddings for `similarity_search` are held in the
+clear inside that process; decryption is not constant-time against a
+co-located cache-timing attacker; the private key is generated per process
+rather than held in an HSM; and neither this code nor its integration has
+had an independent audit. Details and deployment guidance:
+[SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md).
 
 ## Why
 
 Vendors of "privacy gateways" for LLMs routinely say the provider never sees
-your data. [P2](papers/p2-disclosure-boundaries/paper.md) shows that
-sentence names one adversary where there are three, and gets the
+your data. [P2](https://github.com/tokenismcp/tokenis-mcp/blob/main/papers/p2-disclosure-boundaries/paper.md)
+shows that sentence names one adversary where there are three, and gets the
 capabilities of the one it does name wrong: the model host is not a passive
-query executor, it *proposes the next query*. [P3](papers/p3-leakage-quantification/paper.md)
+query executor, it *proposes the next query*.
+[P3](https://github.com/tokenismcp/tokenis-mcp/blob/main/papers/p3-leakage-quantification/paper.md)
 then measures what a tokenizing gateway actually leaks against a realistic
 Korean corporate ledger — two public attributes alone re-identify 41.4% of
 accounts inside a 40,000-firm public directory, and the three leakage
-channels compose non-additively, not additively. [P4](papers/p4-admission-control/paper.md)
-takes the same rigor to the admission-control layer once the querier is a
-language model that can be steered by content it merely reads.
+channels compose non-additively.
+[P4](https://github.com/tokenismcp/tokenis-mcp/blob/main/papers/p4-admission-control/paper.md)
+takes the same rigor to admission control once the querier is a language
+model that can be steered by content it merely reads.
 
 This repository exists so those aren't just claims in a PDF: every
 percentage in P3, every containment bound in P4, and the disclosure-boundary
@@ -43,27 +189,17 @@ architecture of P2 has runnable code next to it.
 ## Architecture
 
 ```
-                    ┌─────────────────────────────────────────┐
-   model host  ────▶│  tokenis/mcp_server   (MCP tool surface) │
-  (untrusted,       └───────────────┬───────────────────────┬─┘
-   query planner)                   │                       │
-                     ┌───────────────▼──────────┐  ┌─────────▼─────────┐
-                     │ tokenis/gateway/admission │  │ tokenis/semantic  │
-                     │  D1-D5 policy ladder (P4) │  │  scope-confined   │
-                     └───────────────┬───────────┘  │  tokenizer (P2)   │
-                                     │               └────────────────────┘
-                     ┌───────────────▼───────────┐
-                     │  tokenis/gateway/compute   │  ciphertext SUM/COUNT/
-                     │  (EC-FHE, additive HE)     │  AVG/VAR — no plaintext
-                     └───────────────┬────────────┘  ever stored (P2 Thm 29)
-                                     │
-                     ┌───────────────▼───────────┐
-                     │  tokenis/gateway/reveal    │  gated + audited
-                     │  + tokenis/audit/trace     │  boundary crossings
-                     └────────────────────────────┘  (P2 Definitions 15-16)
+   LLM / agent host  ──MCP (stdio | HTTP+auth)──▶  tokenis/mcp_server
+   (untrusted query planner)        or tokenis.llm ─┘        │ principal from credentials
+                                                             ▼
+                         tokenis/gateway/service  ── one lock per call ──┐
+                          │ admission (P4 D1-D5)   │ reveal (purposes)    │
+                          │ + durable history      │                      │
+                          ▼                        ▼                      ▼
+                  ciphertext compute        Rust core (EC-ElGamal)   audit trace
+                  over sealed columns       crates/tokenis-core      (hash-chained,
+                                                                      HMAC, fsync)
 ```
-
-### Languages
 
 ```
             crates/tokenis-core  (Rust)  ── every cryptographic operation
@@ -71,176 +207,119 @@ architecture of P2 has runnable code next to it.
      PyO3 ───────┘                     └─────── wasm-bindgen / WebAssembly
         │                                                    │
  tokenis/ (Python)                                 sdk/typescript (TypeScript)
- gateway, admission, MCP server,                   @tokenis/crypto for Node
- research reproduction                             MCP clients and servers
+ gateway, admission, MCP server,                   @tokenis/crypto for Node 22+
+ LLM toolkit, research reproduction
 ```
 
-One Rust core, three languages, one wire format. The cryptography —
-EC-ElGamal over secp256k1 and the no-key delegation protocol — exists only
-in [`crates/tokenis-core`](crates/tokenis-core); Python and TypeScript are
-thin bindings over it, so they cannot drift apart, and
-[`tests/test_interop.py`](tests/test_interop.py) has the two exchange real
-keys, ciphertexts and masked values in CI. Everything above the crypto layer
-(the gateway, admission control, MCP server, research code) stays in Python.
+One Rust core, three languages, one wire format: Python and TypeScript are
+thin bindings, and `tests/test_interop.py` has them exchange real keys,
+ciphertexts and masked values in CI.
 
 Every plaintext value that reaches the model is one of exactly four things
-(P2 Definition 14, the "well-formedness" condition W1 —
-[`tokenis/spec/well-formedness.md`](tokenis/spec/well-formedness.md)): an
-open-class literal, a deterministic token, a ciphertext handle, or the
-output of a gated, audited `Reveal`. [`tokenis/conformance/`](tokenis/conformance)
-checks this and five other conditions against the reference SDK.
+(P2 Definition 14, well-formedness condition W1 —
+[`tokenis/spec/well-formedness.md`](https://github.com/tokenismcp/tokenis-mcp/blob/main/tokenis/spec/well-formedness.md)):
+an open-class literal, a deterministic token, a ciphertext handle, or the
+output of a gated, audited Reveal.
+[`tokenis/conformance/`](https://github.com/tokenismcp/tokenis-mcp/tree/main/tokenis/conformance)
+checks this and five other conditions.
 
 ## Repository layout
 
 | Path | What it is |
 |---|---|
-| [`papers/`](papers) | The J1729Labs paper series (P2 disclosure boundaries, P3 leakage quantification, P4 admission control) — abstract, key results and full PDF per paper |
-| [`research/p3_leakage/`](research/p3_leakage) | P3's corpus generator, three attacks, five defenses, and disclosure-budget computation — the code release P3 itself commits to |
-| [`research/p4_admission/`](research/p4_admission) | P4's D1-D5 admission-control engine, eight evaluation attacks, and containment-bound checks |
-| [`crates/tokenis-core/`](crates/tokenis-core) | The Rust cryptographic core: EC-ElGamal and no-key delegation, shared by every SDK |
-| [`crates/tokenis-py/`](crates/tokenis-py), [`crates/tokenis-wasm/`](crates/tokenis-wasm) | PyO3 and WebAssembly bindings over the core |
-| [`tokenis/`](tokenis) | The Python SDK: crypto (via the Rust core), tokenizer, ciphertext compute, admission, reveal, audit trace, and the MCP server that exposes all of it |
-| [`sdk/typescript/`](sdk/typescript) | `@tokenis/crypto`, the TypeScript SDK (same core compiled to WebAssembly) |
-| [`tokenis/spec/`](tokenis/spec) | The tool-surface and well-formedness specification any gateway implementation (this one, or a future closed engine) should satisfy |
-| [`tokenis/conformance/`](tokenis/conformance) | pytest suite checking the reference SDK against that spec |
-| [`reports/SUMMARY.md`](reports/SUMMARY.md) | Excerpted findings from the R1 (utility) and R2 (performance) technical reports — not the full confidential reports themselves |
-| [`examples/quickstart.py`](examples/quickstart.py) | A five-minute, in-process tour of all seven tools |
+| `tokenis/gateway/` | The gateway service, schema/settings, admission control (D1-D5), durable state, demo dataset |
+| `tokenis/mcp_server/` | The MCP server (schema-driven tools, auth, async latency padding) |
+| `tokenis/llm.py` | Direct Anthropic / OpenAI-compatible integration |
+| `tokenis/cli.py`, `tokenis/config.py`, `tokenis/server_auth.py` | `tokenis-mcp` CLI, TOML config and data loader, API-key and JWT authentication |
+| `tokenis/crypto/`, `tokenis/audit/`, `tokenis/semantic/` | Crypto (via the Rust core), disclosure trace, scoped tokenizer |
+| `crates/` | Rust core (`tokenis-core`) and its PyO3 / WebAssembly bindings |
+| `sdk/typescript/` | `@tokenis/crypto`, the TypeScript SDK |
+| `tokenis/spec/`, `tokenis/conformance/` | The tool-surface and well-formedness specification, and its test suite |
+| `papers/`, `research/` | The J1729Labs paper series (P2, P3, P4) and their reproduction code |
+| `reports/SUMMARY.md` | Excerpts of the R1 (utility) and R2 (performance) reports — not the confidential originals |
+| `examples/` | Quickstart, LLM agents, annotated config, fictional dataset, Claude Desktop config |
 
-## Quickstart
+## Development
 
-**Python.** Released wheels are prebuilt for Linux, macOS and Windows (one
-wheel per platform covers CPython 3.9+). Building from source needs a Rust
-toolchain ([rustup.rs](https://rustup.rs)); `pip` compiles the core
-automatically. The MCP server needs Python 3.10+ (the `mcp` package's own
-floor):
+Needs a Rust toolchain ([rustup.rs](https://rustup.rs)); for the TypeScript
+SDK also Node 22.18+ and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,research,server]"   # builds crates/tokenis-core; drop `server` on Python <3.10
-
+pip install -e ".[dev,research,server]"   # compiles the Rust core; drop `server` on Python 3.9
 pytest                                     # everything the current interpreter can run
-python research/p3_leakage/verify_claims.py
-python research/p4_admission/verify_claims.py
-python examples/quickstart.py              # needs the `server` extra
+python examples/quickstart.py
+
+cd sdk/typescript && npm ci && npm run build:wasm && npm run build && npm test
+cargo test -p tokenis-core --release
 ```
 
-To connect a real MCP client instead of the in-process quickstart:
-
-```bash
-python -m tokenis.mcp_server.server        # speaks stdio
-```
-
-**TypeScript** (Node 20+; building needs Rust and
-[wasm-pack](https://rustwasm.github.io/wasm-pack/)):
-
-```bash
-cd sdk/typescript
-npm ci && npm run build:wasm && npm run build && npm test
-```
-
-```ts
-import { keygen, encrypt, decrypt } from "@tokenis/crypto";
-
-const { privateKey, publicKey } = keygen();
-const sum = encrypt(publicKey, 40n).add(encrypt(publicKey, 2n));
-decrypt(privateKey, sum); // 42n
-```
-
-**Rust:** `cargo test -p tokenis-core`.
+See [CONTRIBUTING.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/CONTRIBUTING.md)
+for the full pre-PR checklist.
 
 ## What's open, what's closed
 
-Mirroring R2 §1.4 (summarized in [`reports/SUMMARY.md`](reports/SUMMARY.md)):
-the specification, this reference SDK, and the conformance suite are
-distributed freely under Apache-2.0. What stays closed is 4Chains Inc.'s
-product: an audited, key-management/HSM-integrated production engine, the
-appliance/multi-tenancy layer, and the full confidential performance
-benchmark (R2). The [`tokenis/crypto`](tokenis/crypto) module in this
-repository is explicitly **not** that engine: it is an elliptic-curve
-additive-ElGamal construction (`tokenis/crypto/ec_fhe.py`), built to match a
-set of "EC-FHE" / "elliptic rational number" source papers as literally as
-possible. Those papers have real, specific problems — a core function that
-cancels to a no-op, a multiplicative-homomorphism construction that does
-not type-check, a "bootstrap" that requires the private key — and this
-module's own docstring documents each one rather than quietly working
-around it, because implementing broken cryptography and presenting it as
-solid is a worse outcome than implementing it faithfully and saying so.
-Read that docstring before using anything in this package for more than
-running this repository's own examples and tests.
+Mirroring R2 §1.4: the specification, this SDK and gateway, and the
+conformance suite are Apache-2.0. What stays closed is 4Chains Inc.'s
+product: an audited, HSM/KMS-integrated production engine, the
+appliance/multi-tenancy layer, and the confidential performance benchmark.
 
-**Why Rust for the crypto?** Python cannot zeroise a secret from memory,
-cannot guarantee constant-time execution, and has no compile-time way to
-make a one-time pad unusable after its one use. The core therefore lives in
-Rust, where: curve arithmetic is RustCrypto's `k256` (audited by NCC Group
-in 2023, constant-time by design); private keys, masks and Beaver triples
-are zeroed on drop and never become Python `int`s or JavaScript numbers;
-masks and triples are consumed by the operation that uses them; every
-point read from bytes is validated on-curve; decryption does the same work
-whatever the plaintext; and the crate forbids `unsafe` and every panicking
-construct, so malformed input from Python or JavaScript returns an error
-instead of crashing the process. (An earlier revision did its curve
-arithmetic in the pure-Python `ecdsa` package, which `pip-audit` flags for
-a key-recovering timing attack its maintainers will not fix.) What remains
-for the closed engine is hardware-backed key storage (HSM/KMS) and an
-independent audit of this integration.
+The encryption here is additive EC-ElGamal over secp256k1
+(`tokenis/crypto/ec_fhe.py`), built to match a set of "EC-FHE" / "elliptic
+rational number" source papers as literally as possible. Those papers have
+specific problems — a core map that cancels to a no-op, a multiplication
+construction that does not type-check, a "bootstrap" that needs the private
+key — and the module's docstring documents each one rather than quietly
+working around it. Capability is additive homomorphism, which is all the
+gateway's aggregates need. `tokenis/crypto/no_key_delegation.py` adds a
+genuinely sound interactive protocol (one-time pads plus Beaver triples) for
+letting an untrusted party compute affine functions and products on masked
+values without any key.
 
-`tokenis/crypto/no_key_delegation.py` is a separate, genuinely sound
-addition on the same foundation: an interactive delegation protocol
-(one-time-pad masking + Beaver triples, standard secure-computation
-technique, not something this repository invented) that lets an untrusted
-party evaluate affine functions and products over masked values while
-provably learning nothing about the plaintext — including against a
-quantum adversary — without ever holding key material. It does not make
-the underlying scheme post-quantum, and it is not wired into the gateway's
-trust model; see that module's docstring for exactly what it proves and
-what it doesn't.
+**Why Rust for the crypto?** Python cannot zeroise a secret, cannot promise
+constant-time arithmetic, and cannot make a one-time pad unusable after its
+one use. In the Rust core, curve arithmetic is RustCrypto's `k256` (audited
+by NCC Group in 2023); keys, masks and Beaver triples are zeroed on drop and
+never become Python or JavaScript numbers; one-time values are consumed by
+use and checked against their owner before they are touched; points read
+from bytes are validated; randomness failures are errors, not panics; and
+decryption runs in bounded memory with a constant step count.
 
 ## Quality signal
 
-Every claim below is something CI (`.github/workflows/ci.yml`) actually
-checks on every push, not just documentation:
+Checked by CI on every push (`.github/workflows/ci.yml`), not just claimed:
 
-- **Rust:** `cargo fmt --check`, `cargo clippy -D warnings` with
-  `unsafe`, `unwrap`, `expect`, `panic` and slice indexing denied in the
-  core, unit and property tests (including one that pins decryption work as
-  independent of the plaintext, and one feeding arbitrary bytes to every
-  parser), and a `wasm32` build.
-- **Python:** `ruff check .` (including flake8-bandit security rules on the
-  SDK) and `mypy tokenis` clean; `tests/test_crypto_security.py` pins each
-  claimed security property at the Python boundary (no secret attribute,
-  redacted `repr`, unpicklable key handles, one-time masks, off-curve points
-  rejected, no injectable RNG) and `tests/test_properties.py` checks the
-  homomorphic identities on hypothesis-generated inputs.
-- **TypeScript:** strict `tsc` (including `noUncheckedIndexedAccess` and
-  `exactOptionalPropertyTypes`) and `node:test` suites; the built package is
-  also loaded on the oldest supported Node.
+- **Rust:** `fmt`, `clippy -D warnings` with `unsafe`/`unwrap`/`expect`/
+  `panic`/indexing denied in the core (host and `wasm32`), unit and property
+  tests including arbitrary-byte fuzzing of every parser, an MSRV (1.85)
+  build, and a freshness check of the bundled third-party license notices.
+- **Python:** `ruff` (including flake8-bandit) and `mypy` clean; tests for
+  the security properties at the binding boundary, the gateway's denial
+  uniformity and admission semantics, a deterministic check that admission
+  decisions never overlap under concurrency, restart durability, audit-trail
+  tamper detection, JWT algorithm-confusion and `alg: none` rejection, and
+  real stdio and authenticated-HTTP MCP sessions through the CLI.
+- **TypeScript:** strict `tsc` and `node:test` on Node 22 and 24, 64-bit
+  overflow rejected rather than wrapped, and the packed npm tarball
+  installed into a fresh project and exercised from ESM and CommonJS.
 - **Interop:** Python and TypeScript exchange real keys, ciphertexts and
-  masked values (`tests/test_interop.py`), including bit-identical
-  fixed-point rounding.
-- **Supply chain:** `cargo audit`, `pip-audit` and `npm audit` on every push
-  and weekly on schedule; Dependabot for Cargo, pip, npm and Actions.
-- All six well-formedness conditions (W1-W6,
-  [`tokenis/spec/well-formedness.md`](tokenis/spec/well-formedness.md)) have
-  passing conformance tests — none are stubbed, skipped, or marked `xfail`.
-- The Python suite passes on 3.9, 3.11 and 3.13 (one abi3 extension build
-  serves all of them), and the MCP server on 3.10, 3.12 and 3.13.
-- `research/p3_leakage/verify_claims.py` and
-  `research/p4_admission/verify_claims.py` each run their full pipeline
-  twice from the same seeds and hard-fail on any non-determinism.
+  masked values.
+- **Supply chain:** `cargo audit`, `pip-audit`, `npm audit` on every push and
+  weekly; Dependabot for Cargo, pip, npm and Actions.
+- All six well-formedness conditions (W1-W6) have passing conformance tests;
+  `research/*/verify_claims.py` rerun each pipeline and fail on
+  non-determinism.
 
 ## Status
 
-Early-stage but no longer a rough sketch: see
-[CHANGELOG.md](CHANGELOG.md) for what's landed, and each package's
-docstrings for the specific, named simplifications that remain (e.g.
-`tokenis/gateway/service.py`'s notes on `principal` not being real
-authentication, or `credential_id == principal`) — these are stated
-deliberately rather than silently assumed away. Issues and PRs welcome; see
-[CONTRIBUTING.md](CONTRIBUTING.md). Found a security issue? See
-[SECURITY.md](SECURITY.md) rather than opening a public issue.
+Pre-1.0: interfaces may still change (see
+[CHANGELOG.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/CHANGELOG.md)).
+Issues and PRs welcome. Found a security issue? Follow
+[SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md)
+rather than opening a public issue.
 
 ## License
 
-Code is [Apache-2.0](LICENSE). Papers and other documentation are
-[CC BY 4.0](papers/LICENSE-CC-BY-4.0). See also
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Code is Apache-2.0 (`LICENSE`); bundled third-party Rust crates are listed
+in `THIRD-PARTY-NOTICES.md`. Papers and other documentation are CC BY 4.0
+(`papers/LICENSE-CC-BY-4.0`).

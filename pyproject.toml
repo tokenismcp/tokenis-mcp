@@ -12,6 +12,8 @@ version = "0.1.0"
 description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool calling (MCP), with the research pipeline behind it"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+keywords = ["mcp", "llm", "privacy", "homomorphic-encryption", "access-control", "audit"]
 authors = [
     { name = "Caleb Lee", email = "jlabsrd@gmail.com" },
 ]
@@ -21,7 +23,14 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
+    "Typing :: Typed",
     "Topic :: Security :: Cryptography",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -30,17 +39,29 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The MCP transport layer (tokenis/mcp_server) is the one part of this
-# package that needs Python >=3.10 (the `mcp` package's own floor) -- kept
-# as an optional extra so the crypto/semantic/gateway/audit core and the
-# research/ reproduction code stay usable on Python 3.9.
-server = ["mcp>=1.0"]
+# The MCP server, its CLI (`tokenis-mcp`), HTTP authentication and the TOML
+# config need Python >=3.10 (the `mcp` 2.x floor) -- kept as an optional
+# extra so the crypto/semantic/gateway/audit core and the research/
+# reproduction code stay usable on Python 3.9.
+server = [
+    "mcp>=2.2,<3",
+    "pyjwt[crypto]>=2.8",
+    "tomli>=2.0; python_version < '3.11'",
+]
+# LLM API clients for `tokenis.llm.ask_*` and `tokenis-mcp ask`.
+llm = ["tokenis-mcp[server]", "anthropic>=0.40", "openai>=1.50"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
 dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7", "maturin>=1.7,<2"]
 
+[project.scripts]
+tokenis-mcp = "tokenis.cli:main"
+
 [project.urls]
-Homepage = "https://github.com/j1729labs/tokenis-mcp"
-Papers = "https://github.com/j1729labs/tokenis-mcp/tree/main/papers"
+Homepage = "https://github.com/tokenismcp/tokenis-mcp"
+Repository = "https://github.com/tokenismcp/tokenis-mcp"
+Issues = "https://github.com/tokenismcp/tokenis-mcp/issues"
+Changelog = "https://github.com/tokenismcp/tokenis-mcp/blob/main/CHANGELOG.md"
+Papers = "https://github.com/tokenismcp/tokenis-mcp/tree/main/papers"
 
 [tool.maturin]
 manifest-path = "crates/tokenis-py/Cargo.toml"
@@ -81,6 +102,7 @@ extend-select = ["S"]
 "examples/**" = ["S"]
 "tokenis/conformance/**" = ["S"]
 "tokenis/mcp_server/test_server.py" = ["S"]
+"scripts/**" = ["S"]
 
 [tool.mypy]
 # Scoped to tokenis/ (the product SDK) rather than the whole repository:

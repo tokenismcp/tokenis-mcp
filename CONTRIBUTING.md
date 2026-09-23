@@ -31,8 +31,9 @@ a PR — it saves everyone rework.
 ## Development setup
 
 Prerequisites: a Rust toolchain ([rustup.rs](https://rustup.rs)), Python
-3.9+ (3.10+ for the MCP server), and — for the TypeScript SDK — Node 20+ and
-[wasm-pack](https://rustwasm.github.io/wasm-pack/).
+3.9+ (3.10+ for the MCP server, CLI and LLM toolkit), and — for the
+TypeScript SDK — Node 22.18+ (its tests use Node's built-in TypeScript
+support) and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -51,7 +52,9 @@ reimplemented in Python or TypeScript.
 # Rust
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p tokenis-wasm --target wasm32-unknown-unknown -- -D warnings
 cargo test -p tokenis-core --release
+python scripts/third_party_notices.py --check   # after any dependency change: run without --check
 
 # Python
 ruff check . && mypy tokenis --ignore-missing-imports
@@ -61,7 +64,8 @@ python research/p4_admission/verify_claims.py              # well under a second
 python examples/quickstart.py                              # needs the `server` extra (Python >=3.10)
 
 # TypeScript (and the Python<->TypeScript interop test, which needs this build)
-(cd sdk/typescript && npm ci && npm run build:wasm && npm run typecheck && npm run build && npm test)
+(cd sdk/typescript && npm ci && npm run build:wasm && npm run typecheck && npm run build && npm test \
+  && npm run check:package)
 pytest tests/test_interop.py
 ```
 

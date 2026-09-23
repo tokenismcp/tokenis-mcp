@@ -9,13 +9,19 @@ reproduced. Link an issue if there is one. -->
 
 ## Checklist
 
-- [ ] `ruff check .` passes
+- [ ] `ruff check .` and `mypy tokenis --ignore-missing-imports` pass
 - [ ] `pytest` passes for the paths this change touches (see CONTRIBUTING.md)
+- [ ] If this touches `crates/`: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+      and `cargo test -p tokenis-core --release` pass, and a dependency change is reflected in
+      `THIRD-PARTY-NOTICES.md` (`python scripts/third_party_notices.py`)
+- [ ] If this touches `sdk/typescript/` or the WebAssembly bindings: `npm run typecheck && npm test`
+      and `npm run check:package` pass
 - [ ] If this touches `tokenis/gateway/admission.py`, `tokenis/gateway/reveal.py`,
       or `tokenis/audit/trace.py`: `pytest tokenis/conformance` passes, and I've
       noted below which W1-W6 condition(s) this affects (if any)
 - [ ] If this touches `research/p3_leakage/` or `research/p4_admission/`:
-      `python research/*/verify_claims.py` still exits 0, and I haven't
+      both `python research/p3_leakage/verify_claims.py` and
+      `python research/p4_admission/verify_claims.py` still exit 0, and I haven't
       changed what's claimed without updating that directory's README
 - [ ] If this changes a public docstring's security claim (e.g. "reference,
       not audited"), I've kept the claim honest rather than just editing

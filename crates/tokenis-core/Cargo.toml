@@ -6,10 +6,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/tokenis-core"
+keywords = ["homomorphic", "elgamal", "secp256k1", "cryptography", "delegation"]
+categories = ["cryptography"]
+# proptest regression seeds are for this repository's CI, not for users.
+exclude = ["proptest-regressions/"]
 
 [dependencies]
 k256 = { version = "0.13", default-features = false, features = ["arithmetic", "std"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
+getrandom = "0.2"
+rand_core = "0.6"
 subtle = "2"
 zeroize = "1"
 

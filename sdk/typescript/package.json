@@ -19,23 +19,40 @@
   },
   "files": [
     "dist",
+    "src",
     "wasm/*.js",
     "wasm/*.d.ts",
     "wasm/*.wasm",
-    "wasm/package.json"
+    "wasm/package.json",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "sideEffects": false,
   "scripts": {
-    "build:wasm": "wasm-pack build ../../crates/tokenis-wasm --release --target nodejs --weak-refs --out-dir ../../sdk/typescript/wasm --out-name tokenis_wasm --no-pack && node -e \"require('fs').writeFileSync('wasm/package.json', JSON.stringify({type: 'commonjs'}) + '\\n')\"",
+    "build:wasm": "wasm-pack build ../../crates/tokenis-wasm --release --target nodejs --weak-refs --out-dir ../../sdk/typescript/wasm --out-name tokenis_wasm --no-pack && node -e \"const fs = require('fs'); fs.writeFileSync('wasm/package.json', JSON.stringify({type: 'commonjs'}) + '\\n'); fs.rmSync('wasm/.gitignore', {force: true});\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "prepack": "node -e \"const fs = require('fs'); for (const f of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) fs.copyFileSync('../../' + f, f);\"",
+    "check:package": "bash scripts/check-package.sh"
   },
   "devDependencies": {
     "@types/node": "^24.13.6",
     "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "homomorphic-encryption",
+    "elgamal",
+    "secp256k1",
+    "webassembly",
+    "mcp",
+    "privacy"
+  ],
+  "homepage": "https://github.com/tokenismcp/tokenis-mcp/tree/main/sdk/typescript",
+  "bugs": {
+    "url": "https://github.com/tokenismcp/tokenis-mcp/issues"
   }
 }

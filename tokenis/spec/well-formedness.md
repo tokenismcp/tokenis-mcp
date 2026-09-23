@@ -34,10 +34,10 @@ fallback.
 ## Status of W6 in this reference implementation
 
 [`tokenis/gateway/latency.py`](../gateway/latency.py)'s `@quantize_latency`
-wraps every value-bearing method on
-[`TokenisGatewayService`](../gateway/service.py) (`aggregate`, `group_by`,
-`compare_periods`, `similarity_search`, `exists`, `disclose_ratio`,
-`disclose_bucket`): each call is padded, via `try`/`finally`, to the next
+wraps every public tool method on
+[`TokenisGatewayService`](../gateway/service.py), and the MCP server
+(`tokenis/mcp_server/server.py`, also used by `tokenis.llm`) pads every tool
+call the same way with an async sleep: each call is padded, via `try`/`finally`, to the next
 multiple of `latency_granularity_ms` (default 250ms, inside R2's tightest
 quoted SLO bucket) — on the success path and the exception path alike, so
 a fast D1 admission denial and a slow permitted aggregate are

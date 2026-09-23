@@ -6,6 +6,8 @@ import { describe, test } from "node:test";
 import {
   CURVE_ORDER,
   Ciphertext,
+  MAX_SUPPORTED_RANGE,
+  MAX_TABLE_SIZE,
   Decryptor,
   PrivateKey,
   PublicKey,
@@ -109,6 +111,26 @@ describe("EC-ElGamal", () => {
     assert.throws(() => fixedPointEncode(Number.NaN, 2));
     const sum = encryptFixedPoint(publicKey, 1.5, 3).add(encryptFixedPoint(publicKey, 2.25, 3));
     assert.equal(decryptor.decrypt(sum), 3750n);
+  });
+
+  test("64-bit overflow throws instead of wrapping", () => {
+    const tooBig = 2n ** 64n + 5n;
+    assert.throws(() => encrypt(publicKey, tooBig), RangeError);
+    assert.throws(() => encrypt(publicKey, 2 ** 60), RangeError); // unsafe number
+    // The raw classes are guarded in the core too, not just in this wrapper.
+    assert.throws(() => encrypt(publicKey, 7n).mul(2n ** 64n + 3n), /64-bit/);
+    assert.throws(() => new Decryptor(privateKey, 2n ** 64n + 5n), /64-bit/);
+  });
+
+  test("table size trades memory for speed", () => {
+    const big = Decryptor.withTableSize(privateKey, 1n << 32n, 1n << 16n);
+    assert.equal(big.tableSize, 1n << 16n);
+    for (const m of [1n << 32n, -(1n << 32n), 1_234_567_890n]) {
+      assert.equal(big.decrypt(encrypt(publicKey, m)), m);
+    }
+    big.free();
+    assert.throws(() => new Decryptor(privateKey, MAX_SUPPORTED_RANGE + 1n), /max_value/);
+    assert.throws(() => Decryptor.withTableSize(privateKey, 100n, MAX_TABLE_SIZE + 1n), /table_size/);
   });
 
   test("property: add/sub/mul are homomorphic on random inputs", () => {

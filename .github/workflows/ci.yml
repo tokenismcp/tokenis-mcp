@@ -22,7 +22,7 @@ jobs:
     # indexing, no unsafe), unit + property tests, and a wasm32 build.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -30,21 +30,33 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p tokenis-wasm --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test -p tokenis-core --release
       - run: cargo build -p tokenis-wasm --target wasm32-unknown-unknown --release
+      - name: Third-party notices are up to date
+        run: cargo fetch --locked && python3 scripts/third_party_notices.py --check
+
+  msrv:
+    # rust-version in Cargo.toml is a promise; check it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.85
+      - run: cargo check --workspace --locked
 
   python:
     # Crypto (via the Rust extension), gateway, research reproduction and
-    # conformance suite, on the package's Python floor and up.
+    # conformance suite, on the package's Python floor and up. Tests that
+    # need the `server` extra skip themselves here; see mcp-server.
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.9", "3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package (builds the Rust extension)
@@ -53,9 +65,9 @@ jobs:
         run: ruff check .
       - name: Type check
         run: mypy tokenis --ignore-missing-imports
-      - name: Test (the MCP server needs Python >=3.10; see the mcp-server job)
+      - name: Test
         run: |
-          pytest -q --cov=tokenis --cov-report=term-missing \
+          pytest -q -rs --cov=tokenis --cov-report=term-missing \
             tests research/p3_leakage research/p4_admission tokenis/conformance
       - name: Verify P3 claims pipeline
         run: python research/p3_leakage/verify_claims.py
@@ -63,31 +75,42 @@ jobs:
         run: python research/p4_admission/verify_claims.py
 
   mcp-server:
+    # The MCP server, CLI, HTTP authentication and LLM toolkit (Python >=3.10),
+    # including real stdio and authenticated-HTTP end-to-end sessions.
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package with server extra
         run: pip install -e ".[dev,server]"
-      - name: Test MCP server
-        run: pytest -q --cov=tokenis.mcp_server --cov=tokenis.gateway.service --cov-report=term-missing tokenis/mcp_server
+      - name: Test
+        run: |
+          pytest -q -rs --cov=tokenis --cov-report=term-missing \
+            tests tokenis/mcp_server tokenis/conformance
+      - name: Example config validates
+        run: |
+          export TOKENIS_TOKENIZER_KEY=$(tokenis-mcp keygen-secret) TOKENIS_AUDIT_KEY=$(tokenis-mcp keygen-secret)
+          tokenis-mcp check --config examples/tokenis.toml
       - name: Run quickstart example end-to-end
         run: python examples/quickstart.py
 
   typescript:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["22", "24"]
     defaults:
       run:
         working-directory: sdk/typescript
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -95,9 +118,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
       - run: npm ci
@@ -105,18 +128,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - name: Built package loads on the oldest supported Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - run: node -e "import('./dist/index.js').then(m => { const k = m.keygen(); if (m.decrypt(k.privateKey, m.encrypt(k.publicKey, 7n)) !== 7n) process.exit(1); })"
+      - name: Packed tarball installs, type-checks and runs (ESM + CJS)
+        run: npm run check:package
 
   interop:
     # Python and TypeScript exchange real ciphertexts, keys and masked
     # values (tests/test_interop.py).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -124,10 +144,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build TypeScript SDK
@@ -140,21 +160,21 @@ jobs:
     # Known-vulnerability scans of every dependency graph.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
       - name: cargo audit (RustSec)
         run: cargo audit
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install package with all extras
-        run: pip install -e ".[dev,research,server]"
+        run: pip install -e ".[dev,research,server,llm]"
       - name: pip-audit (PyPA advisories + OSV)
         run: pip-audit --skip-editable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: npm audit

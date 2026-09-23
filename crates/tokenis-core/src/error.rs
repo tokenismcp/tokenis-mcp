@@ -24,12 +24,19 @@ pub enum Error {
     KeyMismatch,
     /// The plaintext is outside the decryptor's `[-max_value, max_value]`.
     PlaintextOutOfRange,
-    /// A decryptor range that is zero or too large to allocate safely.
+    /// A decryptor range or table size outside the supported bounds (see
+    /// [`crate::elgamal::MAX_SUPPORTED_RANGE`] and
+    /// [`crate::elgamal::MAX_TABLE_SIZE`]).
     InvalidRange,
-    /// A Beaver triple was used a second time.
+    /// A Beaver triple was opened a second time, or was never issued by
+    /// this owner's current session.
     TripleReused,
-    /// A Beaver triple (or mask) produced by a different owner.
+    /// A Beaver triple produced by a different owner.
     ForeignTriple,
+    /// A mask or affine correction produced by a different owner.
+    ForeignOwner,
+    /// The operating system's random number generator failed.
+    RandomnessUnavailable,
     /// Affine coefficient and value counts differ.
     LengthMismatch,
     /// A fixed-point input was not finite or does not fit after scaling.
@@ -47,11 +54,16 @@ impl fmt::Display for Error {
             Self::MalformedEncoding => "truncated input or trailing bytes",
             Self::KeyMismatch => "ciphertext and key (or two ciphertexts) belong to different keys",
             Self::PlaintextOutOfRange => "plaintext outside the decryptor's range",
-            Self::InvalidRange => "max_value must be in [1, 2^48]",
+            Self::InvalidRange => {
+                "max_value must be in [1, 2^40], table_size in [1, 2^24], and the \
+                 giant-step count they imply at most 2^24"
+            }
             Self::TripleReused => {
                 "Beaver triple already consumed; reusing one breaks the secrecy proof"
             }
             Self::ForeignTriple => "Beaver triple was produced by a different Owner",
+            Self::ForeignOwner => "mask or correction was produced by a different Owner",
+            Self::RandomnessUnavailable => "the operating system's random number generator failed",
             Self::LengthMismatch => "coefficient and value counts differ",
             Self::FixedPointOverflow => "fixed-point value not finite or out of i64 range",
         };

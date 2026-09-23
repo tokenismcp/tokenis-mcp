@@ -13,5 +13,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
 tokenis-core = { path = "../tokenis-core" }
 wasm-bindgen = "0.2.128"

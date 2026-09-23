@@ -28,3 +28,8 @@ tokenis/_core*.pyd
 sdk/typescript/node_modules/
 sdk/typescript/dist/
 sdk/typescript/wasm/
+
+# npm pack output and files copied in by `npm pack` (prepack)
+*.tgz
+sdk/typescript/LICENSE
+sdk/typescript/THIRD-PARTY-NOTICES.md
