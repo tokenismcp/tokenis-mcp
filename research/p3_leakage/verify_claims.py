@@ -46,6 +46,7 @@ meant to be driven for producing publication-scale plots.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 import time
@@ -314,7 +315,7 @@ def sanity_checks(results: Dict[str, Any]) -> List[str]:
 
     # 3. Generalization ladder: uniqueness-in-directory is non-increasing in g.
     rungs = results["attack_schema_uniqueness"]["generalization_ladder"]
-    for a, b in zip(rungs, rungs[1:]):
+    for a, b in itertools.pairwise(rungs):
         check(
             b["unique_in_directory_pct"] <= a["unique_in_directory_pct"] + 1e-6,
             f"generalization_ladder uniqueness increased from g={a['g']} to g={b['g']}",
@@ -337,7 +338,7 @@ def sanity_checks(results: Dict[str, Any]) -> List[str]:
                 f"set-difference isolability not flat in k: k={row['k']} -> {row['isolable_pct']} vs {base}",
             )
     conj = results["attack_differential_inference"]["isolation"]["conjunction_only"]
-    for a, b in zip(conj, conj[1:]):
+    for a, b in itertools.pairwise(conj):
         check(
             b["isolable_pct"] <= a["isolable_pct"] + 1e-6,
             f"conjunction-only isolability increased from k={a['k']} to k={b['k']}",
@@ -346,7 +347,7 @@ def sanity_checks(results: Dict[str, Any]) -> List[str]:
     # 5. D2 generalization defense: re-id non-increasing in g; groups
     #    addressable non-increasing in g.
     d2 = results["defenses"]["D2_generalization"]
-    for a, b in zip(d2, d2[1:]):
+    for a, b in itertools.pairwise(d2):
         check(b["reidentified_pct"] <= a["reidentified_pct"] + 1e-6, f"D2 re-id increased from g={a['g']} to g={b['g']}")
         check(
             b["groups_addressable_pct"] <= a["groups_addressable_pct"] + 1e-6,
@@ -355,7 +356,7 @@ def sanity_checks(results: Dict[str, Any]) -> List[str]:
 
     # 6. D1 epoch sweep: cross-session links preserved is non-decreasing in E.
     d1 = results["defenses"]["D1_epoch_scoped_tokens"]
-    for a, b in zip(d1, d1[1:]):
+    for a, b in itertools.pairwise(d1):
         check(
             b["cross_session_links_preserved_pct"] >= a["cross_session_links_preserved_pct"] - 1e-6,
             f"D1 links_preserved decreased from E={a['epoch_length']} to E={b['epoch_length']}",

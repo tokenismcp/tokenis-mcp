@@ -20,10 +20,8 @@
   },
   "packages": [
     {
-      "registryType": "pypi",
-      "identifier": "tokenis-mcp",
-      "version": "0.1.0",
-      "runtimeHint": "uvx",
+      "registryType": "oci",
+      "identifier": "ghcr.io/tokenismcp/tokenis-mcp:0.1.0",
       "transport": {
         "type": "stdio"
       },
@@ -31,14 +29,13 @@
         {
           "type": "positional",
           "value": "serve",
-          "description": "Run the MCP server",
           "isRequired": true
         },
         {
           "type": "named",
           "name": "--config-or-demo",
-          "valueHint": "tokenis.toml",
-          "description": "Path to your Tokenis config; empty serves the built-in fictional demo data",
+          "valueHint": "/config/tokenis.toml",
+          "description": "Path to your Tokenis config inside the container; empty serves the built-in fictional demo data",
           "default": "",
           "isRequired": true
         }

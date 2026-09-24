@@ -8,16 +8,32 @@ the end records how the crypto layer got here.
 
 ## [0.1.0] - 2026-09-24
 
-First release: `pip install tokenis-mcp` / `uvx tokenis-mcp`.
+First release, distributed from GitHub alone:
+`uvx --index https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp serve --demo`.
+
+### Distribution
+- Every version tag publishes to GitHub only:
+  - a GitHub Release with wheels for Linux, macOS and Windows, the sdist,
+    the npm tarball and the Claude Desktop bundle, all with build provenance;
+  - a PEP 503 package index on GitHub Pages pointing at those wheels
+    (`packaging/build_index.py`);
+  - a multi-arch image on the GitHub Container Registry.
+
+  `uv` consults that index first for `tokenis-mcp`, so a same-named package
+  on another registry cannot be substituted. The release then installs itself
+  with the published one-liner as a final check.
+- The minimum Python version is now 3.10 (3.9 reached end of life in October
+  2025), so `uvx` picks a suitable interpreter on its own, and the server
+  dependencies are unconditional.
 
 ### Added
-- **One-command installs, like other popular MCP servers:** `uvx tokenis-mcp`
-  (the server now installs by default on Python 3.10+, no extra needed); a
+- **One-command installs, like other popular MCP servers:** `uvx` from the
+  GitHub Pages index (the server installs by default, no extra needed); a
   Claude Code plugin marketplace (`/plugin marketplace add
   tokenismcp/tokenis-mcp`) whose plugin bundles the server and an analysis
   skill; a Claude Desktop extension (`tokenis.mcpb`, MCPB 0.4, uv runtime);
   a non-root Docker image with the MCP Registry label; and an MCP Registry
-  `server.json`. `packaging/check_packaging.py` launches each exactly as its
+  `server.json` pointing at that image (published only with PUBLISH_REGISTRY). `packaging/check_packaging.py` launches each exactly as its
   host does and drives it with a real MCP client, in CI.
 - **Benchmarks** (`benchmarks/bench.py`, `BENCHMARKS.md`): crypto primitives,
   the gateway at 10k-1M records, server-side W6 under concurrency, and an
@@ -76,8 +92,8 @@ First release: `pip install tokenis-mcp` / `uvx tokenis-mcp`.
   customer-identifying content), `examples/quickstart.py`.
 - Release workflow: wheels for Linux (glibc x86_64/aarch64, musl), macOS
   (arm64, x86_64) and Windows, an sdist, and the npm tarball on each
-  version tag; PyPI trusted publishing and npm publishing with build
-  provenance, gated behind the `PUBLISH` repository variable.
+  version tag (see Distribution above); npm publishing with build
+  provenance, behind the `PUBLISH_NPM` repository variable.
 - Project files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   issue/PR templates, `py.typed` + `_core.pyi` (PEP 561).
 

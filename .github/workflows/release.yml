@@ -1,25 +1,20 @@
 name: Release
 
-# Builds distributable artifacts on a version tag (or manually):
-#   - Python wheels (abi3: one per platform serves CPython >= 3.9) + sdist
-#   - the npm package tarball for sdk/typescript
-# Publishing to PyPI / npm and build-provenance attestation run only when the
-# repository variable PUBLISH is "true", after these are configured:
-#   - PyPI: add this repository as a Trusted Publisher for `tokenis-mcp`
-#     (environment "pypi"); no API token is stored anywhere.
-#   - npm (separate switch, PUBLISH_NPM = "true"): an "npm" environment
-#     holding an NPM_TOKEN secret with publish rights to the `@tokenis` scope
-#     (confirm you own the scope first).
-#     npm provenance needs a public source repository, so it is added only
-#     when this repository is public.
-#   - GHCR: nothing to configure (GITHUB_TOKEN); the image is pushed to
-#     ghcr.io/<owner>/tokenis-mcp.
-#   - MCP Registry: publishes server.json once PyPI has the release,
-#     authenticated by GitHub OIDC (the namespace io.github.tokenismcp/* must
-#     match the repository owner). server.json lists the PyPI package; add
-#     the OCI image to it once ghcr.io/tokenismcp/tokenis-mcp is public (the
-#     registry must be able to pull it to verify its label).
-# Every release also attaches the Claude Desktop bundle (tokenis.mcpb).
+# A version tag publishes Tokenis through GitHub alone -- no external
+# package registry or account is involved:
+#   - GitHub Release: wheels for every platform (abi3: one per platform
+#     serves CPython >= 3.10), the sdist, the npm tarball and the Claude
+#     Desktop bundle (tokenis.mcpb), each with build provenance.
+#   - GitHub Pages: a package index (packaging/build_index.py) pointing at
+#     every release's wheels, so `uvx --index
+#     https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp` works.
+#     One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+#   - GitHub Container Registry: ghcr.io/<owner>/tokenis-mcp (multi-arch).
+# Optional, each behind its own repository variable:
+#   - PUBLISH_REGISTRY=true: list server.json in the MCP Registry (GitHub
+#     OIDC; needs the GHCR image to be public so the registry can verify it).
+#   - PUBLISH_NPM=true: publish @tokenis/crypto to npm (needs an "npm"
+#     environment with an NPM_TOKEN secret).
 
 on:
   push:
@@ -133,7 +128,7 @@ jobs:
 
   mcpb:
     # The Claude Desktop extension: a manifest plus a uv entry point that
-    # installs tokenis-mcp from PyPI on first run.
+    # installs tokenis-mcp from the GitHub Pages index on first run.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -153,18 +148,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: artifacts/*
       - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           generate_release_notes: true
 
   publish-image:
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [version]
     runs-on: ubuntu-latest
     permissions:
@@ -198,47 +198,60 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
+  pages-index:
+    # Rebuilt from every release's assets, so older versions stay installable.
+    needs: [github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - name: Build the package index from the releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 packaging/build_index.py --out site --github-releases --repo "${{ github.repository }}"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+  install-check:
+    # The one-liner users will type, against the index just deployed.
+    needs: [pages-index]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: astral-sh/setup-uv@v10
+      - name: uvx from the GitHub Pages index
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 30); do
+            uvx --index https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/simple/ \
+              "tokenis-mcp==$v" tools --demo --format anthropic > tools.json && break
+            sleep 20
+          done
+          python3 -c "import json; assert len(json.load(open('tools.json'))) == 8"
+
   publish-mcp-registry:
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [publish-pypi]
+    if: vars.PUBLISH_REGISTRY == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [publish-image]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - name: Wait until PyPI serves this version
-        run: |
-          v="${GITHUB_REF_NAME#v}"
-          for i in $(seq 1 30); do
-            curl -sf "https://pypi.org/pypi/tokenis-mcp/$v/json" >/dev/null && exit 0
-            sleep 10
-          done
-          echo "PyPI does not list tokenis-mcp $v yet" && exit 1
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish
-
-  publish-pypi:
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
-    needs: [version, wheels, sdist]
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: "{wheels-*,sdist}"
-          merge-multiple: true
-          path: dist
-      - uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-npm:
     if: vars.PUBLISH_NPM == 'true' && startsWith(github.ref, 'refs/tags/v')

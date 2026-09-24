@@ -31,7 +31,7 @@ a PR — it saves everyone rework.
 ## Development setup
 
 Prerequisites: a Rust toolchain ([rustup.rs](https://rustup.rs)), Python
-3.9+ (3.10+ for the MCP server, CLI and LLM toolkit), and — for the
+3.10+, and — for the
 TypeScript SDK — Node 22.18+ (its tests use Node's built-in TypeScript
 support) and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 

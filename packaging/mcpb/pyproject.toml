@@ -4,3 +4,13 @@ version = "0.1.0"
 description = "Claude Desktop extension (MCPB) that runs the Tokenis MCP server"
 requires-python = ">=3.10"
 dependencies = ["tokenis-mcp==0.1.0"]
+
+# tokenis-mcp comes from the project's own index on GitHub Pages (wheels
+# attached to GitHub Releases); everything else from the default index.
+[[tool.uv.index]]
+name = "tokenis"
+url = "https://tokenismcp.github.io/tokenis-mcp/simple/"
+explicit = true
+
+[tool.uv.sources]
+tokenis-mcp = { index = "tokenis" }

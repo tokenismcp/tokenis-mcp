@@ -4,13 +4,11 @@
 
 # Tokenis
 
-<!-- mcp-name: io.github.tokenismcp/tokenis-mcp -->
-
 ![CI](https://github.com/tokenismcp/tokenis-mcp/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Docs license](https://img.shields.io/badge/docs%20license-CC--BY--4.0-lightgrey.svg)
 ![Rust](https://img.shields.io/badge/core-Rust-orange.svg)
-![Python](https://img.shields.io/badge/python-3.9%2B%20(core)%20%7C%203.10%2B%20(server)-blue.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Node%2022%2B-blue.svg)
 
 **A cryptographic disclosure-boundary gateway between an enterprise's
@@ -34,18 +32,22 @@ file.
 | Client | Install |
 |---|---|
 | **Claude Code** (plugin: server + analysis skill) | `/plugin marketplace add tokenismcp/tokenis-mcp` then `/plugin install tokenis@tokenis-mcp` |
-| **Claude Code** (server only) | `claude mcp add tokenis -- uvx tokenis-mcp serve --demo` |
+| **Claude Code** (server only) | `claude mcp add tokenis -- uvx --index https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp serve --demo` |
 | **Claude Desktop** | Download `tokenis.mcpb` from the [latest release](https://github.com/tokenismcp/tokenis-mcp/releases/latest) and open it |
-| **Any MCP client** (stdio) | `{"command": "uvx", "args": ["tokenis-mcp", "serve", "--demo"]}` |
+| **Any MCP client** (stdio) | `{"command": "uvx", "args": ["--index", "https://tokenismcp.github.io/tokenis-mcp/simple/", "tokenis-mcp", "serve", "--demo"]}` |
 | **Docker** | `docker run -i --rm ghcr.io/tokenismcp/tokenis-mcp` |
-| **Python** (library, CLI, `tokenis.llm`) | `pip install tokenis-mcp` (Python 3.10+; the crypto core alone runs on 3.9) |
+| **Python** (library, CLI, `tokenis.llm`) | `uv pip install --index https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp` (Python 3.10+) |
 
-The package-registry routes (`uvx`, `pip`, the plugin, the `.mcpb` bundle
-and the image) resolve once a release is published; until then, build from
-source as in [Development](#development). CI launches every one of these
-install paths exactly as its host does and drives it with a real MCP client
-(`packaging/check_packaging.py`). It's also listed in the MCP Registry as
-`io.github.tokenismcp/tokenis-mcp`.
+Everything is distributed from GitHub alone: prebuilt wheels for Linux,
+macOS and Windows are attached to each
+[GitHub Release](https://github.com/tokenismcp/tokenis-mcp/releases), a
+package index on GitHub Pages (https://tokenismcp.github.io/tokenis-mcp/simple/) points `uv`/`pip` at them, and the
+image is on the GitHub Container Registry. `uv` checks that index before any
+other for `tokenis-mcp`, so a same-named package elsewhere can never be
+installed in its place. With plain `pip`, use
+`pip install --index-url https://tokenismcp.github.io/tokenis-mcp/simple/ --extra-index-url https://pypi.org/simple tokenis-mcp==0.1.0`
+(pinning the version). CI launches every install path exactly as its host
+does and drives it with a real MCP client (`packaging/check_packaging.py`).
 
 For Claude Code and Claude Desktop, the plugin and the bundle ask for an
 optional config file and keys when enabled. Over stdio the caller is the
@@ -261,7 +263,7 @@ SDK also Node 22.18+ and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,research,server]"   # compiles the Rust core; drop `server` on Python 3.9
+pip install -e ".[dev,research]"          # compiles the Rust core
 pytest                                     # everything the current interpreter can run
 python examples/quickstart.py
 

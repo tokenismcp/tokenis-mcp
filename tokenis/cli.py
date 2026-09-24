@@ -335,10 +335,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    if sys.version_info < (3, 10):
-        _die("the Tokenis server and CLI need Python 3.10 or newer "
-             "(e.g. `uvx --python 3.12 tokenis-mcp ...`); the Python 3.9 install "
-             "provides the tokenis library only")
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     logging.basicConfig(
         stream=sys.stderr, level=str(args.log_level).upper(),

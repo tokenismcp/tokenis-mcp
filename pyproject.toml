@@ -2,7 +2,7 @@
 # The cryptographic core is Rust (crates/tokenis-core), compiled into the
 # `tokenis._core` extension module; maturin builds it and packages it with
 # the pure-Python `tokenis` package. abi3: one wheel per platform serves
-# every CPython >= 3.9.
+# every CPython >= 3.10.
 requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
@@ -17,14 +17,13 @@ keywords = ["mcp", "llm", "privacy", "homomorphic-encryption", "access-control",
 authors = [
     { name = "Caleb Lee", email = "jlabsrd@gmail.com" },
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -36,18 +35,14 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    # The MCP server, CLI, HTTP auth and TOML config: installed by default
-    # wherever they can run (the `mcp` 2.x floor is Python 3.10), so
-    # `uvx tokenis-mcp serve` works with no extras. On Python 3.9 the
-    # crypto/gateway/research core installs on its own.
-    "mcp>=2.2,<3; python_version >= '3.10'",
-    "pyjwt[crypto]>=2.8; python_version >= '3.10'",
-    "tomli>=2.0; python_version >= '3.10' and python_version < '3.11'",
+    "mcp>=2.2,<3",
+    "pyjwt[crypto]>=2.8",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-# Kept for compatibility with `pip install tokenis-mcp[server]`; the server
-# dependencies are now part of the default install on Python >= 3.10.
+# Kept for compatibility with `tokenis-mcp[server]` requirements; the server
+# dependencies are part of the default install.
 server = []
 # LLM API clients for `tokenis.llm.ask_*` and `tokenis-mcp ask`.
 llm = ["tokenis-mcp[server]", "anthropic>=0.40", "openai>=1.50"]
@@ -87,12 +82,12 @@ testpaths = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 # UP006/UP035/UP037/UP045 push PEP 585/604 generics (`dict[str, int]`,
 # `X | None`) as bare (non-postponed) annotations, which this repo's
-# Python 3.9 floor does not uniformly support; typing.Dict/List/Optional
+# code base kept in the older style; typing.Dict/List/Optional
 # stay intentionally in place rather than being modernised file by file.
 ignore = ["UP006", "UP035", "UP037", "UP045"]
 # flake8-bandit security rules, enforced on the shipped SDK. Tests use
@@ -107,6 +102,7 @@ extend-select = ["S"]
 "tokenis/conformance/**" = ["S"]
 "tokenis/mcp_server/test_server.py" = ["S"]
 "scripts/**" = ["S"]
+"packaging/**" = ["S"]
 # Measurement harness, not product code: asserts, seeded PRNGs and
 # subprocesses are the point; long report lines are built by concatenation.
 "benchmarks/**" = ["S", "ISC004", "PLW1510"]
@@ -119,10 +115,10 @@ extend-select = ["S"]
 # module-path uniqueness check rejects checking both trees in one run.
 # `mypy tokenis` is what CI runs; see .github/workflows/ci.yml.
 #
-# python_version is pinned to 3.12, well above this package's actual 3.9
+# python_version is pinned to 3.12, above this package's actual 3.10
 # floor, for two independent reasons: (1) recent mypy releases dropped
-# the ability to type-check *against* a target as old as 3.9 at all (they
-# still run fine *under* a 3.9 interpreter -- those are different
+# the ability to type-check *against* old targets (they still run fine
+# *under* an older interpreter -- those are different
 # things); (2) numpy's own bundled .pyi stubs use PEP 695 `type` alias
 # syntax, which mypy only parses when the target is 3.12+, regardless of
 # mypy's own version -- targeting anything lower fails on numpy's stub

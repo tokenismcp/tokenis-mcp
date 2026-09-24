@@ -16,6 +16,8 @@ Discovered automatically by pytest via this repository's `pyproject.toml`
 
 from __future__ import annotations
 
+import itertools
+
 import attack_differential_inference as adi
 import attack_schema_uniqueness as asu
 import attack_token_linkage as atl
@@ -94,14 +96,14 @@ def test_schema_uniqueness_runs_and_is_bounded(tiny_corpus):
 
     # Adding an attribute can never decrease the *best* achievable uniqueness.
     most_informative = [r["most_informative_fraction_pct"] for r in result["subset_size"]]
-    for a, b in zip(most_informative, most_informative[1:]):
+    for a, b in itertools.pairwise(most_informative):
         assert b >= a - 1e-6
 
 
 def test_generalization_ladder_is_monotone(tiny_corpus):
     rungs = asu.generalization_ladder(tiny_corpus)
     assert len(rungs) == 6
-    for a, b in zip(rungs, rungs[1:]):
+    for a, b in itertools.pairwise(rungs):
         assert b.unique_in_directory_pct <= a.unique_in_directory_pct + 1e-6
         assert b.groups_addressable <= a.groups_addressable
 
@@ -154,7 +156,7 @@ def test_isolation_setdiff_is_flat_in_k(tiny_corpus):
 
 def test_isolation_conjunction_only_is_non_increasing(tiny_corpus):
     rows = adi.isolation_conjunction_only(tiny_corpus, [1, 2, 5, 10, 25])
-    for a, b in zip(rows, rows[1:]):
+    for a, b in itertools.pairwise(rows):
         assert b["isolable_pct"] <= a["isolable_pct"] + 1e-6
 
 
@@ -175,21 +177,21 @@ def test_bulk_reconstruction_threshold(tiny_corpus):
 
 def test_d2_generalization_sweep_is_monotone(tiny_corpus):
     rows = defenses_mod.d2_generalization_sweep(tiny_corpus)
-    for a, b in zip(rows, rows[1:]):
+    for a, b in itertools.pairwise(rows):
         assert b["reidentified_pct"] <= a["reidentified_pct"] + 1e-6
         assert b["groups_addressable_pct"] <= a["groups_addressable_pct"] + 1e-6
 
 
 def test_d1_epoch_sweep_links_preserved_is_non_decreasing(tiny_corpus):
     rows = defenses_mod.d1_epoch_sweep(tiny_corpus, [1, 5, 20, 40])
-    for a, b in zip(rows, rows[1:]):
+    for a, b in itertools.pairwise(rows):
         assert b["cross_session_links_preserved_pct"] >= a["cross_session_links_preserved_pct"] - 1e-6
     assert rows[-1]["cross_session_links_preserved_pct"] == pytest.approx(100.0)
 
 
 def test_d3_min_aggregate_size_sweep_is_non_increasing(tiny_corpus):
     rows = defenses_mod.d3_min_aggregate_size_sweep(tiny_corpus, [1, 3, 5, 10])
-    for a, b in zip(rows, rows[1:]):
+    for a, b in itertools.pairwise(rows):
         assert b["amounts_recovered"] <= a["amounts_recovered"]
         assert b["pct_workload_answered"] <= a["pct_workload_answered"] + 1e-6
 

@@ -46,12 +46,11 @@ jobs:
 
   python:
     # Crypto (via the Rust extension), gateway, research reproduction and
-    # conformance suite, on the package's Python floor and up. Tests that
-    # need the `server` extra skip themselves here; see mcp-server.
+    # conformance suite, on the package's Python floor and up.
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.13"]
+        python-version: ["3.10", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -147,7 +146,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
-      - name: Build the wheel (stands in for PyPI)
+      - name: Build the wheel (published through a local copy of the Pages index)
         run: pip install "maturin>=1.7,<2" && maturin build --release --out wheels
       - name: Install the checker's dependencies
         run: pip install "$(ls wheels/*.whl)" jsonschema

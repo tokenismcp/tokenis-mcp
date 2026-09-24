@@ -3,6 +3,8 @@
     "tokenis": {
       "command": "uvx",
       "args": [
+        "--index",
+        "https://tokenismcp.github.io/tokenis-mcp/simple/",
         "tokenis-mcp",
         "serve",
         "--config",
@@ -16,6 +18,8 @@
     "tokenis-demo": {
       "command": "uvx",
       "args": [
+        "--index",
+        "https://tokenismcp.github.io/tokenis-mcp/simple/",
         "tokenis-mcp",
         "serve",
         "--demo"

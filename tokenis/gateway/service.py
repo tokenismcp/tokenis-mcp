@@ -42,6 +42,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import inspect
+import itertools
 import json
 import math
 import threading
@@ -990,7 +991,7 @@ class TokenisGatewayService:
         cuts = [float(t) for t in thresholds]
         if not 1 <= len(cuts) < limit or not all(math.isfinite(t) for t in cuts):
             raise ArgumentError(f"thresholds: 1 to {limit - 1} finite numbers")
-        if any(b <= a for a, b in zip(cuts, cuts[1:])):
+        if any(b <= a for a, b in itertools.pairwise(cuts)):
             raise ArgumentError("thresholds must be strictly increasing")
         names = [str(label) for label in labels]
         if len(names) != len(cuts) + 1 or not all(0 < len(n) <= 64 for n in names):

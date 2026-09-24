@@ -11,7 +11,13 @@
   "homepage": "https://github.com/tokenismcp/tokenis-mcp",
   "repository": "https://github.com/tokenismcp/tokenis-mcp",
   "license": "Apache-2.0",
-  "keywords": ["privacy", "encryption", "analytics", "mcp", "audit"],
+  "keywords": [
+    "privacy",
+    "encryption",
+    "analytics",
+    "mcp",
+    "audit"
+  ],
   "userConfig": {
     "config_file": {
       "type": "file",
@@ -38,11 +44,14 @@
     "tokenis": {
       "command": "uvx",
       "args": [
-        "--python", "3.12",
+        "--index",
+        "https://tokenismcp.github.io/tokenis-mcp/simple/",
         "tokenis-mcp@0.1.0",
-        "--log-level", "WARNING",
+        "--log-level",
+        "WARNING",
         "serve",
-        "--config-or-demo", "${user_config.config_file}"
+        "--config-or-demo",
+        "${user_config.config_file}"
       ],
       "env": {
         "TOKENIS_TOKENIZER_KEY": "${user_config.tokenizer_key}",
