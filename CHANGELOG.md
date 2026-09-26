@@ -6,6 +6,26 @@ the end records how the crypto layer got here.
 
 ## [Unreleased]
 
+### Added
+- **Key management:** `[keys]` keeps the gateway's four secrets (ElGamal
+  key, tokenizer key, audit key, ledger key) in a keystore wrapped by AWS KMS,
+  HashiCorp Vault Transit, Google Cloud KMS, Azure Key Vault or a local
+  passphrase, each bound to the tenant. `tokenis-mcp secrets init | status |
+  rewrap`.
+- **Encrypted ledger:** `tokenis-mcp ingest` reads the source once and writes
+  an AES-256-GCM ledger; serving hosts load it and never see the source.
+- **Database sources:** `[data] url_env` + `table`/`query` streams rows from
+  PostgreSQL, MySQL/MariaDB, Oracle, SQL Server, Snowflake or BigQuery
+  through SQLAlchemy; passwords are refused in the file.
+- **Several replicas:** `[state] backend = "postgres"` shares the admission
+  history, the hash-chained audit trail and API keys between gateway
+  processes. Each call runs in one transaction under a per-tenant advisory
+  lock after replaying the other replicas' decisions, so a differencing pair
+  split across replicas is refused. A replica whose database call fails
+  rebuilds its admission state from the shared log before answering again.
+- The audit trail streams from its storage instead of being held in memory.
+- CI runs the database tests against real PostgreSQL and MySQL servers.
+
 ## [0.1.0] - 2026-09-24
 
 First release, distributed from GitHub alone:

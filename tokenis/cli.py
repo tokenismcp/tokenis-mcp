@@ -107,8 +107,8 @@ def cmd_serve(args: argparse.Namespace) -> None:
     from mcp.server.auth.settings import AuthSettings
     from mcp.server.transport_security import TransportSecuritySettings
 
+    from tokenis.config import ConfigError, api_key_store
     from tokenis.server_auth import (
-        ApiKeyStore,
         ApiKeyVerifier,
         JwtVerifier,
         authenticated_principal,
@@ -118,8 +118,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
     auth_cfg = config.auth
     verifier: Any
     if auth_cfg.mode == "api_keys":
-        assert auth_cfg.api_keys_file is not None  # noqa: S101 -- validated by parse_config
-        verifier = ApiKeyVerifier(ApiKeyStore(auth_cfg.api_keys_file))
+        try:
+            verifier = ApiKeyVerifier(api_key_store(config))
+        except ConfigError as exc:
+            _die(str(exc))
         issuer = public_url
         scopes = None
     elif auth_cfg.mode == "jwt":
@@ -171,14 +173,15 @@ def cmd_check(args: argparse.Namespace) -> None:
         "tools": list(service.tool_names),
         "columns": {c.name: c.protection for c in service.schema.columns},
         "min_query_set_size": service.k,
-        "state_dir": str(config.state_dir) if config.state_dir else None,
+        "state": ("postgres (shared)" if config.state_backend == "postgres"
+                  else str(config.state_dir) if config.state_dir else None),
         "transport": config.server.transport,
         "auth": config.auth.mode,
         "keys": config.keys.provider if config.keys else "environment variables",
         "ledger": str(config.ledger) if config.ledger else None,
     }
     print(json.dumps(summary, indent=2))
-    if config.state_dir is None:
+    if config.state_dir is None and config.state_backend == "file":
         print("warning: no [state] dir -- admission history and the audit trace are lost on "
               "restart; set one for production", file=sys.stderr)
 
@@ -223,19 +226,17 @@ def cmd_ask(args: argparse.Namespace) -> None:
 
 
 def cmd_keys(args: argparse.Namespace) -> None:
-    from tokenis.config import ConfigError, load_config
+    from tokenis.config import ConfigError, api_key_store, load_config
     from tokenis.server_auth import ApiKeyStore
 
-    path = args.file
-    if path is None:
+    store: Any
+    if args.file is not None:
+        store = ApiKeyStore(args.file)
+    else:
         try:
-            config = load_config(args.config)
+            store = api_key_store(load_config(args.config))
         except ConfigError as exc:
             _die(str(exc))
-        path = config.auth.api_keys_file
-        if path is None:
-            _die("the config has no [auth] api_keys_file")
-    store = ApiKeyStore(path)
     if args.keys_command == "create":
         try:
             token, record = store.create(args.principal)
@@ -258,7 +259,13 @@ def cmd_keygen_secret(_args: argparse.Namespace) -> None:
 
 def cmd_audit(args: argparse.Namespace) -> None:
     from tokenis.audit.trace import DisclosureTrace, TraceIntegrityError
-    from tokenis.config import ConfigError, load_config, load_secrets, read_secret
+    from tokenis.config import (
+        ConfigError,
+        load_config,
+        load_secrets,
+        open_shared_state,
+        read_secret,
+    )
 
     try:
         config = load_config(args.config)
@@ -268,16 +275,25 @@ def cmd_audit(args: argparse.Namespace) -> None:
             key = read_secret(config.audit_key_env, os.environ) if config.audit_key_env else None
     except ConfigError as exc:
         _die(str(exc))
-    if config.state_dir is None:
-        _die("the config has no [state] dir, so there is no persisted trace")
-    path = config.state_dir / "trace.jsonl"
     try:
-        trace = DisclosureTrace(path=path, hmac_key=key)
+        shared = open_shared_state(config)
+    except ConfigError as exc:
+        _die(str(exc))
+    if shared is not None:
+        where = f"postgres tokenis_trace (tenant {config.settings.tenant})"
+        storage, path = shared.trace_storage(), None
+    elif config.state_dir is None:
+        _die("the config has no [state] dir, so there is no persisted trace")
+    else:
+        path, storage = config.state_dir / "trace.jsonl", None
+        where = str(path)
+    try:
+        trace = DisclosureTrace(path=path, hmac_key=key, storage=storage)
     except TraceIntegrityError as exc:
         _die(f"INTEGRITY FAILURE: {exc}", code=1)
     entries = list(trace)
     kinds = {k: sum(e.kind == k for e in entries) for k in ("aggregate", "reveal", "denial")}
-    print(json.dumps({"file": str(path), "entries": len(entries), **kinds, "head": trace.head,
+    print(json.dumps({"file": where, "entries": len(entries), **kinds, "head": trace.head,
                       "signed": key is not None}, indent=2))
 
 

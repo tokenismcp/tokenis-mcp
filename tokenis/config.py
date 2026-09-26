@@ -135,6 +135,10 @@ class TokenisConfig:
     source: Optional[Path] = None
     keys: Optional[KeySettings] = None
     ledger: Optional[Path] = None
+    #: "file" (the [state] dir) or "postgres" (shared by several replicas;
+    #: the connection URL comes from the environment variable state_url_env).
+    state_backend: str = "file"
+    state_url_env: str = "TOKENIS_STATE_URL"
 
 
 # -- TOML parsing -----------------------------------------------------------------
@@ -258,8 +262,13 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         purposes=tuple(purposes),
     )
 
-    state = _table(top.get("state"), "state", ("dir", "audit_key_env"))
+    state = _table(top.get("state"), "state", ("dir", "audit_key_env", "backend", "url_env"))
     state_dir = _path(base_dir, state["dir"], "[state] dir") if "dir" in state else None
+    state_backend = str(state.get("backend", "file"))
+    if state_backend not in ("file", "postgres"):
+        raise ConfigError('[state] backend must be "file" or "postgres"')
+    if "url_env" in state and state_backend != "postgres":
+        raise ConfigError('[state] url_env applies only to backend = "postgres"')
     keys_raw = _table(top.get("keys"), "keys",
                       ("provider", "keystore", *sorted({o for v in KEY_PROVIDERS.values() for o in v})))
     keys: Optional[KeySettings] = None
@@ -310,8 +319,11 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     )
     if auth.mode not in ("none", "api_keys", "jwt"):
         raise ConfigError("[auth] mode must be none, api_keys or jwt")
-    if auth.mode == "api_keys" and auth.api_keys_file is None:
-        raise ConfigError("[auth] mode = api_keys needs api_keys_file")
+    if auth.mode == "api_keys" and auth.api_keys_file is None and state_backend != "postgres":
+        raise ConfigError("[auth] mode = api_keys needs api_keys_file (or the postgres state backend)")
+    if auth.api_keys_file is not None and state_backend == "postgres":
+        raise ConfigError("with the postgres state backend API keys live in the database; "
+                          "remove [auth] api_keys_file")
     if auth.mode == "jwt" and auth.jwt is None:
         raise ConfigError("[auth] mode = jwt needs an [auth.jwt] table")
     if server.transport == "http" and auth.mode == "none":
@@ -331,6 +343,8 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         source=source,
         keys=keys,
         ledger=ledger_path,
+        state_backend=state_backend,
+        state_url_env=str(state.get("url_env", "TOKENIS_STATE_URL")),
     )
 
 
@@ -567,6 +581,55 @@ def load_secrets(config: TokenisConfig, environ: Mapping[str, str]) -> Any:
         raise ConfigError(str(exc)) from None
 
 
+def state_url(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> str:
+    """The PostgreSQL URL for the shared state (credentials included, so it
+    only ever comes from the environment)."""
+    env = os.environ if environ is None else environ
+    url = env.get(config.state_url_env, "")
+    if not url:
+        raise ConfigError(f"[state] backend = postgres: set {config.state_url_env} to the "
+                          "database URL, e.g. postgresql://tokenis@db:5432/tokenis")
+    if url.startswith("postgresql+"):
+        url = "postgresql://" + url.split("://", 1)[1]
+    return url
+
+
+def open_shared_state(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> Any:
+    """A :class:`tokenis.gateway.pgstate.PostgresState` for ``config``, or
+    None with the file backend."""
+    if config.state_backend != "postgres":
+        return None
+    from tokenis.gateway.pgstate import PostgresState
+
+    try:
+        return PostgresState(state_url(config, environ), config.settings.tenant)
+    except ConfigError:
+        raise
+    except Exception as exc:  # noqa: BLE001 -- driver errors vary; report them as config errors
+        raise ConfigError(f"cannot open the postgres state: {exc}") from None
+
+
+def api_key_store(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None,
+                  path: Optional[Path] = None) -> Any:
+    """Where API keys live: the database with the postgres backend, else the
+    [auth] api_keys_file (or ``path``)."""
+    if config.state_backend == "postgres" and path is None:
+        from tokenis.gateway.pgstate import PostgresApiKeyStore
+
+        try:
+            return PostgresApiKeyStore(state_url(config, environ), config.settings.tenant)
+        except ConfigError:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- see open_shared_state
+            raise ConfigError(f"cannot open the postgres key store: {exc}") from None
+    from tokenis.server_auth import ApiKeyStore
+
+    path = path or config.auth.api_keys_file
+    if path is None:
+        raise ConfigError("the config has no [auth] api_keys_file")
+    return ApiKeyStore(path)
+
+
 def build_service(
     config: TokenisConfig,
     *,
@@ -590,8 +653,13 @@ def build_service(
     else:
         tokenizer_key = read_secret(config.tokenizer_key_env, env)
         audit_key = read_secret(config.audit_key_env, env) if config.audit_key_env else None
-    kwargs: Dict[str, Any] = {"state_dir": config.state_dir, "audit_key": audit_key,
-                              "reset_admission_state": reset_admission_state}
+    shared = open_shared_state(config, env)
+    kwargs: Dict[str, Any] = {
+        "state_dir": config.state_dir if shared is None else None,
+        "shared_state": shared,
+        "audit_key": audit_key,
+        "reset_admission_state": reset_admission_state,
+    }
     ledger = config.ledger
     if ledger is not None and (ledger / "manifest.json").exists() and not from_source:
         if ledger_key is None or private_key is None:

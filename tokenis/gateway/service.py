@@ -39,6 +39,7 @@ scheme is out of scope for the additive EC-ElGamal used here.
 """
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import inspect
@@ -51,10 +52,12 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
     Iterable,
+    Iterator,
     List,
     Mapping,
     Optional,
@@ -91,6 +94,9 @@ from tokenis.gateway.reveal import RevealDenied, RevealObject, reveal
 from tokenis.gateway.schema import ColumnSpec, GatewaySettings, Schema
 from tokenis.gateway.state import AdmissionLog
 from tokenis.semantic.tokenizer import ScopedTokenizer
+
+if TYPE_CHECKING:  # pragma: no cover
+    from tokenis.gateway.pgstate import PostgresState
 
 POLICY_VERSION = "tokenis-gateway/2"
 
@@ -154,8 +160,9 @@ class Caller:
 def _locked(method: _F) -> _F:
     @functools.wraps(method)
     def wrapper(self: "TokenisGatewayService", *args: Any, **kwargs: Any) -> Any:
-        with self._lock:
+        with self._lock, self._shared_transaction():
             self._seal_locked()
+            self._sync_shared()
             return method(self, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
@@ -229,7 +236,10 @@ class TokenisGatewayService:
         audit_key: Optional[bytes] = None,
         reset_admission_state: bool = False,
         private_key: Optional[bytes] = None,
+        shared_state: Optional["PostgresState"] = None,
     ) -> None:
+        if shared_state is not None and state_dir is not None:
+            raise ValueError("pass state_dir or shared_state, not both")
         self.schema = schema
         self.settings = settings or GatewaySettings()
         self._lock = threading.RLock()
@@ -271,9 +281,15 @@ class TokenisGatewayService:
         self._embeddings: Dict[str, np.ndarray] = {}
         self._embedding_dim: Optional[int] = None
 
+        #: Admission history, trace and API keys shared with other replicas
+        #: through PostgreSQL (see tokenis.gateway.pgstate).
+        self.shared_state = shared_state
+        self._last_seq = 0
+        self._admission_stale = False
         self.trace = DisclosureTrace(
             path=self._state_dir / "trace.jsonl" if self._state_dir else None,
             hmac_key=audit_key,
+            storage=shared_state.trace_storage() if shared_state is not None else None,
         )
         self._attrs: Dict[str, np.ndarray] = {}
         # Filled at seal, when the per-record strings are released:
@@ -281,6 +297,7 @@ class TokenisGatewayService:
         self._domains: Dict[str, List[str]] = {}
         self._cell_of_record = np.zeros(0, dtype=np.int64)
         self._cell_attrs: Dict[str, np.ndarray] = {}
+        self._cell_weights = np.zeros(0, dtype=np.int64)
         self._admission: Optional[AdmissionPolicy] = None
         self._log: Optional[AdmissionLog] = None
 
@@ -482,7 +499,7 @@ class TokenisGatewayService:
     def seal(self) -> None:
         """Freeze the ledger and build (or restore) the admission state.
         Called automatically by the first query."""
-        with self._lock:
+        with self._lock, self._shared_transaction():
             self._seal_locked()
 
     def _seal_locked(self) -> None:
@@ -494,25 +511,19 @@ class TokenisGatewayService:
                 f"need at least 2*min_query_set_size = {2 * k} records to answer any "
                 f"aggregate (have {n})"
             )
-        adm = self.settings.admission
         self._attrs = {
             name: np.array(values, dtype=object) for name, values in self._public.items()
         }
         self._domains = {name: sorted(set(values)) for name, values in self._public.items()}
         cell_attrs, weights, cell_of_record = self._cells()
-        self._admission = AdmissionPolicy(
-            n=len(weights),
-            public_attributes=cell_attrs,
-            weights=weights,
-            catalogue=[c.name for c in self.schema.sealed],
-            k=k,
-            budget=adm.budget,
-            taint_budget=adm.taint_budget,
-            taint_call_cap=adm.taint_call_cap,
-            cell_aware=adm.cell_aware,
-        )
+        self._cell_weights = weights
+        self._admission = self._new_admission(cell_attrs)
         self._build_decryptors()
-        if self._state_dir is not None:
+        if self.shared_state is not None:
+            self.shared_state.open(self._fingerprint(), reset=self._reset_state)
+            self._last_seq = 0
+            self._sync_shared()
+        elif self._state_dir is not None:
             self._log = AdmissionLog(
                 self._state_dir / "admission.jsonl",
                 fingerprint=self._fingerprint(),
@@ -529,6 +540,51 @@ class TokenisGatewayService:
         self._public = {name: [] for name in self._public}
         self._ids = {}
         self._sealed = True
+
+    def _new_admission(self, cell_attrs: Dict[str, np.ndarray]) -> AdmissionPolicy:
+        adm = self.settings.admission
+        return AdmissionPolicy(
+            n=len(self._cell_weights),
+            public_attributes=cell_attrs,
+            weights=self._cell_weights,
+            catalogue=[c.name for c in self.schema.sealed],
+            k=self.k,
+            budget=adm.budget,
+            taint_budget=adm.taint_budget,
+            taint_call_cap=adm.taint_call_cap,
+            cell_aware=adm.cell_aware,
+        )
+
+    # -- shared state (several replicas, one PostgreSQL) ---------------------------
+
+    @contextlib.contextmanager
+    def _shared_transaction(self) -> Iterator[None]:
+        """With shared state, the whole call runs in one database transaction
+        under the tenant's advisory lock; any database failure leaves the
+        in-memory admission state suspect, so it is rebuilt from the log on
+        the next call rather than trusted."""
+        if self.shared_state is None:
+            yield
+            return
+        try:
+            with self.shared_state.transaction():
+                yield
+        except self.shared_state.database_errors:
+            self._admission_stale = True
+            raise
+
+    def _sync_shared(self) -> None:
+        """Replay admission calls other replicas logged since we last looked
+        (caller holds the transaction, so nothing new can appear meanwhile)."""
+        if self.shared_state is None:
+            return
+        if self._admission_stale and self._sealed:
+            self._admission = self._new_admission(self._cell_attrs)
+            self._last_seq = 0
+        self._admission_stale = False
+        for seq, record in self.shared_state.records_after(self._last_seq):
+            self._replay(record)
+            self._last_seq = seq
 
     def _cells(self) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """Group records into cells no admissible query can tell apart, so
@@ -661,7 +717,7 @@ class TokenisGatewayService:
         filters: Optional[Mapping[str, str]] = None, function: Optional[str] = None,
         column: Optional[str] = None,
     ) -> None:
-        if self._log is None:
+        if self._log is None and self.shared_state is None:
             return
         record: Dict[str, Any] = {
             "op": op, "subject": context.subject_id, "taint": context.taint,
@@ -669,7 +725,11 @@ class TokenisGatewayService:
         }
         if op == "decide":
             record.update(filters=dict(filters or {}), function=function, column=column)
-        self._log.append(record)
+        if self.shared_state is not None:
+            self._last_seq = self.shared_state.append(record)
+        else:
+            assert self._log is not None  # noqa: S101 -- checked above
+            self._log.append(record)
 
     def _decide(
         self, caller: Caller, filters: Mapping[str, str], function: str,

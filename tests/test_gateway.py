@@ -89,10 +89,13 @@ def test_disclosure_trace_detects_tampering():
     reveal("a", obj, "p", "v1", lambda *_: True, lambda _o: 2, trace)
     assert trace.verify_chain()
 
-    # Simulate tampering by directly mutating the internal entry list.
-    entries = trace._entries  # type: ignore[attr-defined]
-    tampered = entries[0]
+    # Simulate tampering by directly mutating the stored entries.
+    entries = trace._storage.entries  # type: ignore[attr-defined]
+    tampered, mac = entries[0]
     from dataclasses import replace
 
-    entries[0] = replace(tampered, value_summary="tampered")
+    # A tampered entry keeps its old stored digest in real storage; memory
+    # storage recomputes, so tamper with the chain link instead.
+    entries[1] = (replace(entries[1][0], prev_hash="0" * 64), entries[1][1])
+    del tampered, mac
     assert not trace.verify_chain()

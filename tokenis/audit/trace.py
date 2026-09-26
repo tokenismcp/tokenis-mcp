@@ -52,7 +52,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Protocol, Tuple
 
 
 @dataclass(frozen=True)
@@ -128,105 +128,181 @@ class TraceIntegrityError(RuntimeError):
     middle, reordered, or signed with a different key)."""
 
 
+def entry_to_dict(entry: TraceEntry, mac: Optional[str]) -> Dict[str, Any]:
+    line: Dict[str, Any] = {
+        "kind": entry.kind,
+        "audit": entry.audit.to_dict(),
+        "value_summary": entry.value_summary,
+        "prev_hash": entry.prev_hash,
+        "index": entry.index,
+        "digest": entry.digest,
+    }
+    if mac is not None:
+        line["mac"] = mac
+    return line
+
+
+def entry_from_dict(raw: Mapping[str, Any]) -> Tuple[TraceEntry, Optional[str], Optional[str]]:
+    """(entry, stored digest, mac) -- raises on malformed input."""
+    entry = TraceEntry(
+        kind=raw["kind"],
+        audit=AuditRecord.from_dict(raw["audit"]),
+        value_summary=raw["value_summary"],
+        prev_hash=raw["prev_hash"],
+        index=int(raw["index"]),
+    )
+    return entry, raw.get("digest"), raw.get("mac")
+
+
+class TraceStorage(Protocol):
+    """Where trace entries live. ``head`` and ``append`` are called under the
+    trace's lock (and, for shared storage, inside the gateway's transaction)."""
+
+    def head(self) -> Tuple[int, str]:
+        """(number of entries, digest of the last entry or the genesis hash)."""
+        ...
+
+    def append(self, entry: TraceEntry, mac: Optional[str]) -> None: ...
+
+    def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
+        """Every entry in order: (entry, stored digest, mac, location)."""
+        ...
+
+
+class MemoryTraceStorage:
+    def __init__(self) -> None:
+        self.entries: List[Tuple[TraceEntry, Optional[str]]] = []
+
+    def head(self) -> Tuple[int, str]:
+        return len(self.entries), (self.entries[-1][0].digest if self.entries else _GENESIS_HASH)
+
+    def append(self, entry: TraceEntry, mac: Optional[str]) -> None:
+        self.entries.append((entry, mac))
+
+    def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
+        for i, (entry, mac) in enumerate(list(self.entries)):
+            yield entry, entry.digest, mac, f"entry {i}"
+
+
+class FileTraceStorage:
+    """JSON lines, appended and fsync'd, mode 0600. Only the head is kept in
+    memory; reading streams the file."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._count = 0
+        self._head = _GENESIS_HASH
+        if self.path.exists():
+            from tokenis.gateway.state import truncate_torn_tail
+
+            # A crash mid-append leaves a line without its newline; the call
+            # it recorded never returned a value, so it is safe to drop.
+            truncate_torn_tail(self.path)
+
+    def set_head(self, count: int, digest: str) -> None:
+        self._count, self._head = count, digest
+
+    def head(self) -> Tuple[int, str]:
+        return self._count, self._head
+
+    def append(self, entry: TraceEntry, mac: Optional[str]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry_to_dict(entry, mac), sort_keys=True) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        self._count, self._head = entry.index + 1, entry.digest
+
+    def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
+        if not self.path.exists():
+            return
+        with self.path.open(encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, start=1):
+                if not line.strip():
+                    continue
+                where = f"{self.path}:{lineno}"
+                try:
+                    entry, digest, mac = entry_from_dict(json.loads(line))
+                except (ValueError, KeyError, TypeError) as exc:
+                    raise TraceIntegrityError(f"{where}: unreadable entry") from exc
+                yield entry, digest, mac, where
+
+
 class DisclosureTrace:
     """An append-only, hash-chained disclosure trace, optionally persisted
-    and HMAC-signed (see the module docstring)."""
+    and HMAC-signed (see the module docstring).
+
+    ``path`` persists to a file; ``storage`` plugs in shared storage (the
+    PostgreSQL backend in :mod:`tokenis.gateway.pgstate`). A persisted trace
+    is verified end to end when opened, and refuses to open if it does not
+    verify."""
 
     def __init__(
         self,
         path: Optional[str | os.PathLike[str]] = None,
         hmac_key: Optional[bytes] = None,
+        storage: Optional[TraceStorage] = None,
     ) -> None:
         if hmac_key is not None and len(hmac_key) < 16:
             raise ValueError("hmac_key must be at least 16 bytes")
+        if path is not None and storage is not None:
+            raise ValueError("pass path or storage, not both")
         self._lock = threading.Lock()
-        self._entries: List[TraceEntry] = []
-        self._macs: List[Optional[str]] = []
         self._hmac_key = hmac_key
-        self._path = Path(path) if path is not None else None
-        if self._path is not None and self._path.exists():
-            from tokenis.gateway.state import truncate_torn_tail
-
-            # A crash mid-append leaves a line without its newline; the call
-            # it recorded never returned a value, so it is safe to drop.
-            truncate_torn_tail(self._path)
-            self._load(self._path)
-
-    # -- persistence ------------------------------------------------------
+        self._storage: TraceStorage
+        if storage is not None:
+            self._storage = storage
+            self._verify(raise_on_error=True)
+        elif path is not None:
+            file_storage = FileTraceStorage(Path(path))
+            self._storage = file_storage
+            count, head = self._verify(raise_on_error=True)
+            file_storage.set_head(count, head)
+        else:
+            self._storage = MemoryTraceStorage()
 
     def _mac(self, digest: str) -> Optional[str]:
         if self._hmac_key is None:
             return None
         return hmac.new(self._hmac_key, digest.encode("ascii"), hashlib.sha256).hexdigest()
 
-    def _load(self, path: Path) -> None:
-        prev = _GENESIS_HASH
-        with path.open(encoding="utf-8") as fh:
-            for lineno, line in enumerate(fh, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    raw = json.loads(line)
-                    entry = TraceEntry(
-                        kind=raw["kind"],
-                        audit=AuditRecord.from_dict(raw["audit"]),
-                        value_summary=raw["value_summary"],
-                        prev_hash=raw["prev_hash"],
-                        index=int(raw["index"]),
-                    )
-                except (ValueError, KeyError, TypeError) as exc:
-                    raise TraceIntegrityError(f"{path}:{lineno}: unreadable entry") from exc
-                if entry.index != len(self._entries) or entry.prev_hash != prev:
-                    raise TraceIntegrityError(f"{path}:{lineno}: chain broken")
-                if entry.digest != raw.get("digest"):
-                    raise TraceIntegrityError(f"{path}:{lineno}: entry was modified")
-                expected_mac = self._mac(entry.digest)
-                if expected_mac is not None and not hmac.compare_digest(
-                    expected_mac, str(raw.get("mac", ""))
-                ):
-                    raise TraceIntegrityError(f"{path}:{lineno}: HMAC does not verify")
-                self._entries.append(entry)
-                self._macs.append(raw.get("mac"))
-                prev = entry.digest
-
-    def _persist(self, entry: TraceEntry, mac: Optional[str]) -> None:
-        if self._path is None:
-            return
-        line = {
-            "kind": entry.kind,
-            "audit": entry.audit.to_dict(),
-            "value_summary": entry.value_summary,
-            "prev_hash": entry.prev_hash,
-            "index": entry.index,
-            "digest": entry.digest,
-        }
-        if mac is not None:
-            line["mac"] = mac
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(line, sort_keys=True) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+    def _verify(self, raise_on_error: bool) -> Tuple[int, str]:
+        """Walk the whole trace; returns (count, head digest). With
+        ``raise_on_error`` a problem raises TraceIntegrityError naming the
+        entry; otherwise it returns (-1, "")."""
+        prev, count = _GENESIS_HASH, 0
+        try:
+            for entry, digest, mac, where in self._storage.scan():
+                if entry.index != count or entry.prev_hash != prev:
+                    raise TraceIntegrityError(f"{where}: chain broken")
+                if entry.digest != digest:
+                    raise TraceIntegrityError(f"{where}: entry was modified")
+                expected = self._mac(entry.digest)
+                if expected is not None and not hmac.compare_digest(expected, str(mac or "")):
+                    raise TraceIntegrityError(f"{where}: HMAC does not verify")
+                prev, count = entry.digest, count + 1
+        except TraceIntegrityError:
+            if raise_on_error:
+                raise
+            return -1, ""
+        return count, prev
 
     # -- appending --------------------------------------------------------
 
     def _append(self, kind: str, audit: AuditRecord, value_summary: Optional[str]) -> TraceEntry:
         with self._lock:
-            prev_hash = self._entries[-1].digest if self._entries else _GENESIS_HASH
+            count, prev_hash = self._storage.head()
             entry = TraceEntry(
                 kind=kind,
                 audit=audit,
                 value_summary=value_summary,
                 prev_hash=prev_hash,
-                index=len(self._entries),
+                index=count,
             )
-            mac = self._mac(entry.digest)
             # Durable first: a disclosure that cannot be recorded does not
             # happen (the exception propagates before any value is returned).
-            self._persist(entry, mac)
-            self._entries.append(entry)
-            self._macs.append(mac)
+            self._storage.append(entry, self._mac(entry.digest))
             return entry
 
     def record_reveal(self, audit: AuditRecord, value: Any) -> TraceEntry:
@@ -254,34 +330,26 @@ class DisclosureTrace:
 
     def __len__(self) -> int:
         with self._lock:
-            return len(self._entries)
+            return self._storage.head()[0]
 
     def __iter__(self) -> Iterator[TraceEntry]:
         with self._lock:
-            return iter(list(self._entries))
+            entries = [entry for entry, _d, _m, _w in self._storage.scan()]
+        return iter(entries)
 
     def verify_chain(self) -> bool:
         """Recompute every hash link (and HMAC, when keyed); ``False`` means
         the trace has been tampered with (an entry removed, reordered, or
         edited in place)."""
         with self._lock:
-            prev = _GENESIS_HASH
-            for entry, mac in zip(self._entries, self._macs):
-                if entry.prev_hash != prev:
-                    return False
-                prev = entry.digest
-                expected = self._mac(prev)
-                if expected is not None and not hmac.compare_digest(expected, mac or ""):
-                    return False
-            return True
+            return self._verify(raise_on_error=False)[0] >= 0
 
     @property
     def head(self) -> str:
         """Digest of the latest entry (the genesis hash when empty): anchor
         this externally to make tail truncation detectable."""
         with self._lock:
-            return self._entries[-1].digest if self._entries else _GENESIS_HASH
+            return self._storage.head()[1]
 
     def entries_for(self, principal: str) -> List[TraceEntry]:
-        with self._lock:
-            return [e for e in self._entries if e.audit.principal == principal]
+        return [e for e in self if e.audit.principal == principal]

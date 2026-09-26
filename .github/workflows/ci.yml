@@ -73,6 +73,47 @@ jobs:
       - name: Verify P4 claims pipeline
         run: python research/p4_admission/verify_claims.py
 
+  databases:
+    # Real servers: data sources over SQLAlchemy (PostgreSQL, MySQL) and the
+    # shared multi-replica state (admission log, trace, API keys) on PostgreSQL.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tokenis
+          POSTGRES_PASSWORD: tokenis
+          POSTGRES_DB: tokenis
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tokenis" --health-interval 2s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: tokenis
+          MYSQL_USER: tokenis
+          MYSQL_PASSWORD: tokenis
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -utokenis -ptokenis --silent"
+          --health-interval 2s --health-retries 60
+    env:
+      TOKENIS_TEST_POSTGRES_URL: postgresql://tokenis:tokenis@127.0.0.1:5432/tokenis
+      TOKENIS_TEST_MYSQL_URL: mysql+pymysql://tokenis:tokenis@127.0.0.1:3306/tokenis
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,postgres,mysql]"
+      - name: Test against real databases (no skips allowed)
+        run: |
+          pytest -q -rs tests/test_pgstate.py tests/test_db_source.py 2>&1 | tee out.txt
+          ! grep -q SKIPPED out.txt
+
   mcp-server:
     # The MCP server, CLI, HTTP authentication and LLM toolkit (Python >=3.10),
     # including real stdio and authenticated-HTTP end-to-end sessions.

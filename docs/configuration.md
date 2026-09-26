@@ -16,7 +16,9 @@ section. Validate a file with `tokenis-mcp check --config tokenis.toml`.
 | `epoch` | `1` | Bump to rotate every token (old tokens stop matching) |
 | `tokenizer_key_env` | `"TOKENIS_TOKENIZER_KEY"` | Environment variable holding the tokenizer key: hex or base64, at least 16 bytes (`tokenis-mcp keygen-secret` makes 32) |
 
-## `[data]` (required)
+## `[data]` (a file or a database; required unless a `[ledger]` exists)
+
+From a file:
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -24,11 +26,29 @@ section. Validate a file with `tokenis-mcp check --config tokenis.toml`.
 | `format` | from the extension | `csv` or `jsonl` (`.jsonl`/`.ndjson` imply `jsonl`) |
 | `delimiter` | `","` | CSV delimiter |
 | `encoding` | `"utf-8"` | File encoding |
-| `id_column` | none | A unique record id in the file; never exposed. Without it, rows are identified by file and line |
+
+From a database, through SQLAlchemy (install the matching extra:
+`postgres`, `mysql`, `oracle`, `mssql`, `snowflake` or `bigquery`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `url_env` | none | Environment variable holding the SQLAlchemy URL, credentials included, e.g. `postgresql+psycopg://reader:...@db/crm` |
+| `url` | none | The URL written in the file; allowed only **without** a password (e.g. Kerberos, IAM or a local socket) |
+| `table` | none | A plain table name (`schema.table` allowed); read with `SELECT *` |
+| `query` | none | A read-only `SELECT` instead of `table` (exactly one of the two) |
+| `fetch_size` | `10000` | Rows streamed per round trip; the source is never held in memory at once |
+
+Use a database role that can only read the rows the gateway serves.
+
+Either way:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `id_column` | none | A unique record id; never exposed. Without it, rows are identified by position |
 | `embedding_column` | none | Vector per record for `similarity_search`: a JSON array or `;`-separated numbers. Requires an `entity` column |
 
 Every row is validated at load time. The first invalid row aborts the load
-with its file and line number.
+with its location.
 
 ## `[[columns]]` (at least one sealed)
 
@@ -110,11 +130,63 @@ invent one. Without any purposes, those tools are not offered.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `dir` | none | Directory for the admission history (`admission.jsonl`) and the audit trail (`trace.jsonl`). Set it for anything beyond experiments |
-| `audit_key_env` | none | Environment variable with the key that HMAC-signs every audit entry |
+| `backend` | `"file"` | `file` (one process; uses `dir`) or `postgres` (several replicas share one database) |
+| `dir` | none | File backend: directory for the admission history (`admission.jsonl`) and the audit trail (`trace.jsonl`). Also the default home of the keystore |
+| `url_env` | `"TOKENIS_STATE_URL"` | Postgres backend: environment variable holding the connection URL |
+| `audit_key_env` | none | Environment variable with the key that HMAC-signs every audit entry (with `[keys]`, the keystore's audit key is used instead) |
 
-Without `dir`, a restart forgets which queries were answered, and the
-budget and differencing audit start over.
+With neither `dir` nor the postgres backend, a restart forgets which queries
+were answered, and the budget and differencing audit start over.
+
+**Several replicas.** With `backend = "postgres"` every tool call runs in one
+database transaction under a per-tenant advisory lock. The replica first
+replays admission decisions the others logged, then decides, and logs its
+own before answering. A differencing pair split across two replicas is
+refused exactly as if one process had seen both, and all replicas extend one
+hash-chained audit trail. API keys live in the same database
+(`tokenis-mcp keys create ... --config F` writes there; do not set
+`api_keys_file`). Tables are created on first use: `tokenis_state`,
+`tokenis_admission_log`, `tokenis_trace`, `tokenis_api_keys`. The lock
+serialises calls per tenant, so replicas add availability, not throughput.
+
+## `[keys]`: the keystore
+
+Without `[keys]`, secrets come from environment variables and the ElGamal
+key is new at every start (so the data is re-encrypted at every start). With
+`[keys]`, `tokenis-mcp secrets init` generates four secrets -- the ElGamal
+private key, the tokenizer key, the audit key and the ledger key -- and
+stores them wrapped by a key-management service. Each wrap is bound to the
+tenant, so a keystore cannot be swapped between tenants.
+
+| Key | Providers | Meaning |
+|---|---|---|
+| `provider` | all | `local`, `aws-kms`, `vault-transit`, `gcp-kms` or `azure-keyvault` |
+| `keystore` | all | Keystore file (default `<[state] dir>/keystore.json`), mode 0600 |
+| `passphrase_env` | `local` | Variable holding the passphrase (scrypt, then AES-256-GCM). For development and air-gapped sites |
+| `key_id`, `region` | `aws-kms` | KMS key id or ARN; region (default from the AWS environment). Needs the `aws` extra |
+| `address`, `key_name`, `mount`, `namespace`, `token_env` | `vault-transit` | Vault address (`https://`, or `http://` on localhost only), transit key, mount (default `transit`), namespace, token variable (default `VAULT_TOKEN`) |
+| `key_name` | `gcp-kms` | `projects/.../cryptoKeys/...`. Needs the `gcp` extra |
+| `vault_url`, `key_name` | `azure-keyvault` | Key Vault URL and an RSA key name (RSA-OAEP-256). Needs the `azure` extra |
+
+Cloud credentials come from each SDK's usual sources (instance role,
+workload identity, environment); none go in the file.
+`tokenis-mcp secrets status --config F` checks that the keystore unwraps;
+`tokenis-mcp secrets rewrap --config NEW --from OLD` moves it to another
+KMS without changing any secret.
+
+## `[ledger]`: serve without the plaintext source
+
+| Key | Default | Meaning |
+|---|---|---|
+| `path` | none | Directory for the encrypted ledger (requires `[keys]`) |
+
+`tokenis-mcp ingest --config F` reads `[data]` once and writes the ledger:
+`manifest.json` (public metadata) and `payload.bin` (AES-256-GCM under the
+keystore's ledger key, with sealed columns already EC-ElGamal encrypted).
+When the ledger exists, `serve` loads it and never touches `[data]`, so the
+serving host needs no access to the source database. Editing either file,
+using another tenant's keystore or changing `[[columns]]` makes loading
+fail; re-run `ingest` after a schema change.
 
 ## `[server]`
 
@@ -137,7 +209,7 @@ Command-line flags `--transport`, `--host` and `--port` override these.
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `"none"` | `none` (stdio only), `api_keys` or `jwt` |
-| `api_keys_file` | none | Key store for `api_keys` mode (created by `tokenis-mcp keys create`) |
+| `api_keys_file` | none | Key store for `api_keys` mode (created by `tokenis-mcp keys create`); not used with the postgres state backend, which keeps keys in the database |
 
 `[auth.jwt]`, for tokens from your identity provider (Okta, Entra ID, Auth0,
 Keycloak, ...):
@@ -162,7 +234,10 @@ Keycloak, ...):
 | `tokenis-mcp keys create PRINCIPAL --config F` | Create an API key (printed once) |
 | `tokenis-mcp keys list \| revoke KEY_ID --config F` | List or revoke keys; revocation applies without a restart |
 | `tokenis-mcp keygen-secret` | Print a random 32-byte hex secret |
-| `tokenis-mcp audit verify --config F` | Verify the audit trail's hash chain and HMACs |
+| `tokenis-mcp audit verify --config F` | Verify the audit trail's hash chain and HMACs (file or postgres) |
+| `tokenis-mcp secrets init \| status --config F` | Create the keystore, or check it unwraps |
+| `tokenis-mcp secrets rewrap --config NEW --from OLD` | Move the keystore to another KMS |
+| `tokenis-mcp ingest --config F` | Read `[data]` once and write the encrypted `[ledger]` |
 
 `serve` also takes `--reset-admission-state` (see
 [troubleshooting.md](troubleshooting.md)). Every command takes

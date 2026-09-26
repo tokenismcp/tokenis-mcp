@@ -15,8 +15,11 @@ name = "example-corp"
 epoch = 1                                   # bump to rotate every token
 tokenizer_key_env = "TOKENIS_TOKENIZER_KEY" # env var holding the PRF key (hex/base64, >= 16 bytes)
 
-[data]                                      # required
+[data]                                      # a file, or a database (below)
 path = "data/customers.csv"                 # CSV with a header row, or .jsonl
+# url_env = "CRM_DATABASE_URL"              # instead of path: SQLAlchemy URL from the environment
+# table = "customers"                       #   ... and a table, or
+# query = "SELECT id, customer, industry, revenue FROM customers"
 id_column = "id"                            # unique record id; never exposed
 embedding_column = "embedding"              # JSON array or ';'-separated floats; never exposed
 
@@ -94,6 +97,17 @@ principals = ["*"]                          # or a list of principals
 [state]                                     # omit only for throwaway experiments
 dir = "state"                               # admission history + disclosure trace
 audit_key_env = "TOKENIS_AUDIT_KEY"         # HMAC-signs every trace entry
+# backend = "postgres"                      # several replicas: shared state in PostgreSQL
+# url_env = "TOKENIS_STATE_URL"             #   connection URL (drop `dir` when using it)
+
+# Production secrets: a keystore wrapped by your KMS (`tokenis-mcp secrets init`).
+# [keys]
+# provider = "aws-kms"                      # local | aws-kms | vault-transit | gcp-kms | azure-keyvault
+# key_id = "alias/tokenis"
+#
+# Serve from an encrypted ledger written by `tokenis-mcp ingest` (needs [keys]).
+# [ledger]
+# path = "state/ledger"
 
 [server]
 transport = "stdio"                         # stdio | http
