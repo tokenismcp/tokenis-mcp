@@ -274,6 +274,31 @@ pub fn sum<'a>(cts: impl IntoIterator<Item = &'a Ciphertext>) -> Result<Cipherte
     Ok(Ciphertext { c1, c2, key })
 }
 
+/// Wire encodings of many ciphertexts, normalising all their points with
+/// one shared field inversion per batch instead of one per point. Output is
+/// byte-identical to calling [`Ciphertext::to_bytes`] on each.
+pub fn to_bytes_many(cts: &[Ciphertext]) -> Vec<Vec<u8>> {
+    let mut points = Vec::with_capacity(cts.len() * 2);
+    for ct in cts {
+        points.push(ct.c1);
+        points.push(ct.c2);
+    }
+    let keys = batch_keys(&points);
+    keys.chunks_exact(2)
+        .map(|pair| {
+            let mut out = vec![CIPHERTEXT_VERSION];
+            for key in pair {
+                if key.iter().all(|b| *b == 0) {
+                    out.push(crate::encoding::IDENTITY);
+                } else {
+                    out.extend_from_slice(key);
+                }
+            }
+            out
+        })
+        .collect()
+}
+
 /// `Dec(neg(Enc(x))) == -x`.
 pub fn neg(a: &Ciphertext) -> Ciphertext {
     Ciphertext {
@@ -630,7 +655,21 @@ mod tests {
         let r = Scalar::from(123_456_789u64);
         let ct = encrypt_with_scalar(&pk, -42, &r);
         assert_eq!(ct.c1, ProjectivePoint::GENERATOR * r);
-        assert_eq!(ct.c2, pk.point * r - ProjectivePoint::GENERATOR * Scalar::from(42u64));
+        assert_eq!(
+            ct.c2,
+            pk.point * r - ProjectivePoint::GENERATOR * Scalar::from(42u64)
+        );
+    }
+
+    #[test]
+    fn batched_encoding_matches_one_by_one() {
+        let (_, pk, _) = keys();
+        let mut cts: Vec<Ciphertext> = (-20..20).map(|m| enc(&pk, m)).collect();
+        cts.push(scalar_mul(&enc(&pk, 5), 0)); // identity components
+        let batched = to_bytes_many(&cts);
+        for (ct, bytes) in cts.iter().zip(&batched) {
+            assert_eq!(&ct.to_bytes(), bytes);
+        }
     }
 
     #[test]

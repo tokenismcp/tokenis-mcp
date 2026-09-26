@@ -228,6 +228,7 @@ class TokenisGatewayService:
         state_dir: Optional[str | Path] = None,
         audit_key: Optional[bytes] = None,
         reset_admission_state: bool = False,
+        private_key: Optional[bytes] = None,
     ) -> None:
         self.schema = schema
         self.settings = settings or GatewaySettings()
@@ -236,9 +237,16 @@ class TokenisGatewayService:
         self._state_dir = Path(state_dir) if state_dir is not None else None
         self._reset_state = reset_admission_state
 
-        keypair = keygen()
-        self._public_key = keypair.public
-        self._private_key: PrivateKey = keypair.private
+        # A persistent key (from the keystore) lets ciphertexts outlive the
+        # process -- required for a persisted ledger; otherwise a fresh key
+        # per process, and the data is re-encrypted at every start.
+        if private_key is not None:
+            self._private_key: PrivateKey = PrivateKey.from_bytes(private_key)
+            self._public_key = self._private_key.public_key()
+        else:
+            keypair = keygen()
+            self._private_key = keypair.private
+            self._public_key = keypair.public
         #: Sum of |stored value| per sealed column (and of squares): a hard
         #: bound on any aggregate, so each column's decryptor is sized to it.
         self._bounds: Dict[str, int] = {}
@@ -333,6 +341,8 @@ class TokenisGatewayService:
                     "the ledger is sealed (queries have run against it); load a new "
                     "gateway to change the data"
                 )
+            if getattr(self, "_from_ledger", False):
+                raise RuntimeError("this gateway was loaded from a persisted ledger; re-run ingest")
             batch = [self._prepare(i, rid, row, emb) for i, (rid, row, emb) in enumerate(records)]
             seen: Dict[str, int] = {}
             expected_dim = self._embedding_dim
@@ -423,6 +433,51 @@ class TokenisGatewayService:
                     f"{where}: embedding has {vector.size} dimensions, expected {self._embedding_dim}",
                 )
         return record_id, public, stored, vector
+
+    # -- persistence (see tokenis.ledger) ----------------------------------------
+
+    def _export_state(self) -> Dict[str, Any]:
+        with self._lock:
+            if self._sealed:
+                raise RuntimeError("export the ledger before the first query (it is sealed)")
+            return {
+                "records": self.record_count,
+                "public_key": self._public_key.to_bytes().hex(),
+                "public": {name: list(values) for name, values in self._public.items()},
+                "sealed": {name: vec.to_bytes() for name, vec in self._sealed_cts.items()},
+                "squares": {name: vec.to_bytes() for name, vec in self._square_cts.items()},
+                "bounds": dict(self._bounds),
+                "embeddings": dict(self._embeddings),
+            }
+
+    def _import_state(self, state: Mapping[str, Any]) -> None:
+        with self._lock:
+            if self.record_count or self._sealed:
+                raise RuntimeError("import a ledger into an empty gateway only")
+            if state["public_key"] != self._public_key.to_bytes().hex():
+                raise ValueError("the ledger was encrypted under a different key than the keystore's")
+            n = int(state["records"])
+            expected = {c.name for c in self.schema.filterable}
+            if set(state["public"]) != expected or any(len(v) != n for v in state["public"].values()):
+                raise ValueError("ledger columns do not match the schema")
+            for col in self.schema.sealed:
+                vec = CiphertextVector.from_bytes(self._public_key, state["sealed"][col.name])
+                if len(vec) != n:
+                    raise ValueError(f"ledger column {col.name!r} has the wrong length")
+                self._sealed_cts[col.name] = vec
+                if col.allow_variance:
+                    self._square_cts[col.name] = CiphertextVector.from_bytes(
+                        self._public_key, state["squares"][col.name])
+            self._public = {name: list(values) for name, values in state["public"].items()}
+            self._bounds = {k: int(v) for k, v in state["bounds"].items()}
+            for token, vector in state["embeddings"]:
+                self._embeddings[token] = np.asarray(vector, dtype=np.float64)
+                self._embedding_dim = self._embeddings[token].size
+            # Record ids are not persisted (they are never needed after
+            # loading and may themselves be sensitive); a loaded ledger is
+            # complete, so ingesting into it is refused.
+            self._ids = {f"#{i}": i for i in range(n)}
+            self._from_ledger = True
 
     def seal(self) -> None:
         """Freeze the ledger and build (or restore) the admission state.

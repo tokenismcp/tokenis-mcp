@@ -339,6 +339,82 @@ impl CiphertextVector {
         Ok(())
     }
 
+    /// Serialize: ``u64`` count, then each ciphertext's wire encoding
+    /// prefixed by its one-byte length.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        let items = &self.items;
+        let out = py.detach(|| {
+            let chunk = items.len().div_ceil(workers(items.len())).max(1);
+            let parts: Vec<Vec<Vec<u8>>> = std::thread::scope(|scope| {
+                let handles: Vec<_> = items
+                    .chunks(chunk)
+                    .map(|part| scope.spawn(move || eg::to_bytes_many(part)))
+                    .collect();
+                handles.into_iter().filter_map(|h| h.join().ok()).collect()
+            });
+            let mut out = Vec::with_capacity(8 + items.len() * 68);
+            out.extend_from_slice(&(items.len() as u64).to_le_bytes());
+            for bytes in parts.iter().flatten() {
+                // A ciphertext encoding is at most 1 + 33 + 33 bytes.
+                out.push(u8::try_from(bytes.len()).unwrap_or(u8::MAX));
+                out.extend_from_slice(bytes);
+            }
+            out
+        });
+        PyBytes::new(py, &out)
+    }
+
+    /// Parse what :meth:`to_bytes` wrote, validating every point (in
+    /// parallel) and tagging each ciphertext with ``public``.
+    #[staticmethod]
+    fn from_bytes(py: Python<'_>, public: &PublicKey, data: &[u8]) -> PyResult<Self> {
+        let malformed = || err(tokenis_core::Error::MalformedEncoding);
+        let (count, mut rest) = data.split_at_checked(8).ok_or_else(malformed)?;
+        let count = u64::from_le_bytes(count.try_into().map_err(|_| malformed())?);
+        let count = usize::try_from(count).map_err(|_| malformed())?;
+        let mut slices: Vec<&[u8]> = Vec::with_capacity(count.min(1 << 26));
+        for _ in 0..count {
+            let (len, tail) = rest.split_first().ok_or_else(malformed)?;
+            let (item, tail) = tail
+                .split_at_checked(usize::from(*len))
+                .ok_or_else(malformed)?;
+            slices.push(item);
+            rest = tail;
+        }
+        if !rest.is_empty() {
+            return Err(malformed());
+        }
+        let key = &public.0;
+        let items = py.detach(|| -> tokenis_core::Result<Vec<eg::Ciphertext>> {
+            let chunk = slices.len().div_ceil(workers(slices.len())).max(1);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = slices
+                    .chunks(chunk)
+                    .map(|part| {
+                        scope.spawn(move || {
+                            part.iter()
+                                .map(|b| eg::Ciphertext::from_bytes(b, Some(key)))
+                                .collect::<tokenis_core::Result<Vec<_>>>()
+                        })
+                    })
+                    .collect();
+                let mut out = Vec::with_capacity(slices.len());
+                for handle in handles {
+                    out.extend(
+                        handle
+                            .join()
+                            .map_err(|_| tokenis_core::Error::MalformedEncoding)??,
+                    );
+                }
+                Ok(out)
+            })
+        });
+        Ok(Self {
+            public: public.0.clone(),
+            items: items.map_err(err)?,
+        })
+    }
+
     fn __getitem__(&self, index: isize) -> PyResult<Ciphertext> {
         let len = isize::try_from(self.items.len()).unwrap_or(isize::MAX);
         let i = if index < 0 { index + len } else { index };
@@ -357,7 +433,9 @@ impl CiphertextVector {
 /// Sum a list of ciphertexts in one pass.
 #[pyfunction]
 fn sum_ciphertexts(cts: Vec<Ciphertext>) -> PyResult<Ciphertext> {
-    eg::sum(cts.iter().map(|c| &c.0)).map(Ciphertext).map_err(err)
+    eg::sum(cts.iter().map(|c| &c.0))
+        .map(Ciphertext)
+        .map_err(err)
 }
 
 #[pyfunction]

@@ -174,6 +174,8 @@ def cmd_check(args: argparse.Namespace) -> None:
         "state_dir": str(config.state_dir) if config.state_dir else None,
         "transport": config.server.transport,
         "auth": config.auth.mode,
+        "keys": config.keys.provider if config.keys else "environment variables",
+        "ledger": str(config.ledger) if config.ledger else None,
     }
     print(json.dumps(summary, indent=2))
     if config.state_dir is None:
@@ -256,11 +258,14 @@ def cmd_keygen_secret(_args: argparse.Namespace) -> None:
 
 def cmd_audit(args: argparse.Namespace) -> None:
     from tokenis.audit.trace import DisclosureTrace, TraceIntegrityError
-    from tokenis.config import ConfigError, load_config, read_secret
+    from tokenis.config import ConfigError, load_config, load_secrets, read_secret
 
     try:
         config = load_config(args.config)
-        key = read_secret(config.audit_key_env, os.environ) if config.audit_key_env else None
+        if config.keys is not None:
+            key: Optional[bytes] = load_secrets(config, os.environ).audit_key
+        else:
+            key = read_secret(config.audit_key_env, os.environ) if config.audit_key_env else None
     except ConfigError as exc:
         _die(str(exc))
     if config.state_dir is None:
@@ -274,6 +279,60 @@ def cmd_audit(args: argparse.Namespace) -> None:
     kinds = {k: sum(e.kind == k for e in entries) for k in ("aggregate", "reveal", "denial")}
     print(json.dumps({"file": str(path), "entries": len(entries), **kinds, "head": trace.head,
                       "signed": key is not None}, indent=2))
+
+
+def cmd_secrets(args: argparse.Namespace) -> None:
+    from tokenis.config import ConfigError, load_config, make_wrapper
+    from tokenis.keystore import (
+        KeystoreError,
+        create_keystore,
+        keystore_header,
+        load_keystore,
+        rewrap_keystore,
+    )
+
+    try:
+        config = load_config(args.config)
+        if config.keys is None:
+            _die("the config has no [keys] section (see docs/configuration.md#keys)")
+        keystore = config.keys.keystore
+        tenant = config.settings.tenant
+        if args.secrets_command == "init":
+            create_keystore(keystore, make_wrapper(config.keys, os.environ), tenant)
+            print(f"created {keystore} ({config.keys.provider}); back it up -- losing it loses "
+                  "every token and every ledger", file=sys.stderr)
+        elif args.secrets_command == "status":
+            header = keystore_header(keystore)
+            load_keystore(keystore, make_wrapper(config.keys, os.environ), tenant)
+            print(json.dumps({"keystore": str(keystore), "tenant": header["tenant"],
+                              "created": header["created"], "wrapper": header["wrapper"],
+                              "unwraps": True}, indent=2))
+        else:
+            old = load_config(args.from_config)
+            if old.keys is None:
+                _die("--from config has no [keys] section")
+            if old.keys.keystore.resolve() != keystore.resolve():
+                import shutil
+
+                if keystore.exists():
+                    _die(f"{keystore} already exists")
+                shutil.copy2(old.keys.keystore, keystore)
+            rewrap_keystore(keystore, make_wrapper(old.keys, os.environ),
+                            make_wrapper(config.keys, os.environ), tenant)
+            print(f"rewrapped {keystore} with {config.keys.provider}", file=sys.stderr)
+    except (ConfigError, KeystoreError) as exc:
+        _die(str(exc))
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    from tokenis.config import ConfigError, ingest, load_config
+
+    try:
+        manifest = ingest(load_config(args.config))
+    except ConfigError as exc:
+        _die(str(exc))
+    print(json.dumps({k: manifest[k] for k in ("records", "tenant", "epoch", "created",
+                                               "payload_sha256")}, indent=2))
 
 
 # -- entry point -------------------------------------------------------------------
@@ -322,6 +381,22 @@ def build_parser() -> argparse.ArgumentParser:
         if extra:
             kp.add_argument(extra)
     p.set_defaults(func=cmd_keys)
+
+    p = sub.add_parser("secrets", help="create and manage the KMS-wrapped keystore")
+    sec = p.add_subparsers(dest="secrets_command", required=True)
+    for name, text in (("init", "generate the gateway's secrets and wrap them"),
+                       ("status", "check that the keystore unwraps with the configured KMS"),
+                       ("rewrap", "move the keystore to the KMS in --config from --from")):
+        sp = sec.add_parser(name, help=text)
+        sp.add_argument("--config", type=Path, required=True)
+        if name == "rewrap":
+            sp.add_argument("--from", dest="from_config", type=Path, required=True,
+                            help="config naming the keystore's current KMS")
+    p.set_defaults(func=cmd_secrets)
+
+    p = sub.add_parser("ingest", help="read the data source once and write the encrypted ledger")
+    p.add_argument("--config", type=Path, required=True)
+    p.set_defaults(func=cmd_ingest)
 
     p = sub.add_parser("keygen-secret", help="print a random 32-byte hex secret")
     p.set_defaults(func=cmd_keygen_secret)

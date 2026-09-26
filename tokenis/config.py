@@ -16,6 +16,7 @@ import binascii
 import csv
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,10 +46,50 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class DataSource:
-    path: Path
-    format: str = "csv"  # "csv" | "jsonl"
+    """A file (``path``) or a database (``url``/``url_env`` + ``query`` or
+    ``table``, read through SQLAlchemy)."""
+
+    path: Optional[Path] = None
+    format: str = "csv"  # "csv" | "jsonl" | "sql"
     delimiter: str = ","
     encoding: str = "utf-8"
+    url: Optional[str] = None
+    url_env: Optional[str] = None
+    query: Optional[str] = None
+    table: Optional[str] = None
+    fetch_size: int = 10_000
+
+    @property
+    def label(self) -> str:
+        return self.path.name if self.path else (self.table or "query")
+
+
+@dataclass(frozen=True)
+class KeySettings:
+    """``[keys]``: where the keystore lives and which KMS wraps it."""
+
+    provider: str
+    keystore: Path
+    options: Tuple[Tuple[str, str], ...] = ()
+
+    def option(self, name: str, default: Optional[str] = None) -> Optional[str]:
+        return dict(self.options).get(name, default)
+
+
+KEY_PROVIDERS: Dict[str, Tuple[str, ...]] = {
+    "local": ("passphrase_env",),
+    "aws-kms": ("key_id", "region"),
+    "vault-transit": ("address", "key_name", "mount", "namespace", "token_env"),
+    "gcp-kms": ("key_name",),
+    "azure-keyvault": ("vault_url", "key_name"),
+}
+REQUIRED_KEY_OPTIONS = {
+    "local": ("passphrase_env",),
+    "aws-kms": ("key_id",),
+    "vault-transit": ("address", "key_name"),
+    "gcp-kms": ("key_name",),
+    "azure-keyvault": ("vault_url", "key_name"),
+}
 
 
 @dataclass(frozen=True)
@@ -85,13 +126,15 @@ class ServerSettings:
 class TokenisConfig:
     schema: Schema
     settings: GatewaySettings
-    data: DataSource
+    data: Optional[DataSource]
     tokenizer_key_env: str = "TOKENIS_TOKENIZER_KEY"
     audit_key_env: Optional[str] = None
     state_dir: Optional[Path] = None
     server: ServerSettings = field(default_factory=ServerSettings)
     auth: AuthSettings = field(default_factory=AuthSettings)
     source: Optional[Path] = None
+    keys: Optional[KeySettings] = None
+    ledger: Optional[Path] = None
 
 
 # -- TOML parsing -----------------------------------------------------------------
@@ -126,19 +169,48 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     top = _table(
         dict(raw), "top level",
         ("tenant", "data", "columns", "admission", "decryption", "disclosure", "reveal",
-         "state", "server", "auth"),
+         "state", "server", "auth", "keys", "ledger"),
     )
     tenant = _table(top.get("tenant"), "tenant", ("name", "epoch", "tokenizer_key_env"))
     data = _table(
         top.get("data"), "data",
-        ("path", "format", "delimiter", "encoding", "id_column", "embedding_column"),
+        ("path", "format", "delimiter", "encoding", "id_column", "embedding_column",
+         "url", "url_env", "query", "table", "fetch_size"),
     )
-    if "path" not in data:
-        raise ConfigError("[data] path is required")
-    data_path = _path(base_dir, data["path"], "[data] path")
-    fmt = data.get("format") or ("jsonl" if data_path.suffix in (".jsonl", ".ndjson") else "csv")
-    if fmt not in ("csv", "jsonl"):
-        raise ConfigError("[data] format must be csv or jsonl")
+    ledger_raw = _table(top.get("ledger"), "ledger", ("path",))
+    ledger_path = _path(base_dir, ledger_raw["path"], "[ledger] path") if "path" in ledger_raw else None
+    source_data: Optional[DataSource] = None
+    if "path" in data:
+        if any(k in data for k in ("url", "url_env", "query", "table")):
+            raise ConfigError("[data]: use either path (a file) or url/url_env with query/table")
+        data_path = _path(base_dir, data["path"], "[data] path")
+        fmt = data.get("format") or ("jsonl" if data_path.suffix in (".jsonl", ".ndjson") else "csv")
+        if fmt not in ("csv", "jsonl"):
+            raise ConfigError("[data] format must be csv or jsonl")
+        source_data = DataSource(path=data_path, format=fmt,
+                                 delimiter=str(data.get("delimiter", ",")),
+                                 encoding=str(data.get("encoding", "utf-8")))
+    elif "url" in data or "url_env" in data:
+        if ("query" in data) == ("table" in data):
+            raise ConfigError("[data]: a database source needs exactly one of query or table")
+        url = data.get("url")
+        if url is not None and re.search(r"://[^/@]*:[^/@]*@", str(url)):
+            raise ConfigError(
+                "[data] url contains a password; put the whole URL in an environment variable "
+                "and name it with url_env"
+            )
+        table = data.get("table")
+        if table is not None and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", str(table)):
+            raise ConfigError("[data] table must be a plain (optionally schema-qualified) name")
+        fetch = int(data.get("fetch_size", 10_000))
+        if fetch < 1:
+            raise ConfigError("[data] fetch_size must be positive")
+        source_data = DataSource(format="sql", url=url, url_env=data.get("url_env"),
+                                 query=data.get("query"), table=table, fetch_size=fetch)
+    elif data:
+        raise ConfigError("[data] needs a path, or url/url_env with query/table")
+    if source_data is None and ledger_path is None:
+        raise ConfigError("a [data] source or a [ledger] path is required")
 
     raw_columns = top.get("columns")
     if not isinstance(raw_columns, list) or not raw_columns:
@@ -187,6 +259,28 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     )
 
     state = _table(top.get("state"), "state", ("dir", "audit_key_env"))
+    state_dir = _path(base_dir, state["dir"], "[state] dir") if "dir" in state else None
+    keys_raw = _table(top.get("keys"), "keys",
+                      ("provider", "keystore", *sorted({o for v in KEY_PROVIDERS.values() for o in v})))
+    keys: Optional[KeySettings] = None
+    if keys_raw:
+        provider = str(keys_raw.pop("provider", ""))
+        if provider not in KEY_PROVIDERS:
+            raise ConfigError(f"[keys] provider must be one of {', '.join(KEY_PROVIDERS)}")
+        extra = sorted(set(keys_raw) - {"keystore", *KEY_PROVIDERS[provider]})
+        if extra:
+            raise ConfigError(f"[keys]: {', '.join(extra)} do not apply to provider {provider}")
+        missing = [o for o in REQUIRED_KEY_OPTIONS[provider] if o not in keys_raw]
+        if missing:
+            raise ConfigError(f"[keys] provider {provider} needs {', '.join(missing)}")
+        if "keystore" in keys_raw:
+            keystore = _path(base_dir, keys_raw.pop("keystore"), "[keys] keystore")
+        elif state_dir is not None:
+            keystore = state_dir / "keystore.json"
+        else:
+            raise ConfigError("[keys] needs keystore (or a [state] dir to keep it in)")
+        keys = KeySettings(provider=provider, keystore=keystore,
+                           options=tuple(sorted((k, str(v)) for k, v in keys_raw.items())))
     server_raw = _table(
         top.get("server"), "server",
         ("transport", "host", "port", "public_url", "allowed_hosts", "stdio_principal",
@@ -228,17 +322,17 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     return TokenisConfig(
         schema=schema,
         settings=settings,
-        data=DataSource(
-            path=data_path, format=fmt, delimiter=str(data.get("delimiter", ",")),
-            encoding=str(data.get("encoding", "utf-8")),
-        ),
+        data=source_data,
         tokenizer_key_env=str(tenant.get("tokenizer_key_env", "TOKENIS_TOKENIZER_KEY")),
         audit_key_env=state.get("audit_key_env"),
-        state_dir=_path(base_dir, state["dir"], "[state] dir") if "dir" in state else None,
+        state_dir=state_dir,
         server=server,
         auth=auth,
         source=source,
+        keys=keys,
+        ledger=ledger_path,
     )
+
 
 
 def load_config(path: os.PathLike[str] | str) -> TokenisConfig:
@@ -304,8 +398,14 @@ def _parse_embedding(value: Any, where: str) -> Optional[List[float]]:
         raise ConfigError(f"{where}: embedding must contain only numbers") from exc
 
 
-def iter_rows(source: DataSource) -> Iterator[Tuple[str, Dict[str, Any]]]:
-    """(location, row) for every record in the source file."""
+def iter_rows(
+    source: DataSource, environ: Optional[Mapping[str, str]] = None,
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    """(location, row) for every record in the source."""
+    if source.format == "sql":
+        yield from _iter_sql(source, os.environ if environ is None else environ)
+        return
+    assert source.path is not None  # noqa: S101 -- file sources always have a path
     if source.format == "csv":
         with source.path.open(encoding=source.encoding, newline="") as fh:
             reader = csv.DictReader(fh, delimiter=source.delimiter)
@@ -326,8 +426,56 @@ def iter_rows(source: DataSource) -> Iterator[Tuple[str, Dict[str, Any]]]:
                 yield where, row
 
 
+def database_url(source: DataSource, environ: Mapping[str, str]) -> str:
+    if source.url_env:
+        url = environ.get(source.url_env)
+        if not url:
+            raise ConfigError(f"environment variable {source.url_env} (the database URL) is not set")
+        return url
+    assert source.url is not None  # noqa: S101 -- validated by parse_config
+    return source.url
+
+
+def _iter_sql(
+    source: DataSource, environ: Mapping[str, str],
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    """Stream rows from any SQLAlchemy-supported database (PostgreSQL,
+    MySQL/MariaDB, Oracle, SQL Server, Snowflake, BigQuery, SQLite, ...),
+    ``fetch_size`` rows at a time, on a read-only query."""
+    try:
+        import sqlalchemy
+    except ImportError as exc:
+        raise ConfigError(
+            "database sources need SQLAlchemy and a driver: pip install 'tokenis-mcp[postgres]' "
+            "(or mysql, oracle, mssql, snowflake, bigquery)"
+        ) from exc
+    url = database_url(source, environ)
+    try:
+        engine = sqlalchemy.create_engine(url)
+    except (sqlalchemy.exc.ArgumentError, ImportError) as exc:
+        raise ConfigError(f"cannot use the database URL: {exc}") from None
+    if source.table:
+        # The name is validated in parse_config ([A-Za-z_][A-Za-z0-9_.]*).
+        statement = sqlalchemy.text(f"SELECT * FROM {source.table}")  # noqa: S608
+    else:
+        statement = sqlalchemy.text(str(source.query))
+    label = source.table or "query"
+    try:
+        with engine.connect() as conn:
+            result = conn.execution_options(
+                stream_results=True, yield_per=source.fetch_size).execute(statement)
+            for number, row in enumerate(result.mappings(), start=1):
+                yield f"{label} row {number}", dict(row)
+    except sqlalchemy.exc.SQLAlchemyError as exc:
+        first = str(exc).splitlines()[0] if str(exc) else ""
+        raise ConfigError(f"database error reading {label}: {exc.__class__.__name__}: {first}") from None
+    finally:
+        engine.dispose()
+
+
 def load_dataset(
     service: TokenisGatewayService, source: DataSource, batch_size: int = 4096,
+    environ: Optional[Mapping[str, str]] = None,
 ) -> int:
     """Ingest every row of ``source`` into ``service`` in batches (each
     encrypted in parallel); returns the count. Any invalid row aborts the
@@ -347,7 +495,7 @@ def load_dataset(
         wheres.clear()
 
     try:
-        for where, row in iter_rows(source):
+        for where, row in iter_rows(source, environ):
             record_id = row.get(schema.id_column) if schema.id_column else where
             if record_id is None or str(record_id).strip() == "":
                 raise ConfigError(f"{where}: missing {schema.id_column!r}")
@@ -361,8 +509,62 @@ def load_dataset(
         if batch:
             flush()
     except OSError as exc:
-        raise ConfigError(f"cannot read {source.path}: {exc}") from None
+        raise ConfigError(f"cannot read {source.label}: {exc}") from None
     return count
+
+
+def make_wrapper(keys: KeySettings, environ: Mapping[str, str]) -> Any:
+    """The configured :class:`tokenis.keystore.KeyWrapper`."""
+    from tokenis.keystore import (
+        AwsKmsWrapper,
+        AzureKeyVaultWrapper,
+        GcpKmsWrapper,
+        LocalPassphraseWrapper,
+        VaultTransitWrapper,
+        keystore_header,
+    )
+
+    o = keys.option
+    try:
+        if keys.provider == "local":
+            name = str(o("passphrase_env"))
+            passphrase = environ.get(name)
+            if not passphrase:
+                raise ConfigError(f"environment variable {name} (the keystore passphrase) is not set")
+            salt = None
+            if keys.keystore.exists():
+                salt = base64.b64decode(keystore_header(keys.keystore)["wrapper"]["salt"])
+            return LocalPassphraseWrapper(passphrase.encode(), salt)
+        if keys.provider == "aws-kms":
+            return AwsKmsWrapper(str(o("key_id")), o("region"))
+        if keys.provider == "vault-transit":
+            token_env = o("token_env", "VAULT_TOKEN") or "VAULT_TOKEN"
+            return VaultTransitWrapper(str(o("address")), str(o("key_name")),
+                                       token=environ.get(token_env, ""),
+                                       mount=o("mount", "transit") or "transit",
+                                       namespace=o("namespace"))
+        if keys.provider == "gcp-kms":
+            return GcpKmsWrapper(str(o("key_name")))
+        return AzureKeyVaultWrapper(str(o("vault_url")), str(o("key_name")))
+    except ImportError as exc:
+        extra = {"aws-kms": "aws", "gcp-kms": "gcp", "azure-keyvault": "azure"}.get(keys.provider, "")
+        raise ConfigError(f"{keys.provider} needs its client library: "
+                          f"pip install 'tokenis-mcp[{extra}]' ({exc})") from None
+
+
+def load_secrets(config: TokenisConfig, environ: Mapping[str, str]) -> Any:
+    """Unwrap the keystore's secrets (``[keys]`` configured)."""
+    from tokenis.keystore import KeystoreError, load_keystore
+
+    if config.keys is None:
+        raise ConfigError("no [keys] section")
+    if not config.keys.keystore.exists():
+        raise ConfigError(f"no keystore at {config.keys.keystore}: run `tokenis-mcp secrets init`")
+    try:
+        return load_keystore(config.keys.keystore, make_wrapper(config.keys, environ),
+                             config.settings.tenant)
+    except KeystoreError as exc:
+        raise ConfigError(str(exc)) from None
 
 
 def build_service(
@@ -371,19 +573,55 @@ def build_service(
     environ: Optional[Mapping[str, str]] = None,
     reset_admission_state: bool = False,
     seal: bool = True,
+    from_source: bool = False,
 ) -> TokenisGatewayService:
-    """A gateway for ``config`` with its dataset loaded (and, by default,
-    sealed: admission state built or restored)."""
+    """A gateway for ``config``: loaded from the persisted ledger when one
+    exists (unless ``from_source``), otherwise from the data source; sealed
+    by default (admission state built or restored)."""
+    from tokenis.ledger import LedgerError, load_ledger
+
     env = os.environ if environ is None else environ
-    service = TokenisGatewayService(
-        config.schema,
-        read_secret(config.tokenizer_key_env, env),
-        config.settings,
-        state_dir=config.state_dir,
-        audit_key=read_secret(config.audit_key_env, env) if config.audit_key_env else None,
-        reset_admission_state=reset_admission_state,
-    )
-    load_dataset(service, config.data)
+    private_key: Optional[bytes] = None
+    ledger_key: Optional[bytes] = None
+    if config.keys is not None:
+        secrets = load_secrets(config, env)
+        tokenizer_key, audit_key = secrets.tokenizer_key, secrets.audit_key
+        private_key, ledger_key = secrets.elgamal_private_key, secrets.ledger_key
+    else:
+        tokenizer_key = read_secret(config.tokenizer_key_env, env)
+        audit_key = read_secret(config.audit_key_env, env) if config.audit_key_env else None
+    kwargs: Dict[str, Any] = {"state_dir": config.state_dir, "audit_key": audit_key,
+                              "reset_admission_state": reset_admission_state}
+    ledger = config.ledger
+    if ledger is not None and (ledger / "manifest.json").exists() and not from_source:
+        if ledger_key is None or private_key is None:
+            raise ConfigError("a persisted ledger needs [keys]: its keys live in the keystore")
+        try:
+            service = load_ledger(ledger, config.schema, ledger_key, private_key,
+                                  tokenizer_key, config.settings, **kwargs)
+        except (LedgerError, ValueError) as exc:
+            raise ConfigError(str(exc)) from None
+    else:
+        if config.data is None:
+            raise ConfigError(f"no ledger at {ledger} yet and no [data] source: configure [data] "
+                              "and run `tokenis-mcp ingest`")
+        service = TokenisGatewayService(config.schema, tokenizer_key, config.settings,
+                                        private_key=private_key, **kwargs)
+        load_dataset(service, config.data, environ=env)
     if seal:
         service.seal()
     return service
+
+
+def ingest(config: TokenisConfig, *, environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+    """Read the data source once and write the encrypted ledger; returns its
+    manifest."""
+    from tokenis.ledger import write_ledger
+
+    env = os.environ if environ is None else environ
+    if config.keys is None or config.ledger is None:
+        raise ConfigError("ingest needs [keys] (the keystore) and a [ledger] path")
+    if config.data is None:
+        raise ConfigError("ingest needs a [data] source")
+    service = build_service(config, environ=env, seal=False, from_source=True)
+    return write_ledger(service, config.ledger, load_secrets(config, env).ledger_key)
