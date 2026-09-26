@@ -1,0 +1,22 @@
+# Every optional feature on (used by CI to render and validate the chart).
+admin: {enabled: true}
+keystore: {existingSecret: tokenis-keystore}
+ledger: {existingClaim: tokenis-ledger}
+ingress:
+  enabled: true
+  className: nginx
+  tls: [{secretName: tokenis-tls, hosts: [tokenis.example.com]}]
+autoscaling: {enabled: true}
+networkPolicy:
+  enabled: true
+  ingressFrom: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: agents}}}]
+metrics:
+  tokenSecret: tokenis-metrics
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}
+  grafanaDashboard: {enabled: true}
+extraEnv:
+  - name: SOURCE_DATABASE_URL
+    valueFrom: {secretKeyRef: {name: crm-reader, key: url}}
+serviceAccount:
+  annotations: {eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/tokenis"}

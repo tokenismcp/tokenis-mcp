@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tokenis.fullname" . }}
+  labels: {{- include "tokenis.labels" . | nindent 4 }}
+data:
+  tokenis.toml: |
+{{ include "tokenis.toml" . | indent 4 }}

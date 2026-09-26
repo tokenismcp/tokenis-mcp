@@ -183,6 +183,9 @@ class MemoryTraceStorage:
         for i, (entry, mac) in enumerate(list(self.entries)):
             yield entry, entry.digest, mac, f"entry {i}"
 
+    def tail(self, n: int) -> List[TraceEntry]:
+        return [entry for entry, _ in reversed(self.entries[-n:])] if n > 0 else []
+
 
 class FileTraceStorage:
     """JSON lines, appended and fsync'd, mode 0600. Only the head is kept in
@@ -350,6 +353,15 @@ class DisclosureTrace:
         this externally to make tail truncation detectable."""
         with self._lock:
             return self._storage.head()[1]
+
+    def recent(self, n: int = 50) -> List[TraceEntry]:
+        """The last ``n`` entries, newest first (for dashboards; not verified)."""
+        tail = getattr(self._storage, "tail", None)
+        if tail is not None:
+            return list(tail(n))
+        from collections import deque
+
+        return list(reversed(deque((e for e, *_ in self._storage.scan()), maxlen=n)))
 
     def entries_for(self, principal: str) -> List[TraceEntry]:
         return [e for e in self if e.audit.principal == principal]

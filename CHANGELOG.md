@@ -23,8 +23,34 @@ the end records how the crypto layer got here.
   lock after replaying the other replicas' decisions, so a differencing pair
   split across replicas is refused. A replica whose database call fails
   rebuilds its admission state from the shared log before answering again.
+- **Integrity across replicas:** the shared admission log is hash-chained.
+  A replica whose history was restored from an older backup, edited, or
+  reset by another replica refuses every call and reports not ready, until
+  an operator restarts it.
+- **Operations:** `/healthz`, `/readyz` and Prometheus `/metrics` on every
+  HTTP replica; JSON logs (`--log-format json`); stateless HTTP mode for load
+  balancers (`[server] stateless`).
+- **Admin console** at `/admin` (`[ops] admin_token_env`): health, traffic,
+  denials by rule, per-tool outcomes, a searchable audit trail, API keys and
+  the policy in force. It is read-only, has light and dark themes, works on
+  mobile, and makes no external requests (strict nonce-based CSP).
+- **Deployment:** a Docker Compose stack (replicas, nginx, PostgreSQL,
+  Prometheus, Grafana); a hardened Helm chart (Ingress, HPA, PDB,
+  NetworkPolicy, ServiceMonitor, PrometheusRule, Grafana dashboard);
+  alert rules. The Docker image now includes the database and KMS drivers.
+- New guides: tools, deployment, LLM integration, troubleshooting.
 - The audit trail streams from its storage instead of being held in memory.
-- CI runs the database tests against real PostgreSQL and MySQL servers.
+- CI runs the database tests against real PostgreSQL and MySQL servers, and
+  lints, renders and schema-validates the Helm chart and alert rules.
+
+### Fixed
+- Startup failures (history mismatch, a trail that fails verification, too
+  few records) print one clear line instead of a Python traceback.
+- Unexpected errors during a tool call (for example a database outage) no
+  longer pass driver messages to the caller. They are logged for the
+  operator, and the caller sees "temporarily unavailable".
+- The `group_by` limit message now gives advice that works (filters do not
+  reduce a key's distinct values).
 
 ## [0.1.0] - 2026-09-24
 

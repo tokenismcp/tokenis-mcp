@@ -59,10 +59,17 @@ def _service(args: argparse.Namespace, *, reset: bool = False, seal: bool = True
         from tokenis.gateway.demo import demo_service
 
         return demo_service(), None
+    from tokenis.audit.trace import TraceIntegrityError
+    from tokenis.gateway.state import StateMismatchError
+
     try:
         config = load_config(args.config)
         return build_service(config, reset_admission_state=reset, seal=seal), config
-    except ConfigError as exc:
+    except (ConfigError, StateMismatchError) as exc:
+        _die(str(exc))
+    except TraceIntegrityError as exc:
+        _die(f"the audit trail failed verification, refusing to start: {exc}")
+    except RuntimeError as exc:  # e.g. too few records for min_query_set_size
         _die(str(exc))
 
 
@@ -81,6 +88,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
     service, config = _service(args, reset=args.reset_admission_state)
     server_cfg = config.server if config else None
+    if server_cfg is not None and server_cfg.log_format != "text" and args.log_format is None:
+        from tokenis.ops import configure_logging
+
+        configure_logging(args.log_level, server_cfg.log_format)
     transport = args.transport or (server_cfg.transport if server_cfg else "stdio")
     host = args.host or (server_cfg.host if server_cfg else "127.0.0.1")
     port = args.port or (server_cfg.port if server_cfg else 8000)
@@ -117,11 +128,13 @@ def cmd_serve(args: argparse.Namespace) -> None:
     public_url = (server_cfg.public_url if server_cfg else None) or f"http://{host}:{port}"
     auth_cfg = config.auth
     verifier: Any
+    key_store: Any = None
     if auth_cfg.mode == "api_keys":
         try:
-            verifier = ApiKeyVerifier(api_key_store(config))
+            key_store = api_key_store(config)
         except ConfigError as exc:
             _die(str(exc))
+        verifier = ApiKeyVerifier(key_store)
         issuer = public_url
         scopes = None
     elif auth_cfg.mode == "jwt":
@@ -142,10 +155,27 @@ def cmd_serve(args: argparse.Namespace) -> None:
         required_scopes=scopes,
         validate_token_resource=False,  # the verifiers check audience themselves
     )
+    from tokenis.ops import Metrics, install_routes
+
+    def ops_token(env_name: Optional[str], what: str) -> Optional[str]:
+        if not env_name:
+            return None
+        token = os.environ.get(env_name, "")
+        if len(token) < 16:
+            _die(f"[ops] {what}: set {env_name} to a secret of at least 16 characters")
+        return token
+
+    metrics = Metrics()
     server = create_server(
         service, principal_resolver=authenticated_principal, taint_resolver=taint,
         token_verifier=verifier, auth=auth, max_concurrency=concurrency,
-        log_level=args.log_level,
+        log_level=args.log_level, metrics=metrics,
+    )
+    install_routes(
+        server, service, metrics,
+        admin_token=ops_token(config.ops.admin_token_env, "admin_token_env"),
+        metrics_token=ops_token(config.ops.metrics_token_env, "metrics_token_env"),
+        key_store=key_store,
     )
     allowed = list(server_cfg.allowed_hosts) if server_cfg else []
     public_host = urlparse(public_url).netloc
@@ -158,9 +188,18 @@ def cmd_serve(args: argparse.Namespace) -> None:
             allowed_hosts=allowed,
             allowed_origins=[f"{urlparse(public_url).scheme}://{h}" for h in allowed],
         )
-    log.info("serving %d records over HTTP on %s:%d (auth: %s)", service.record_count, host,
-             port, auth_cfg.mode)
-    anyio.run(lambda: server.run_streamable_http_async(host=host, port=port, transport_security=security))
+    import uvicorn
+
+    stateless = bool(server_cfg and server_cfg.stateless)
+    app = server.streamable_http_app(stateless_http=stateless, transport_security=security, host=host)
+    log.info("serving %d records over HTTP on %s:%d (auth: %s%s)", service.record_count, host,
+             port, auth_cfg.mode, ", stateless" if stateless else "")
+    # log_config=None: uvicorn's loggers propagate to ours (and so follow
+    # --log-format json) instead of installing their own handlers.
+    uv = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_config=None,
+                                       log_level=str(args.log_level).lower(),
+                                       timeout_graceful_shutdown=10))
+    anyio.run(uv.serve)
 
 
 def cmd_check(args: argparse.Namespace) -> None:
@@ -358,6 +397,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tokenis-mcp", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--log-level", default=os.environ.get("TOKENIS_LOG_LEVEL", "INFO"))
+    parser.add_argument("--log-format", choices=("text", "json"),
+                        default=os.environ.get("TOKENIS_LOG_FORMAT") or None,
+                        help="log line format (default: [server] log_format, else text)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("serve", help="run the MCP server")
@@ -427,10 +469,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
-    logging.basicConfig(
-        stream=sys.stderr, level=str(args.log_level).upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    from tokenis.ops import configure_logging
+
+    configure_logging(str(args.log_level), args.log_format or "text")
     args.func(args)
 
 

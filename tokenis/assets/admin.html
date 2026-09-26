@@ -1,0 +1,1032 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tokenis Console</title>
+<link rel="icon" href="{{icon}}">
+<style nonce="{{nonce}}">
+/* ------------------------------------------------------------------ tokens */
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --surface-3: #f1efea;
+  --border: #e6e2da;
+  --border-strong: #d7d1c6;
+  --text: #17191c;
+  --text-2: #3b3f46;
+  --muted: #6a707a;
+  --faint: #9aa0a9;
+  --accent: #a8712c;
+  --accent-strong: #8a5a1e;
+  --accent-fill: #d9a765;
+  --accent-soft: rgba(185, 128, 55, .11);
+  --accent-ring: rgba(185, 128, 55, .35);
+  --ok: #16875b;
+  --ok-soft: rgba(22, 135, 91, .1);
+  --bad: #cc3b2f;
+  --bad-fill: #e0675b;
+  --bad-soft: rgba(204, 59, 47, .09);
+  --warn: #b7791f;
+  --warn-soft: rgba(183, 121, 31, .12);
+  --neutral-fill: #b9bdc4;
+  --shadow: 0 1px 2px rgba(24, 20, 12, .04), 0 1px 1px rgba(24, 20, 12, .03);
+  --shadow-lg: 0 12px 32px -8px rgba(24, 20, 12, .18), 0 2px 6px rgba(24, 20, 12, .06);
+  --sidebar: #fbfaf8;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0c0e;
+  --surface: #121417;
+  --surface-2: #15181b;
+  --surface-3: #1b1f23;
+  --border: #22262c;
+  --border-strong: #2e333a;
+  --text: #eceef1;
+  --text-2: #c7ccd3;
+  --muted: #8a929e;
+  --faint: #5d646e;
+  --accent: #e3b778;
+  --accent-strong: #f2cc94;
+  --accent-fill: #d8a864;
+  --accent-soft: rgba(227, 183, 120, .1);
+  --accent-ring: rgba(227, 183, 120, .38);
+  --ok: #43c08f;
+  --ok-soft: rgba(67, 192, 143, .12);
+  --bad: #f2766a;
+  --bad-fill: #e5645a;
+  --bad-soft: rgba(242, 118, 106, .12);
+  --warn: #e9b04f;
+  --warn-soft: rgba(233, 176, 79, .13);
+  --neutral-fill: #4a5059;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-lg: 0 16px 40px -10px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+  --sidebar: #0e1012;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0b0c0e; --surface: #121417; --surface-2: #15181b; --surface-3: #1b1f23;
+    --border: #22262c; --border-strong: #2e333a; --text: #eceef1; --text-2: #c7ccd3;
+    --muted: #8a929e; --faint: #5d646e; --accent: #e3b778; --accent-strong: #f2cc94;
+    --accent-fill: #d8a864; --accent-soft: rgba(227, 183, 120, .1); --accent-ring: rgba(227, 183, 120, .38);
+    --ok: #43c08f; --ok-soft: rgba(67, 192, 143, .12); --bad: #f2766a; --bad-fill: #e5645a;
+    --bad-soft: rgba(242, 118, 106, .12); --warn: #e9b04f; --warn-soft: rgba(233, 176, 79, .13);
+    --neutral-fill: #4a5059;
+    --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-lg: 0 16px 40px -10px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+    --sidebar: #0e1012;
+  }
+}
+
+/* ------------------------------------------------------------------- base */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01", "tnum";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; border-radius: 6px; }
+svg { display: block; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 12.5px; letter-spacing: -.01em; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ----------------------------------------------------------------- layout */
+.app { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 20px 14px 16px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 18px; }
+.brand img { width: 30px; height: 30px; }
+.brand-name { font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
+.brand-sub { font-size: 11.5px; color: var(--muted); margin-top: -1px; }
+.nav-label { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); padding: 10px 10px 6px; }
+.nav a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; margin: 1px 0;
+  color: var(--text-2); text-decoration: none; font-weight: 500;
+  border-radius: 8px; transition: background .12s, color .12s;
+}
+.nav a svg { width: 17px; height: 17px; color: var(--muted); flex: none; }
+.nav a:hover { background: var(--surface-3); color: var(--text); }
+.nav a[aria-current="page"] { background: var(--accent-soft); color: var(--text); }
+.nav a[aria-current="page"] svg { color: var(--accent); }
+.nav .count { margin-left: auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sidebar-foot { margin-top: auto; display: grid; gap: 10px; }
+.tenant-card { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 11px 12px; box-shadow: var(--shadow); }
+.tenant-card .label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.tenant-card .value { font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 8px; }
+.tenant-card .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.version { font-size: 11.5px; color: var(--faint); padding: 0 4px; display: flex; justify-content: space-between; }
+
+main { min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 32px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 17px; font-weight: 650; letter-spacing: -.015em; margin: 0; }
+.topbar .crumb { font-size: 12.5px; color: var(--muted); }
+.topbar .spacer { flex: 1; }
+.live { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.pulse { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.pulse::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--ok); opacity: 0; animation: ping 2s cubic-bezier(0, 0, .2, 1) infinite; }
+.live.paused .pulse { background: var(--faint); }
+.live.paused .pulse::after, .live.error .pulse::after { animation: none; }
+.live.error .pulse { background: var(--bad); }
+@keyframes ping { 0% { transform: scale(.6); opacity: .7; } 100% { transform: scale(1.6); opacity: 0; } }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 34px; height: 34px;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-2); box-shadow: var(--shadow); transition: border-color .12s, color .12s, background .12s;
+}
+.icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
+.icon-btn svg { width: 16px; height: 16px; }
+.menu-btn { display: none; }
+.scrim { display: none; }
+
+.content { padding: 28px 32px 56px; max-width: 1360px; width: 100%; margin: 0 auto; display: grid; gap: 20px; }
+.page { display: none; gap: 20px; }
+.page.active { display: grid; animation: fade .22s ease-out; }
+@keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ------------------------------------------------------------- components */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 0; }
+.card-head h2 { font-size: 14px; font-weight: 620; margin: 0; letter-spacing: -.005em; }
+.card-head .sub { font-size: 12.5px; color: var(--muted); }
+.card-head .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.card-body { padding: 16px 18px 18px; }
+.card-body.flush { padding: 12px 0 4px; }
+
+.grid-kpi { display: grid; gap: 16px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.grid-2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+.grid-2e { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.kpi { padding: 16px 18px 14px; display: grid; gap: 6px; position: relative; overflow: hidden; }
+.kpi .label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.kpi .label svg { width: 14px; height: 14px; color: var(--faint); }
+.kpi .value { font-size: 27px; font-weight: 650; letter-spacing: -.025em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi .value small { font-size: 14px; font-weight: 550; color: var(--muted); margin-left: 2px; letter-spacing: 0; }
+.kpi .foot { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; min-height: 18px; }
+.kpi .spark { position: absolute; right: 0; bottom: 0; width: 46%; height: 42px; opacity: .95; pointer-events: none; }
+
+.health { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+.health > div { display: flex; align-items: center; gap: 12px; padding: 14px 18px; min-width: 0; }
+.health > div + div { border-left: 1px solid var(--border); }
+.health .h-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.health .h-icon svg { width: 17px; height: 17px; }
+.health > div > div { min-width: 0; }
+.health .h-label { font-size: 12px; color: var(--muted); }
+.health .h-value { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tone-ok { background: var(--ok-soft); color: var(--ok); }
+.tone-bad { background: var(--bad-soft); color: var(--bad); }
+.tone-warn { background: var(--warn-soft); color: var(--warn); }
+.tone-accent { background: var(--accent-soft); color: var(--accent); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 560; line-height: 18px; white-space: nowrap;
+}
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.plain::before { display: none; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-2); font-size: 11.5px; font-weight: 600; color: var(--text-2);
+  font-family: var(--mono); letter-spacing: -.01em; white-space: nowrap;
+}
+.badge.rule { border-color: transparent; background: var(--bad-soft); color: var(--bad); }
+.badge svg { width: 12px; height: 12px; }
+
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.sw-ok { background: var(--accent-fill); }
+.sw-denied { background: var(--bad-fill); }
+.sw-other { background: var(--neutral-fill); }
+
+.chart { position: relative; }
+.chart svg { width: 100%; height: 200px; }
+.chart .bar { transition: opacity .12s; }
+.f-ok { fill: var(--accent-fill); } .f-denied { fill: var(--bad-fill); } .f-other { fill: var(--neutral-fill); }
+.grid-line { stroke: var(--border); } .base-line { stroke: var(--border-strong); }
+.spark-accent { color: var(--accent); } .spark-bad { color: var(--bad); }
+.spark .line { fill: none; stroke: currentColor; }
+.spark .stop-a { stop-color: currentColor; stop-opacity: .28; } .spark .stop-b { stop-color: currentColor; stop-opacity: 0; }
+.chart:hover .bar { opacity: .55; }
+.chart .col:hover .bar { opacity: 1; }
+.axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--faint); padding-top: 8px; font-variant-numeric: tabular-nums; }
+.ymax { position: absolute; top: -2px; left: 0; font-size: 11px; color: var(--faint); background: var(--surface); padding-right: 6px; }
+.tooltip {
+  position: fixed; z-index: 50; pointer-events: none;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+  box-shadow: var(--shadow-lg); padding: 10px 12px; font-size: 12.5px; min-width: 150px;
+  opacity: 0; transform: translateY(4px); transition: opacity .1s, transform .1s;
+}
+.tooltip.show { opacity: 1; transform: none; }
+.tooltip .t-title { font-weight: 600; margin-bottom: 6px; }
+.tooltip .t-row { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+.tooltip .t-row b { margin-left: auto; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.tooltip i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+.rules { display: grid; gap: 14px; }
+.rule-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px 12px; }
+.rule-row .desc { font-size: 13px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rule-row .track { grid-column: 1 / -1; height: 6px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+.rule-row .fill { height: 100%; border-radius: 99px; background: var(--bad-fill); transition: width .5s cubic-bezier(.2, .8, .2, 1); }
+
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+th {
+  text-align: left; font-size: 11.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 8px 18px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+  position: sticky; top: 0; z-index: 1; white-space: nowrap;
+}
+td { padding: 11px 18px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background .1s; }
+tbody tr:hover { background: var(--surface-2); }
+td.r, th.r { text-align: right; }
+.table-wrap { overflow: auto; }
+.table-wrap.tall { max-height: calc(100vh - 250px); }
+.obj { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.who { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.avatar {
+  width: 24px; height: 24px; border-radius: 7px; flex: none;
+  display: grid; place-items: center; font-size: 10.5px; font-weight: 700;
+  color: #fff; letter-spacing: .02em;
+}
+.who .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.minibar { display: flex; height: 6px; border-radius: 99px; overflow: hidden; background: var(--surface-3); min-width: 90px; }
+.minibar span { height: 100%; }
+
+.activity { display: grid; }
+.activity .item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 18px; border-top: 1px solid var(--border); }
+.activity .item:first-child { border-top: 0; }
+.dot { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; }
+.dot svg { width: 14px; height: 14px; }
+.activity .what { min-width: 0; }
+.activity .what .top { display: flex; gap: 8px; align-items: center; font-weight: 550; min-width: 0; }
+.activity .what .top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity .what .bottom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.link { color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 560; }
+.link:hover { color: var(--accent-strong); }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.search { position: relative; flex: 1 1 260px; max-width: 380px; }
+.search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--faint); }
+.search input {
+  width: 100%; height: 34px; padding: 0 12px 0 34px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
+  transition: border-color .12s, box-shadow .12s;
+}
+.search input::placeholder { color: var(--faint); }
+.search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--surface-3); border: 1px solid var(--border); }
+.segmented button { border: 0; background: transparent; padding: 4px 12px; border-radius: 7px; font-size: 12.5px; font-weight: 560; color: var(--muted); }
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.toolbar .count { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+
+.empty { padding: 44px 18px; text-align: center; color: var(--muted); display: grid; justify-items: center; gap: 8px; }
+.empty svg { width: 28px; height: 28px; color: var(--faint); }
+.empty b { color: var(--text-2); font-weight: 600; }
+
+.banner {
+  display: none; align-items: center; gap: 12px;
+  padding: 11px 14px; border-radius: 10px;
+  background: var(--bad-soft); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 25%, transparent);
+  font-weight: 520;
+}
+.banner.show { display: flex; }
+.banner svg { width: 17px; height: 17px; flex: none; }
+.banner button { margin-left: auto; border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 7px; padding: 3px 10px; font-size: 12.5px; font-weight: 600; }
+
+.policy-grid { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.policy { padding: 16px 18px; display: grid; gap: 4px; align-content: start; }
+.policy .p-label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.policy .p-label svg { width: 15px; height: 15px; color: var(--accent); }
+.policy .p-value { font-size: 21px; font-weight: 650; letter-spacing: -.02em; }
+.policy .p-help { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.prot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.prot svg { width: 12px; height: 12px; }
+.prot.open { background: var(--surface-3); color: var(--text-2); }
+.prot.token { background: rgba(110, 140, 220, .13); color: #5b7bd8; }
+:root[data-theme="dark"] .prot.token { color: #93aefc; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .prot.token { color: #93aefc; } }
+.prot.sealed { background: var(--accent-soft); color: var(--accent); }
+
+.cmd { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 9px 10px 9px 13px; }
+.cmd code { font-family: var(--mono); font-size: 12.5px; flex: 1; overflow-x: auto; white-space: nowrap; color: var(--text-2); }
+.cmd code::before { content: "$ "; color: var(--faint); }
+.copy { border: 1px solid var(--border); background: var(--surface); border-radius: 7px; padding: 3px 9px; font-size: 12px; font-weight: 560; color: var(--text-2); display: inline-flex; gap: 6px; align-items: center; }
+.copy svg { width: 13px; height: 13px; }
+.copy.done { color: var(--ok); border-color: var(--ok); }
+.stack { display: grid; gap: 10px; }
+.note { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+
+.skeleton { background: linear-gradient(90deg, var(--surface-3) 0%, var(--surface-2) 50%, var(--surface-3) 100%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; border-radius: 6px; color: transparent !important; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ------------------------------------------------------------- responsive */
+@media (max-width: 1240px) {
+  .grid-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1024px) {
+  .grid-2, .grid-2e { grid-template-columns: minmax(0, 1fr); }
+  .health { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health > div:nth-child(3) { border-left: 0; }
+  .health > div:nth-child(n+3) { border-top: 1px solid var(--border); }
+}
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: fixed; z-index: 30; left: 0; width: 272px; transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow-lg); }
+  .app.nav-open .sidebar { transform: none; }
+  .scrim { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .35); display: none; }
+  .app.nav-open .scrim { display: block; }
+  .menu-btn { display: inline-grid; }
+  .topbar { padding: 12px 16px; }
+  .content { padding: 18px 16px 40px; }
+  .grid-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .policy-grid { grid-template-columns: minmax(0, 1fr); }
+  .live .txt { display: none; }
+  .hide-sm { display: none; }
+  td, th { padding-left: 14px; padding-right: 14px; }
+}
+@media (max-width: 480px) {
+  .health { grid-template-columns: minmax(0, 1fr); }
+  .health > div { border-left: 0 !important; }
+  .health > div + div { border-top: 1px solid var(--border); }
+  .kpi .value { font-size: 23px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" class="sr-only" aria-hidden="true">
+  <defs>
+    <symbol id="i-overview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="9" rx="1.8"/><rect x="13.5" y="3" width="7.5" height="5" rx="1.8"/><rect x="13.5" y="11" width="7.5" height="10" rx="1.8"/><rect x="3" y="15" width="7.5" height="6" rx="1.8"/></symbol>
+    <symbol id="i-audit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.9 12.1 8.6-8.6M17 6l2.5 2.5M14.5 8.5 16.5 10.5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.5"/><path d="M4.5 12v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V12"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10.5" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15 15 9"/><path d="M11 6.5 12.6 5a4.2 4.2 0 0 1 6 6l-1.6 1.5M13 17.5 11.4 19a4.2 4.2 0 0 1-6-6L7 11.5"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="7" rx="1.8"/><rect x="3.5" y="13" width="17" height="7" rx="1.8"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20c.8-3.3 3.3-5 6.5-5s5.7 1.7 6.5 5"/><path d="M16 5.2a3.5 3.5 0 0 1 0 6.6M18 15.3c1.8.6 3 2.1 3.5 4.7"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18a8.5 8.5 0 1 1 16 0"/><path d="m12 13.5 4-4"/><circle cx="12" cy="14" r="1.3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.3 2.8 17.5A2 2 0 0 0 4.5 20.5h15a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="3.8" height="14" rx="1"/><rect x="13.7" y="5" width="3.8" height="14" rx="1"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.5 1.5 0 0 1 0 2.1l-6.2 6.2a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8" cy="8" r="1.3"/></symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app">
+  <aside class="sidebar" aria-label="Navigation">
+    <div class="brand">
+      <img src="{{icon}}" alt="">
+      <div>
+        <div class="brand-name">Tokenis</div>
+        <div class="brand-sub">Gateway console</div>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <div class="nav-label">Monitor</div>
+      <a href="#overview" data-page="overview"><svg><use href="#i-overview"/></svg>Overview</a>
+      <a href="#audit" data-page="audit"><svg><use href="#i-audit"/></svg>Audit trail<span class="count" id="nav-audit"></span></a>
+      <div class="nav-label">Configure</div>
+      <a href="#access" data-page="access"><svg><use href="#i-key"/></svg>Access<span class="count" id="nav-keys"></span></a>
+      <a href="#policy" data-page="policy"><svg><use href="#i-shield"/></svg>Policy &amp; schema</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="tenant-card">
+        <div class="label">Tenant</div>
+        <div class="value"><span id="tenant" class="skeleton">tenant</span></div>
+        <div class="meta" id="tenant-meta">&nbsp;</div>
+      </div>
+      <div class="version"><span id="version">Tokenis</span><span>Read-only</span></div>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <main>
+    <header class="topbar">
+      <button class="icon-btn menu-btn" id="menu" aria-label="Open navigation"><svg><use href="#i-menu"/></svg></button>
+      <div>
+        <h1 id="page-title">Overview</h1>
+        <div class="crumb" id="page-sub">Disclosure activity on this gateway</div>
+      </div>
+      <div class="spacer"></div>
+      <span class="live" id="live" role="status"><span class="pulse"></span><span class="txt" id="live-txt">Connecting…</span></span>
+      <button class="icon-btn" id="pause" aria-label="Pause live updates" title="Pause live updates"><svg><use href="#i-pause"/></svg></button>
+      <button class="icon-btn" id="theme" aria-label="Theme" title="Theme"><svg><use href="#i-monitor"/></svg></button>
+    </header>
+
+    <div class="content">
+      <div class="banner" id="banner" role="alert">
+        <svg><use href="#i-alert"/></svg><span id="banner-txt"></span>
+        <button id="retry">Retry</button>
+      </div>
+
+      <!-- ================================================= overview -->
+      <section class="page" id="page-overview" aria-labelledby="page-title">
+        <div class="card health" id="health"></div>
+
+        <div class="grid-kpi">
+          <div class="card kpi">
+            <div class="label"><svg><use href="#i-lock"/></svg>Records protected</div>
+            <div class="value" id="k-records"><span class="skeleton">0000</span></div>
+            <div class="foot" id="k-records-foot">&nbsp;</div>
+          </div>
+          <div class="card kpi">
+            <div class="label"><svg><use href="#i-activity"/></svg>Tool calls · 1h</div>
+            <div class="value" id="k-calls"><span class="skeleton">000</span></div>
+            <div class="foot" id="k-calls-foot">&nbsp;</div>
+            <svg class="spark" id="s-calls" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+          <div class="card kpi">
+            <div class="label"><svg><use href="#i-ban"/></svg>Denial rate · 1h</div>
+            <div class="value" id="k-denied"><span class="skeleton">00%</span></div>
+            <div class="foot" id="k-denied-foot">&nbsp;</div>
+            <svg class="spark" id="s-denied" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
+          </div>
+          <div class="card kpi">
+            <div class="label"><svg><use href="#i-gauge"/></svg>Latency p95</div>
+            <div class="value" id="k-latency"><span class="skeleton">000</span></div>
+            <div class="foot" id="k-latency-foot">&nbsp;</div>
+          </div>
+          <div class="card kpi">
+            <div class="label"><svg><use href="#i-link"/></svg>Audit entries</div>
+            <div class="value" id="k-trace"><span class="skeleton">000</span></div>
+            <div class="foot" id="k-trace-foot">&nbsp;</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <div><h2>Traffic</h2><div class="sub">Tool calls per minute, last 60 minutes · this replica</div></div>
+              <div class="right legend"><span><i class="sw-ok"></i>Answered</span><span><i class="sw-denied"></i>Denied</span><span><i class="sw-other"></i>Other</span></div>
+            </div>
+            <div class="card-body">
+              <div class="chart" id="traffic"></div>
+              <div class="axis"><span>60 min ago</span><span>45</span><span>30</span><span>15</span><span>now</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>Denials by rule</h2><div class="sub">Why questions were refused · since start</div></div></div>
+            <div class="card-body"><div class="rules" id="rules"></div></div>
+          </div>
+        </div>
+
+        <div class="grid-2e">
+          <div class="card">
+            <div class="card-head"><div><h2>Tools</h2><div class="sub">Outcomes since this replica started</div></div></div>
+            <div class="card-body flush"><div class="table-wrap"><table id="tools"></table></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <div><h2>Recent activity</h2><div class="sub">Latest entries in the shared audit trail</div></div>
+              <div class="right"><a class="link" href="#audit">View all →</a></div>
+            </div>
+            <div class="card-body flush"><div class="activity" id="activity"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================= audit -->
+      <section class="page" id="page-audit" aria-labelledby="page-title">
+        <div class="card">
+          <div class="toolbar">
+            <label class="search"><span class="sr-only">Search</span><svg><use href="#i-search"/></svg>
+              <input id="q" type="search" placeholder="Search principal, object, purpose, rule…" autocomplete="off"></label>
+            <div class="segmented" role="group" aria-label="Filter by decision">
+              <button data-f="all" aria-pressed="true">All</button>
+              <button data-f="permit" aria-pressed="false">Answered</button>
+              <button data-f="deny" aria-pressed="false">Denied</button>
+            </div>
+            <span class="count" id="audit-count"></span>
+          </div>
+          <div class="table-wrap tall"><table id="audit"></table></div>
+        </div>
+        <p class="note">Entries are hash-chained and HMAC-signed; verify the full chain with <span class="mono">tokenis-mcp audit verify</span>. Disclosed values are never shown here.</p>
+      </section>
+
+      <!-- ================================================= access -->
+      <section class="page" id="page-access" aria-labelledby="page-title">
+        <div class="grid-kpi" id="access-kpis"></div>
+        <div class="card">
+          <div class="card-head"><div><h2>API keys</h2><div class="sub" id="keys-sub">Bearer credentials accepted by every replica</div></div></div>
+          <div class="card-body flush"><div class="table-wrap"><table id="keys"></table></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>Manage keys</h2><div class="sub">This console is read-only. Keys are created and revoked from the CLI; a revocation applies on the next request.</div></div></div>
+          <div class="card-body stack">
+            <div class="cmd"><code>tokenis-mcp keys create analyst@example.com --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
+            <div class="cmd"><code>tokenis-mcp keys revoke KEY_ID --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
+            <p class="note">The key is printed once and stored only as a SHA-256 hash. Principals come from credentials, never from tool arguments.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================= policy -->
+      <section class="page" id="page-policy" aria-labelledby="page-title">
+        <div class="policy-grid" id="policy"></div>
+        <div class="card">
+          <div class="card-head"><div><h2>Columns</h2><div class="sub">What the model may see of each attribute</div></div></div>
+          <div class="card-body flush"><div class="table-wrap"><table id="columns"></table></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>Reveal purposes</h2><div class="sub">Authorise <span class="mono">disclose_ratio</span> and <span class="mono">disclose_bucket</span></div></div></div>
+          <div class="card-body flush" id="purposes"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="tooltip" id="tip" role="tooltip"></div>
+
+<script nonce="{{nonce}}">
+"use strict";
+(() => {
+  const REFRESH_MS = 10000;
+  const RULES = {
+    "D1": "Too few (or nearly all) records matched",
+    "D2": "Would isolate records combined with earlier answers",
+    "D3": "Query budget for this window used up",
+    "D4-Btau": "Budget for untrusted contexts used up",
+    "D4-Ctau": "Call cap for untrusted contexts reached",
+    "D4-surface": "Only COUNT is allowed in untrusted contexts",
+    "D4-external-effect": "Tool with external effect refused while tainted",
+    "D5": "Column not in the approved catalogue",
+    "no-subject": "Caller identity missing",
+  };
+  const PROT = {
+    open: ["Open", "i-eye", "Released verbatim; filterable"],
+    token: ["Token", "i-hash", "Released only as a keyed pseudonym"],
+    sealed: ["Sealed", "i-lock", "Encrypted; only aggregates over ≥ k records leave"],
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const NS = "http://www.w3.org/2000/svg";
+  const nf = new Intl.NumberFormat();
+  const cf = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    return el;
+  }
+  function icon(name, cls) {
+    const svg = document.createElementNS(NS, "svg");
+    if (cls) svg.setAttribute("class", cls);
+    const use = document.createElementNS(NS, "use");
+    use.setAttribute("href", "#" + name);
+    svg.append(use);
+    return svg;
+  }
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  }
+  const store = {
+    get(k) { try { return localStorage.getItem("tokenis." + k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem("tokenis." + k, v); } catch { /* storage unavailable */ } },
+  };
+
+  function ago(t) {
+    const s = Math.max(0, Date.now() / 1000 - t);
+    if (s < 45) return "just now";
+    if (s < 3600) return Math.round(s / 60) + "m ago";
+    if (s < 86400) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
+  }
+  const stamp = (t) => new Date(t * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  function duration(s) {
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min";
+    if (s < 86400) return (s / 3600).toFixed(1) + " h";
+    return (s / 86400).toFixed(1) + " d";
+  }
+  function hue(str) { let x = 0; for (const c of str) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x % 360; }
+  function avatar(name) {
+    const parts = name.replace(/@.*/, "").split(/[._:+-]+/).filter(Boolean);
+    const initials = ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+    const el = h("span", { class: "avatar", text: initials, "aria-hidden": "true" });
+    el.style.background = `hsl(${hue(name)} 42% 48%)`;
+    return el;
+  }
+  function who(name) { return h("div", { class: "who" }, avatar(name), h("span", { class: "name", title: name, text: name })); }
+  function pill(text, tone, plain) { return h("span", { class: `pill ${tone}${plain ? " plain" : ""}`, text }); }
+  function empty(title, text, ic) {
+    return h("div", { class: "empty" }, icon(ic || "i-activity"), h("b", { text: title }), h("span", { text }));
+  }
+  function table(el, cols, rows, emptyNode) {
+    el.replaceChildren();
+    const thead = h("thead", {}, h("tr", {}, cols.map(c => h("th", { class: c.cls || null, text: c.label }))));
+    const tbody = h("tbody");
+    for (const r of rows) tbody.append(h("tr", {}, r.map((cell, i) => h("td", { class: cols[i].cls || null }, cell))));
+    el.append(thead, tbody);
+    if (!rows.length && emptyNode) tbody.append(h("tr", {}, h("td", { colspan: String(cols.length) }, emptyNode)));
+  }
+
+  /* ------------------------------------------------------------- theme */
+  const THEMES = ["system", "light", "dark"];
+  const THEME_ICON = { system: "i-monitor", light: "i-sun", dark: "i-moon" };
+  let theme = store.get("theme") || "system";
+  function applyTheme() {
+    if (theme === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", theme);
+    const btn = $("theme");
+    btn.replaceChildren(icon(THEME_ICON[theme]));
+    btn.title = btn.ariaLabel = "Theme: " + theme;
+  }
+  $("theme").addEventListener("click", () => {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    store.set("theme", theme);
+    applyTheme();
+  });
+  applyTheme();
+
+  /* ------------------------------------------------------------ routing */
+  const PAGES = {
+    overview: ["Overview", "Disclosure activity on this gateway"],
+    audit: ["Audit trail", "Every answer and refusal, hash-chained across replicas"],
+    access: ["Access", "Who can call the gateway"],
+    policy: ["Policy & schema", "Admission controls and column protection in force"],
+  };
+  function route() {
+    const page = (location.hash || "#overview").slice(1);
+    const name = PAGES[page] ? page : "overview";
+    if (route.current && route.current !== name) window.scrollTo(0, 0);
+    route.current = name;
+    for (const p of Object.keys(PAGES)) $("page-" + p).classList.toggle("active", p === name);
+    document.querySelectorAll(".nav a").forEach(a => {
+      if (a.dataset.page === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+    $("page-title").textContent = PAGES[name][0];
+    $("page-sub").textContent = PAGES[name][1];
+    document.title = PAGES[name][0] + " · Tokenis Console";
+    $("app").classList.remove("nav-open");
+  }
+  window.addEventListener("hashchange", route);
+  $("menu").addEventListener("click", () => $("app").classList.add("nav-open"));
+  $("scrim").addEventListener("click", () => $("app").classList.remove("nav-open"));
+  route();
+
+  /* ------------------------------------------------------------- charts */
+  const tip = $("tip");
+  function showTip(ev, title, rows) {
+    tip.replaceChildren(h("div", { class: "t-title", text: title }),
+      ...rows.map(([sw, label, value]) => h("div", { class: "t-row" }, h("i", { class: sw }), label, h("b", { text: value }))));
+    tip.classList.add("show");
+    const pad = 14, w = tip.offsetWidth, hgt = tip.offsetHeight;
+    let x = ev.clientX + pad, y = ev.clientY - hgt - pad;
+    if (x + w > innerWidth - 8) x = ev.clientX - w - pad;
+    if (y < 8) y = ev.clientY + pad;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  const hideTip = () => tip.classList.remove("show");
+
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
+    return 10 * p;
+  }
+  function traffic(timeline) {
+    const box = $("traffic");
+    const W = 600, H = 200, n = timeline.length, gap = 2.2, bw = W / n - gap;
+    const max = niceMax(Math.max(...timeline.map(b => b.ok + b.denied + b.other), 0));
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": "Tool calls per minute" });
+    for (let i = 1; i <= 4; i++) {
+      const y = H - (H * i) / 4 + .5;
+      svg.append(svgEl("line", { class: "grid-line", x1: 0, x2: W, y1: y, y2: y, "stroke-dasharray": i === 4 ? "0" : "3 4", "vector-effect": "non-scaling-stroke" }));
+    }
+    svg.append(svgEl("line", { class: "base-line", x1: 0, x2: W, y1: H - .5, y2: H - .5, "vector-effect": "non-scaling-stroke" }));
+    timeline.forEach((b, i) => {
+      const x = i * (W / n) + gap / 2;
+      const g = svgEl("g", { class: "col" });
+      g.append(svgEl("rect", { x, y: 0, width: W / n, height: H, fill: "transparent" }));
+      let y = H;
+      for (const key of ["ok", "denied", "other"]) {
+        if (!b[key]) continue;
+        const hgt = Math.max(1.5, (b[key] / max) * (H - 4));
+        y -= hgt;
+        g.append(svgEl("rect", { class: "bar f-" + key, x, y, width: Math.max(1, bw), height: hgt, rx: 1.5 }));
+      }
+      const time = new Date(b.t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      g.addEventListener("mousemove", ev => showTip(ev, time, [
+        ["sw-ok", "Answered", nf.format(b.ok)], ["sw-denied", "Denied", nf.format(b.denied)], ["sw-other", "Other", nf.format(b.other)],
+      ]));
+      g.addEventListener("mouseleave", hideTip);
+      svg.append(g);
+    });
+    box.replaceChildren(svg, h("span", { class: "ymax", text: nf.format(max) + " / min" }));
+  }
+  function spark(el, values, tone) {
+    el.replaceChildren();
+    el.setAttribute("class", "spark spark-" + tone);
+    if (!values.length || Math.max(...values) === 0) return;
+    const max = Math.max(...values), n = values.length;
+    const pts = values.map((v, i) => [(i / (n - 1)) * 100, 38 - (v / max) * 32]);
+    const id = el.id + "-g";
+    const defs = svgEl("defs", {});
+    const grad = svgEl("linearGradient", { id, x1: 0, x2: 0, y1: 0, y2: 1 });
+    grad.append(svgEl("stop", { offset: "0", class: "stop-a" }), svgEl("stop", { offset: "1", class: "stop-b" }));
+    defs.append(grad);
+    const line = pts.map(p => p.join(",")).join(" ");
+    el.append(defs,
+      svgEl("polygon", { points: `0,40 ${line} 100,40`, fill: `url(#${id})` }),
+      svgEl("polyline", { class: "line", points: line, "stroke-width": "1.6", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
+  }
+
+  /* ------------------------------------------------------------- render */
+  let data = null, filter = "all";
+
+  function renderHealth(d) {
+    const hc = d.health || {};
+    const items = [
+      ["i-lock", "Ledger", hc.ledger === "sealed" ? "Sealed & serving" : "Loading", hc.ledger === "sealed" ? "tone-ok" : "tone-warn"],
+      d.state_backend === "postgres"
+        ? ["i-db", "Shared state", hc.database === "ok" ? "PostgreSQL connected" : "Database unreachable", hc.database === "ok" ? "tone-ok" : "tone-bad"]
+        : ["i-db", "State", "Local file", "tone-accent"],
+      ["i-shield", "History integrity", hc.state === "consistent" ? "Hash chain consistent" : "Diverged — restart needed", hc.state === "consistent" ? "tone-ok" : "tone-bad"],
+      ["i-server", "Replica", d.replica + " · pid " + d.pid, "tone-accent"],
+    ];
+    $("health").replaceChildren(...items.map(([ic, label, value, tone]) =>
+      h("div", {}, h("span", { class: "h-icon " + tone }, icon(ic)), h("div", {}, h("div", { class: "h-label", text: label }), h("div", { class: "h-value", title: value, text: value })))));
+  }
+
+  function renderOverview(d) {
+    renderHealth(d);
+    const tl = d.timeline || [];
+    const totals = tl.map(b => b.ok + b.denied + b.other);
+    const calls = totals.reduce((a, b) => a + b, 0);
+    const denied = tl.reduce((a, b) => a + b.denied, 0);
+    $("k-records").textContent = nf.format(d.records);
+    $("k-records-foot").replaceChildren(h("span", { text: d.columns.filter(c => c.protection === "sealed").length + " sealed columns" }));
+    $("k-calls").textContent = cf.format(calls);
+    const last5 = totals.slice(-5).reduce((a, b) => a + b, 0);
+    $("k-calls-foot").textContent = (last5 / 5).toFixed(1) + " / min lately";
+    spark($("s-calls"), totals.slice(-30), "accent");
+    const rate = calls ? (100 * denied) / calls : 0;
+    $("k-denied").replaceChildren(calls ? rate.toFixed(rate < 10 ? 1 : 0) : "—", calls ? h("small", { text: "%" }) : "");
+    $("k-denied-foot").textContent = calls ? nf.format(denied) + " of " + nf.format(calls) + " refused" : "No calls yet";
+    spark($("s-denied"), tl.slice(-30).map(b => b.denied), "bad");
+    const lat = d.latency || {};
+    if (lat.p95 != null) {
+      const ms = lat.p95 * 1000;
+      $("k-latency").replaceChildren(ms >= 1000 ? (ms / 1000).toFixed(2) : Math.round(ms), h("small", { text: ms >= 1000 ? "s" : "ms" }));
+      $("k-latency-foot").textContent = "p50 " + Math.round(lat.p50 * 1000) + " ms · padded to " + d.policy.latency_granularity_ms + " ms";
+    } else {
+      $("k-latency").textContent = "—";
+      $("k-latency-foot").textContent = "Padded to " + d.policy.latency_granularity_ms + " ms quanta";
+    }
+    $("k-trace").textContent = d.trace_entries == null ? "—" : cf.format(d.trace_entries);
+    $("k-trace-foot").textContent = d.trace_error ? "Storage unavailable" : "Signed, hash-chained";
+
+    traffic(tl.length ? tl : Array.from({ length: 60 }, (_, i) => ({ t: 0, ok: 0, denied: 0, other: 0 })));
+
+    const rules = Object.entries(d.denials_by_rule || {}).sort((a, b) => b[1] - a[1]);
+    const rmax = Math.max(1, ...rules.map(r => r[1]));
+    $("rules").replaceChildren(...(rules.length ? rules.map(([rule, n]) => {
+      const fill = h("div", { class: "fill" });
+      fill.style.width = (100 * n / rmax) + "%";
+      return h("div", { class: "rule-row" },
+        h("span", { class: "badge rule", text: rule }),
+        h("span", { class: "desc", title: RULES[rule] || rule, text: RULES[rule] || "Refused" }),
+        h("span", { class: "n", text: nf.format(n) }),
+        h("div", { class: "track" }, fill));
+    }) : [empty("No denials", "Every question so far was answerable.", "i-check")]));
+
+    const tools = Object.entries(d.tools || {}).map(([tool, o]) => {
+      const total = Object.values(o).reduce((a, b) => a + b, 0);
+      return { tool, total, ok: o.ok || 0, denied: o.denied || 0, bad: (o.invalid || 0) + (o.error || 0) + (o.unauthenticated || 0) };
+    }).sort((a, b) => b.total - a.total);
+    table($("tools"), [{ label: "Tool" }, { label: "Calls", cls: "r" }, { label: "Answered", cls: "r hide-sm" }, { label: "Denied", cls: "r hide-sm" }, { label: "Mix" }],
+      tools.map(t => {
+        const bar = h("div", { class: "minibar", title: `${t.ok} answered · ${t.denied} denied · ${t.bad} other` });
+        for (const [v, cls] of [[t.ok, "sw-ok"], [t.denied, "sw-denied"], [t.bad, "sw-other"]]) {
+          if (!v) continue;
+          const s = h("span", { class: cls }); s.style.width = (100 * v / t.total) + "%"; bar.append(s);
+        }
+        return [h("span", { class: "mono", text: t.tool }), nf.format(t.total), nf.format(t.ok), nf.format(t.denied), bar];
+      }), empty("No tool calls yet", "Calls appear here as soon as a client queries this replica."));
+
+    const recent = (d.recent || []).slice(0, 7);
+    $("activity").replaceChildren(...(recent.length ? recent.map(e => {
+      const ok = e.decision === "permit";
+      return h("div", { class: "item" },
+        h("span", { class: "dot " + (ok ? "tone-ok" : "tone-bad") }, icon(ok ? "i-check" : "i-x")),
+        h("div", { class: "what" },
+          h("div", { class: "top" }, h("span", { text: e.principal }), !ok && e.rule ? h("span", { class: "badge rule", text: e.rule }) : null),
+          h("div", { class: "bottom mono muted", title: e.object, text: e.object })),
+        h("time", { datetime: new Date(e.time * 1000).toISOString(), title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time) }));
+    }) : [empty("No activity yet", "Answers and refusals will be listed here.", "i-audit")]));
+  }
+
+  function renderAudit(d) {
+    const q = $("q").value.trim().toLowerCase();
+    const rows = (d.recent || []).filter(e =>
+      (filter === "all" || e.decision === filter) &&
+      (!q || [e.principal, e.object, e.purpose, e.rule, e.kind].some(v => (v || "").toLowerCase().includes(q))));
+    $("audit-count").textContent = `${nf.format(rows.length)} of ${nf.format((d.recent || []).length)} latest · ${nf.format(d.trace_entries || 0)} total`;
+    table($("audit"), [
+      { label: "#", cls: "r" }, { label: "Time" }, { label: "Principal" }, { label: "Request" },
+      { label: "Purpose", cls: "hide-sm" }, { label: "Decision" }, { label: "Rule" },
+    ], rows.map(e => [
+      h("span", { class: "mono muted", text: String(e.index) }),
+      h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time), class: "muted" }),
+      who(e.principal),
+      h("div", { class: "obj mono", title: e.object, text: e.object }),
+      h("span", { class: "muted", text: e.purpose }),
+      e.decision === "permit" ? pill("Answered", "tone-ok") : pill("Denied", "tone-bad"),
+      e.rule ? h("span", { class: "badge rule", title: RULES[e.rule] || "", text: e.rule }) : h("span", { class: "muted", text: "—" }),
+    ]), empty(q || filter !== "all" ? "No matching entries" : "The audit trail is empty",
+      q || filter !== "all" ? "Try a different search or filter." : "Entries appear with the first tool call.", "i-search"));
+    $("nav-audit").textContent = d.trace_entries ? cf.format(d.trace_entries) : "";
+  }
+
+  function renderAccess(d) {
+    const keys = d.api_keys;
+    const active = (keys || []).filter(k => !k.revoked);
+    const principals = new Set(active.map(k => k.principal));
+    const kpi = (ic, label, value, foot) => h("div", { class: "card kpi" },
+      h("div", { class: "label" }, icon(ic), label), h("div", { class: "value", text: value }), h("div", { class: "foot", text: foot }));
+    $("access-kpis").replaceChildren(
+      kpi("i-key", "Active keys", keys ? nf.format(active.length) : "—", keys ? nf.format(keys.length - active.length) + " revoked" : "Not using API keys"),
+      kpi("i-users", "Principals", keys ? nf.format(principals.size) : "—", "With at least one active key"),
+      kpi("i-shield", "Authentication", keys ? "API keys" : "JWT / other", keys ? "Stored as SHA-256 hashes" : "Managed by your identity provider"));
+    $("nav-keys").textContent = keys ? String(active.length) : "";
+    if (!keys) {
+      $("keys").replaceChildren(h("tbody", {}, h("tr", {}, h("td", {}, empty("API keys are not in use", "This gateway authenticates callers with JWTs from your identity provider.", "i-key")))));
+      return;
+    }
+    const sorted = [...keys].sort((a, b) => (a.revoked - b.revoked) || (b.created_at - a.created_at));
+    table($("keys"), [{ label: "Key ID" }, { label: "Principal" }, { label: "Created" }, { label: "Status" }],
+      sorted.map(k => [
+        h("span", { class: "mono", text: k.key_id }),
+        who(k.principal),
+        h("time", { title: stamp(k.created_at), "data-ago": String(k.created_at), text: ago(k.created_at), class: "muted" }),
+        k.revoked ? pill("Revoked", "tone-bad") : pill("Active", "tone-ok"),
+      ]), empty("No API keys yet", "Create one with the command below.", "i-key"));
+  }
+
+  function renderPolicy(d) {
+    const p = d.policy;
+    const card = (ic, label, value, help) => h("div", { class: "card policy" },
+      h("div", { class: "p-label" }, icon(ic), label), h("div", { class: "p-value", text: value }), h("div", { class: "p-help", text: help }));
+    $("policy").replaceChildren(
+      card("i-users", "Minimum group size (k)", String(p.min_query_set_size), `No aggregate over fewer than ${p.min_query_set_size} records, or over all but fewer than ${p.min_query_set_size}.`),
+      card("i-shield", "Differencing audit", p.cell_aware ? "Cell-aware" : "Record-level", "Refuses any query that, combined with earlier answers to anyone, would isolate a record" + (p.cell_aware ? " or a small group." : ".")),
+      card("i-gauge", "Budget", `${nf.format(p.budget)} / ${p.window === "total" ? "lifetime" : p.window}`, "Admitted queries per principal per window (group_by uses one per group)."),
+      card("i-alert", "Untrusted contexts", `${nf.format(p.taint_budget)} answers`, `While a caller's context holds untrusted content: at most ${p.taint_call_cap} calls, COUNT only.`),
+      card("i-clock", "Latency quantum", `${nf.format(p.latency_granularity_ms)} ms`, "Every call takes a multiple of this, so timing reveals nothing about the path taken."),
+      card("i-tag", "Tenant scope", `${d.tenant} · epoch ${d.epoch}`, "Tokens are keyed to the tenant and epoch; bumping the epoch rotates every token."));
+    table($("columns"), [{ label: "Column" }, { label: "Protection" }, { label: "Description", cls: "hide-sm" }, { label: "Unit", cls: "hide-sm" }],
+      d.columns.map(c => {
+        const [label, ic, help] = PROT[c.protection] || [c.protection, "i-eye", ""];
+        return [h("span", { class: "mono", text: c.name }),
+          h("span", { class: "prot " + c.protection, title: help }, icon(ic), label),
+          h("span", { class: "muted", text: c.description || "—" }),
+          h("span", { class: "muted", text: c.unit || "—" })];
+      }));
+    const purposes = d.purposes || [];
+    $("purposes").replaceChildren(purposes.length
+      ? h("div", { class: "table-wrap" }, (() => { const t = h("table"); table(t, [{ label: "Purpose" }, { label: "Description" }], purposes.map(x => [h("span", { class: "mono", text: x.name }), h("span", { class: "muted", text: x.description })])); return t; })())
+      : empty("No reveal purposes", "The two disclosure tools are not offered to models.", "i-lock"));
+  }
+
+  function renderShell(d) {
+    const t = $("tenant");
+    t.classList.remove("skeleton");
+    t.textContent = d.tenant;
+    $("tenant-meta").textContent = `Epoch ${d.epoch} · ${d.state_backend === "postgres" ? "shared state" : "file state"} · up ${duration(d.uptime_seconds)}`;
+    $("version").textContent = "Tokenis v" + d.version;
+  }
+
+  function render() {
+    if (!data) return;
+    renderShell(data);
+    renderOverview(data);
+    renderAudit(data);
+    renderAccess(data);
+    renderPolicy(data);
+  }
+
+  /* ------------------------------------------------------------ polling */
+  let paused = store.get("paused") === "1", timer = null, lastOk = 0, failing = false;
+  function setLive() {
+    const live = $("live");
+    live.classList.toggle("paused", paused);
+    live.classList.toggle("error", failing);
+    $("live-txt").textContent = failing ? "Connection lost" : paused ? "Paused" : lastOk ? "Live · updated " + ago(lastOk / 1000).replace("just now", "now") : "Connecting…";
+    const btn = $("pause");
+    btn.replaceChildren(icon(paused ? "i-play" : "i-pause"));
+    btn.title = btn.ariaLabel = paused ? "Resume live updates" : "Pause live updates";
+  }
+  async function refresh() {
+    try {
+      const r = await fetch("admin/api/summary?recent=250", { credentials: "same-origin", cache: "no-store" });
+      if (r.status === 401) throw new Error("Your session expired. Reload the page to sign in again.");
+      if (!r.ok) throw new Error("The gateway answered HTTP " + r.status + ".");
+      data = await r.json();
+      lastOk = Date.now(); failing = false;
+      $("banner").classList.remove("show");
+      render();
+    } catch (e) {
+      failing = true;
+      $("banner-txt").textContent = "Could not refresh: " + (e.message || e);
+      $("banner").classList.add("show");
+    }
+    setLive();
+  }
+  function schedule() {
+    clearInterval(timer);
+    if (!paused) timer = setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+  }
+  $("pause").addEventListener("click", () => {
+    paused = !paused; store.set("paused", paused ? "1" : "0");
+    setLive(); schedule(); if (!paused) refresh();
+  });
+  $("retry").addEventListener("click", refresh);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !paused) refresh(); });
+
+  $("q").addEventListener("input", () => data && renderAudit(data));
+  document.querySelectorAll(".segmented button").forEach(b => b.addEventListener("click", () => {
+    filter = b.dataset.f;
+    document.querySelectorAll(".segmented button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    if (data) renderAudit(data);
+  }));
+  document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", async () => {
+    const text = b.parentElement.querySelector("code").textContent;
+    try { await navigator.clipboard.writeText(text); } catch { return; }
+    b.classList.add("done"); b.lastChild.textContent = "Copied";
+    setTimeout(() => { b.classList.remove("done"); b.lastChild.textContent = "Copy"; }, 1600);
+  }));
+  document.addEventListener("keydown", ev => {
+    if (ev.key === "/" && document.activeElement !== $("q")) { location.hash = "#audit"; setTimeout(() => $("q").focus(), 0); ev.preventDefault(); }
+    if (ev.key === "Escape") $("app").classList.remove("nav-open");
+  });
+  setInterval(() => {
+    document.querySelectorAll("[data-ago]").forEach(el => { el.textContent = ago(Number(el.dataset.ago)); });
+    setLive();
+  }, 15000);
+
+  setLive();
+  refresh();
+  schedule();
+})();
+</script>
+</body>
+</html>

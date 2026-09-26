@@ -1,0 +1,92 @@
+# Tokenis configuration for the Docker Compose stack (see docker-compose.yml).
+# The sample CRM data is FICTIONAL.
+
+[tenant]
+name = "acme"
+
+[data]                                      # read once, by `tokenis-mcp ingest`
+url_env = "CRM_DATABASE_URL"                # a read-only role on the CRM database
+table = "customers"
+id_column = "id"
+embedding_column = "embedding"             # for similarity_search
+
+[ledger]                                    # what the replicas serve
+path = "/state/ledger"
+
+[keys]
+provider = "local"                          # use aws-kms / vault-transit / gcp-kms / azure-keyvault in production
+passphrase_env = "TOKENIS_KEYSTORE_PASSPHRASE"
+keystore = "/state/keystore.json"
+
+[state]
+backend = "postgres"                        # replicas share admission history, audit trail, API keys
+url_env = "TOKENIS_STATE_URL"
+
+[server]
+transport = "http"
+host = "0.0.0.0"
+port = 8000
+public_url = "http://localhost:8080"
+stateless = true                            # any replica can serve any request
+log_format = "json"
+taint_header = "X-Tokenis-Taint"
+
+[auth]
+mode = "api_keys"                           # keys live in PostgreSQL
+
+[ops]
+admin_token_env = "TOKENIS_ADMIN_TOKEN"
+
+[[columns]]
+name = "customer_name"
+protection = "token"
+description = "Customer legal name"
+entity = true
+
+[[columns]]
+name = "industry"
+protection = "open"
+description = "Industry sector"
+
+[[columns]]
+name = "region"
+protection = "open"
+description = "Registered region (city-district)"
+
+[[columns]]
+name = "size_band"
+protection = "open"
+description = "Company size band"
+
+[[columns]]
+name = "revenue_2024"
+protection = "sealed"
+description = "Annual revenue, fiscal 2024"
+unit = "KRW million"
+scale = 1
+
+[[columns]]
+name = "revenue_2025"
+protection = "sealed"
+description = "Annual revenue, fiscal 2025"
+unit = "KRW million"
+scale = 1
+
+[[columns]]
+name = "employees"
+protection = "sealed"
+description = "Headcount"
+result_mode = "band"
+allow_variance = true
+
+[admission]
+min_query_set_size = 5
+budget = 200
+window = "day"
+
+[disclosure]
+latency_granularity_ms = 250
+
+[[reveal.purposes]]
+name = "quarterly_board_report"
+description = "Figures for the quarterly board pack"

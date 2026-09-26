@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS tokenis_admission_log (
     tenant TEXT   NOT NULL,
     seq    BIGINT NOT NULL,
     record JSONB  NOT NULL,
+    digest TEXT   NOT NULL,   -- sha256(previous digest || record): a hash chain
     PRIMARY KEY (tenant, seq)
 );
 CREATE TABLE IF NOT EXISTS tokenis_trace (
@@ -161,21 +162,48 @@ class PostgresState:
                 conn.execute("UPDATE tokenis_state SET fingerprint = %s WHERE tenant = %s",
                              (fingerprint, self.tenant))
 
-    def records_after(self, seq: int) -> List[Tuple[int, Dict[str, Any]]]:
-        with self._connection() as conn:
-            rows = conn.execute(
-                "SELECT seq, record FROM tokenis_admission_log WHERE tenant = %s AND seq > %s "
-                "ORDER BY seq", (self.tenant, seq)).fetchall()
-        return [(int(s), dict(r)) for s, r in rows]
-
-    def append(self, record: Dict[str, Any]) -> int:
+    def check(self, fingerprint: str, seen_seq: int, seen_digest: str) -> None:
+        """Fail closed if the shared history is no longer the one this
+        replica has replayed: the tenant was reset elsewhere (new data or
+        policy), or the log was restored to an earlier point or rewritten.
+        The log is hash-chained, so the record this replica saw last still
+        carrying the digest it saw means everything before it is unchanged
+        too."""
         with self._connection() as conn:
             row = conn.execute(
-                "INSERT INTO tokenis_admission_log (tenant, seq, record) "
-                "SELECT %s, COALESCE(MAX(seq), 0) + 1, %s FROM tokenis_admission_log "
-                "WHERE tenant = %s RETURNING seq",
-                (self.tenant, json.dumps(record), self.tenant)).fetchone()
-        return int(row[0])
+                "SELECT fingerprint, (SELECT digest FROM tokenis_admission_log "
+                "WHERE tenant = %s AND seq = %s) FROM tokenis_state WHERE tenant = %s",
+                (self.tenant, seen_seq, self.tenant)).fetchone()
+        if row is None or row[0] != fingerprint:
+            raise StateMismatchError(
+                f"the shared admission history for tenant {self.tenant!r} was reset or replaced "
+                "while this replica was running; restart it")
+        if seen_seq and row[1] != seen_digest:
+            raise StateMismatchError(
+                f"the shared admission history for tenant {self.tenant!r} changed underneath this "
+                f"replica (record {seen_seq} is gone or different): the database was restored "
+                "from an earlier backup or edited. Refusing to answer; see docs/deployment.md")
+
+    def records_after(self, seq: int) -> List[Tuple[int, Dict[str, Any], str]]:
+        """(seq, record, digest) for every record after ``seq``, oldest first."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT seq, record, digest FROM tokenis_admission_log WHERE tenant = %s "
+                "AND seq > %s ORDER BY seq", (self.tenant, seq)).fetchall()
+        return [(int(s), dict(r), str(d)) for s, r, d in rows]
+
+    def append(self, record: Dict[str, Any]) -> Tuple[int, str]:
+        """Append under the transaction's lock; returns (seq, digest)."""
+        body = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        with self._connection() as conn:
+            last = conn.execute(
+                "SELECT seq, digest FROM tokenis_admission_log WHERE tenant = %s "
+                "ORDER BY seq DESC LIMIT 1", (self.tenant,)).fetchone()
+            seq, prev = (int(last[0]) + 1, str(last[1])) if last else (1, _GENESIS)
+            digest = hashlib.sha256(f"{prev}\n{body}".encode()).hexdigest()
+            conn.execute("INSERT INTO tokenis_admission_log (tenant, seq, record, digest) "
+                         "VALUES (%s, %s, %s, %s)", (self.tenant, seq, body, digest))
+        return seq, digest
 
     # -- trace ------------------------------------------------------------------
 
@@ -202,6 +230,15 @@ class PostgresTraceStorage:
         with self._state.transaction(), self._state._connection() as conn:
             conn.execute("INSERT INTO tokenis_trace (tenant, idx, entry) VALUES (%s, %s, %s)",
                          (self._state.tenant, entry.index, json.dumps(entry_to_dict(entry, mac))))
+
+    def tail(self, n: int) -> List[TraceEntry]:
+        with self._state._connection() as conn:
+            rows = conn.execute("SELECT entry FROM tokenis_trace WHERE tenant = %s "
+                                "ORDER BY idx DESC LIMIT %s", (self._state.tenant, n)).fetchall()
+        return [entry_from_dict(raw)[0] for (raw,) in rows]
+
+    def count(self) -> int:
+        return self.head()[0]
 
     def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
         last = -1

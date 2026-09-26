@@ -138,13 +138,32 @@ Every refusal returns one fixed message whatever the reason.
    tokenis-mcp audit verify --config tokenis.toml
    ```
 
-Data is CSV (with a header) or JSON lines. Money and other decimals are
-stored exactly (`scale = 2` keeps cents). With `[state] dir` set, the
+Data comes from CSV (with a header), JSON lines, or a database table or query
+(PostgreSQL, MySQL/MariaDB, Oracle, SQL Server, Snowflake, BigQuery). Money
+and other decimals are stored exactly (`scale = 2` keeps cents). With `[state] dir` set, the
 admission history and the disclosure trace survive restarts; a restart with
 different data refuses to start until you explicitly pass
 `--reset-admission-state` (see
 [SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md)
 for why that matters).
+
+For production: keep the secrets in a keystore wrapped by AWS KMS, Google
+Cloud KMS, Azure Key Vault or HashiCorp Vault (`tokenis-mcp secrets init`);
+serve from an encrypted ledger so the serving hosts never read the source
+(`tokenis-mcp ingest`); and run several replicas that share their state
+through PostgreSQL. `deploy/compose` is a complete stack (gateway replicas,
+load balancer, PostgreSQL, Prometheus, Grafana), and `deploy/helm/tokenis`
+is the Kubernetes chart. Each replica serves health and readiness probes,
+Prometheus metrics and a read-only admin console.
+
+| Guide | |
+|---|---|
+| [Getting started](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/getting-started.md) | Install, connect a client, first questions |
+| [Tools](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/tools.md) | What each tool answers, and why a question is refused |
+| [Configuration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/configuration.md) | Every setting, data sources, keys, ledger, state |
+| [Deployment](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/deployment.md) | Docker Compose, Kubernetes, monitoring, backups |
+| [LLM integration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/llm-integration.md) | Anthropic / OpenAI-compatible APIs without an MCP client |
+| [Troubleshooting](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/troubleshooting.md) | Error messages and what to do |
 
 ## Security model
 
@@ -163,8 +182,10 @@ What the gateway enforces, rather than asks the model to respect:
 - **Refusals disclose nothing extra.** One message for every denial; the
   rule that fired is recorded for auditors only.
 - **Durable, signed audit trail.** Every answer and refusal is appended,
-  fsync'd and HMAC-signed before the result is returned
-  (`tokenis-mcp audit verify`).
+  durably stored and HMAC-signed before the result is returned
+  (`tokenis-mcp audit verify`). With several replicas, the admission log
+  is hash-chained in PostgreSQL. A replica whose history was rolled back or
+  edited stops answering instead of continuing with a gap.
 - **Uniform latency (W6).** Every call takes a multiple of a declared
   quantum, so timing does not reveal which path ran.
 - **Cryptography in Rust.** Sealed values are EC-ElGamal ciphertexts from
@@ -175,8 +196,9 @@ What it does not do, stated plainly: plaintext exists inside the gateway
 process at load time and at decryption (it is the trusted boundary; run it
 on a host you control); embeddings for `similarity_search` are held in the
 clear inside that process; decryption is not constant-time against a
-co-located cache-timing attacker; the private key is generated per process
-rather than held in an HSM; and neither this code nor its integration has
+co-located cache-timing attacker; the private key, whether generated per
+process or unwrapped from a KMS-protected keystore, lives in process memory
+rather than inside an HSM; and neither this code nor its integration has
 had an independent audit. Details and deployment guidance:
 [SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md).
 
@@ -251,6 +273,10 @@ checks this and five other conditions.
 | `tokenis/spec/`, `tokenis/conformance/` | The tool-surface and well-formedness specification, and its test suite |
 | `papers/`, `research/` | The J1729Labs paper series (P2, P3, P4) and their reproduction code |
 | `reports/SUMMARY.md` | Excerpts of the R1 (utility) and R2 (performance) reports — not the confidential originals |
+| `tokenis/keystore.py`, `tokenis/ledger.py` | KMS-wrapped keystore (AWS, GCP, Azure, Vault, local) and the encrypted ledger |
+| `tokenis/gateway/pgstate.py`, `tokenis/ops.py` | Shared multi-replica state on PostgreSQL; health, metrics and the admin console |
+| `deploy/` | Docker Compose stack, Helm chart, Prometheus alerts, Grafana dashboard |
+| `docs/` | User guides (getting started, tools, configuration, deployment, LLM integration, troubleshooting) |
 | `examples/` | Quickstart, LLM agents, annotated config, fictional dataset, Claude Desktop config |
 
 ## Development

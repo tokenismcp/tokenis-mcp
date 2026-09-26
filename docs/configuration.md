@@ -35,7 +35,7 @@ From a database, through SQLAlchemy (install the matching extra:
 | `url_env` | none | Environment variable holding the SQLAlchemy URL, credentials included, e.g. `postgresql+psycopg://reader:...@db/crm` |
 | `url` | none | The URL written in the file; allowed only **without** a password (e.g. Kerberos, IAM or a local socket) |
 | `table` | none | A plain table name (`schema.table` allowed); read with `SELECT *` |
-| `query` | none | A read-only `SELECT` instead of `table` (exactly one of the two) |
+| `query` | none | A `SELECT` instead of `table` (exactly one of the two). It runs as written: give the gateway a database role that can only read |
 | `fetch_size` | `10000` | Rows streamed per round trip; the source is never held in memory at once |
 
 Use a database role that can only read the rows the gateway serves.
@@ -82,15 +82,16 @@ exactly).
 | Key | Default | Meaning |
 |---|---|---|
 | `min_query_set_size` | `5` | *k*: no aggregate over fewer than *k* records, or over all but fewer than *k* |
-| `budget` | `200` | Admitted value queries per principal per window |
+| `budget` | `200` | Admitted queries per principal per window. `group_by` uses one per group; `compare_periods` and `disclose_ratio` use two |
 | `window` | `"day"` | Budget window: `day`, `hour` (UTC) or `total` |
 | `taint_budget` | `20` | Budget while the caller's context is tainted |
 | `taint_call_cap` | `50` | Calls (admitted or not) allowed while tainted |
 | `cell_aware` | `true` | Also refuses query combinations that would pin down a small group, not only single records |
 
 The differencing audit (D2) runs on every sum, average and variance. It
-refuses a query if, combined with that principal's earlier admitted queries,
-it would reveal an individual record or a group smaller than *k*.
+refuses a query if, combined with the queries already admitted -- from
+**any** principal, since callers can pool their answers -- it would reveal an
+individual record or a group smaller than *k*.
 
 ## `[decryption]`
 
@@ -111,7 +112,7 @@ units.
 | `latency_granularity_ms` | `250` | Every tool call takes a multiple of this, so timing reveals nothing about which path ran |
 | `max_top_k` | `5` | Largest `similarity_search` result |
 | `max_buckets` | `8` | Most buckets `disclose_bucket` may use |
-| `max_groups` | `50` | Most groups `group_by` may return (add filters or use a coarser column beyond this) |
+| `max_groups` | `50` | Most distinct values a `group_by` key may have (counted over the whole dataset, so filters do not help; group by a coarser column) |
 | `max_enum_values` | `100` | Open columns with more distinct values are not listed to the model value by value |
 
 ## `[[reveal.purposes]]`
@@ -201,8 +202,22 @@ fail; re-run `ingest` after a schema change.
 | `taint_header` | none | HTTP header your agent host sets to `1` when the conversation holds untrusted content |
 | `default_taint` | `0` | Taint when the header is absent (or on stdio) |
 | `max_concurrency` | `16` | Tool calls processed in parallel |
+| `stateless` | `false` | HTTP: keep no MCP session in the process, so any replica behind a load balancer can serve any request (use with the postgres state backend) |
+| `log_format` | `"text"` | `text` or `json` (one object per line, including the HTTP server's own logs) |
 
 Command-line flags `--transport`, `--host` and `--port` override these.
+
+## `[ops]`: health, metrics and the admin console (HTTP only)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `admin_token_env` | none | Variable holding the admin console password (at least 16 characters). Without it, `/admin` does not exist |
+| `metrics_token_env` | none | Variable holding a bearer token required on `/metrics`. Without it, `/metrics` is open: scrape it from inside your network |
+
+Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`
+(ready once the ledger is sealed and, with the postgres backend, the
+database answers and the shared history is intact). See
+[deployment.md](deployment.md#operating-it).
 
 ## `[auth]` (required for HTTP)
 
@@ -241,4 +256,5 @@ Keycloak, ...):
 
 `serve` also takes `--reset-admission-state` (see
 [troubleshooting.md](troubleshooting.md)). Every command takes
-`--log-level`.
+`--log-level` (or `TOKENIS_LOG_LEVEL`) and `--log-format text|json` (or
+`TOKENIS_LOG_FORMAT`; default: `[server] log_format`).

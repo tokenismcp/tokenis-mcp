@@ -1,0 +1,134 @@
+# Tokenis: a production-shaped stack on one machine.
+#
+#   cd deploy/compose
+#   ./init-env.sh                 # random secrets into .env (never commit it)
+#   docker compose up -d --build
+#   docker compose exec tokenis tokenis-mcp keys create alice@example.com --config /config/tokenis.toml
+#
+# Then point an MCP client at http://localhost:8080/mcp with that key as a
+# bearer token. Admin dashboard: http://localhost:8080/admin (password: the
+# TOKENIS_ADMIN_TOKEN in .env). Grafana: http://localhost:3000.
+#
+# What runs:
+#   postgres        shared state (admission log, audit trail, API keys) and a
+#                   sample CRM database the gateway ingests from
+#   tokenis-init    one-shot: creates the keystore (first run) and ingests the
+#                   CRM table into the encrypted ledger
+#   tokenis x2      stateless gateway replicas serving the ledger; they never
+#                   see the CRM database or any plaintext sealed value
+#   gateway         nginx load balancer in front of the replicas
+#   prometheus      scrapes every replica, evaluates deploy/monitoring/alerts.yml
+#   grafana         the Tokenis dashboard, provisioned
+#
+# The sample data is FICTIONAL (examples/data/customers.csv).
+
+name: tokenis
+
+x-tokenis: &tokenis
+  image: ${TOKENIS_IMAGE:-tokenis-mcp:local}
+  build:
+    context: ../..
+  env_file: .env
+  environment:
+    TOKENIS_STATE_URL: postgresql://tokenis:${TOKENIS_DB_PASSWORD}@postgres:5432/tokenis
+  volumes:
+    - ./tokenis.toml:/config/tokenis.toml:ro
+    - tokenis-state:/state
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TOKENIS_DB_PASSWORD: ${TOKENIS_DB_PASSWORD}
+      CRM_READER_PASSWORD: ${CRM_READER_PASSWORD}
+    volumes:
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-tokenis.sh:ro
+      - ../../examples/data/customers.csv:/seed/customers.csv:ro
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP: the entrypoint's init-time server listens on the socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  tokenis-init:
+    <<: *tokenis
+    environment:
+      TOKENIS_STATE_URL: postgresql://tokenis:${TOKENIS_DB_PASSWORD}@postgres:5432/tokenis
+      # Only the ingest step reads the source database.
+      CRM_DATABASE_URL: postgresql+psycopg://crm_reader:${CRM_READER_PASSWORD}@postgres:5432/crm
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        (tokenis-mcp secrets status --config /config/tokenis.toml >/dev/null 2>&1
+        || tokenis-mcp secrets init --config /config/tokenis.toml)
+        && tokenis-mcp ingest --config /config/tokenis.toml
+    depends_on:
+      postgres: {condition: service_healthy}
+      state-permissions: {condition: service_completed_successfully}
+    restart: "no"
+
+  state-permissions:
+    # Named volumes start root-owned; hand /state to the image's user.
+    image: busybox:1.37
+    command: ["chown", "-R", "10001:10001", "/state"]
+    volumes: [tokenis-state:/state]
+    restart: "no"
+
+  tokenis:
+    <<: *tokenis
+    command: ["serve", "--config", "/config/tokenis.toml"]
+    deploy:
+      replicas: 2
+    depends_on:
+      tokenis-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).status != 200)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:1.27-alpine
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    depends_on:
+      tokenis: {condition: service_healthy}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["127.0.0.1:9090:9090"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  tokenis-state:

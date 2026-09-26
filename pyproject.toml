@@ -60,7 +60,7 @@ bigquery = ["sqlalchemy>=2.0", "sqlalchemy-bigquery>=1.11"]
 # LLM API clients for `tokenis.llm.ask_*` and `tokenis-mcp ask`.
 llm = ["tokenis-mcp[server]", "anthropic>=0.40", "openai>=1.50"]
 research = ["matplotlib>=3.7", "networkx>=3.1"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7", "maturin>=1.7,<2"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "mypy>=1.8", "hypothesis>=6.100", "pip-audit>=2.7", "maturin>=1.7,<2", "pyyaml>=6"]
 
 [project.scripts]
 tokenis-mcp = "tokenis.cli:main"
@@ -82,6 +82,7 @@ features = ["pyo3/extension-module"]
 include = [
     { path = "tokenis/py.typed", format = ["sdist", "wheel"] },
     { path = "tokenis/assets/*.png", format = ["sdist", "wheel"] },
+    { path = "tokenis/assets/*.html", format = ["sdist", "wheel"] },
 ]
 
 [tool.pytest.ini_options]

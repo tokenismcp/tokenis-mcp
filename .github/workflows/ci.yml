@@ -114,6 +114,35 @@ jobs:
           pytest -q -rs tests/test_pgstate.py tests/test_db_source.py 2>&1 | tee out.txt
           ! grep -q SKIPPED out.txt
 
+  deploy:
+    # Kubernetes chart and monitoring assets: lint, render with defaults and
+    # with every option on, validate against the Kubernetes (and Prometheus
+    # Operator) schemas, and check the alert rules with promtool.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+      - name: Lint and render the chart
+        run: |
+          helm lint deploy/helm/tokenis
+          helm lint deploy/helm/tokenis -f deploy/helm/tokenis/ci/full-values.yaml
+          helm template t deploy/helm/tokenis > default.yaml
+          helm template t deploy/helm/tokenis -f deploy/helm/tokenis/ci/full-values.yaml > full.yaml
+      - name: Validate manifests
+        run: |
+          docker run --rm -v "$PWD:/m" ghcr.io/yannh/kubeconform:v0.7.0 -strict -summary \
+            -kubernetes-version 1.31.0 -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /m/default.yaml /m/full.yaml
+      - name: Check alert rules
+        run: docker run --rm -v "$PWD/deploy/monitoring:/r" --entrypoint promtool prom/prometheus:v3.5.0 check rules /r/alerts.yml
+      - name: Compose file is valid
+        run: |
+          printf 'POSTGRES_PASSWORD=x\nTOKENIS_DB_PASSWORD=x\nCRM_READER_PASSWORD=x\nTOKENIS_KEYSTORE_PASSPHRASE=x\nTOKENIS_ADMIN_TOKEN=x\nGRAFANA_ADMIN_PASSWORD=x\n' > deploy/compose/.env
+          docker compose -f deploy/compose/docker-compose.yml config -q
+
   mcp-server:
     # The MCP server, CLI, HTTP authentication and LLM toolkit (Python >=3.10),
     # including real stdio and authenticated-HTTP end-to-end sessions.

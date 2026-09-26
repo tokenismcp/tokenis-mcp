@@ -1,0 +1,132 @@
+{{- if not .Values.stateDatabase.existingSecret }}
+{{- fail "stateDatabase.existingSecret is required: replicas share their state through PostgreSQL" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tokenis.fullname" . }}
+  labels: {{- include "tokenis.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "tokenis.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        {{- include "tokenis.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+      annotations:
+        checksum/config: {{ include "tokenis.toml" . | sha256sum }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "tokenis.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: tokenis
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--log-level", {{ .Values.server.logLevel | quote }}, "serve", "--config", "/config/tokenis.toml"]
+          ports:
+            - {name: http, containerPort: 8000, protocol: TCP}
+          env:
+            - name: TOKENIS_STATE_URL
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.stateDatabase.existingSecret | quote }}, key: {{ .Values.stateDatabase.key | quote }}}
+            {{- if .Values.admin.enabled }}
+            - name: TOKENIS_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.admin.existingSecret | quote }}, key: {{ .Values.admin.key | quote }}}
+            {{- end }}
+            {{- if .Values.metrics.tokenSecret }}
+            - name: TOKENIS_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.metrics.tokenSecret | quote }}, key: {{ .Values.metrics.tokenKey | quote }}}
+            {{- end }}
+            {{- with .Values.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.keystore.existingSecret }}
+            - {name: keystore, mountPath: /keys, readOnly: true}
+            {{- end }}
+            {{- if .Values.ledger.existingClaim }}
+            - {name: ledger, mountPath: /ledger, readOnly: true}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}{{ toYaml . | nindent 12 }}{{ end }}
+      volumes:
+        - name: config
+          configMap: {name: {{ include "tokenis.fullname" . }}}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if .Values.keystore.existingSecret }}
+        - name: keystore
+          secret:
+            secretName: {{ .Values.keystore.existingSecret }}
+            items: [{key: {{ .Values.keystore.key | quote }}, path: keystore.json}]
+        {{- end }}
+        {{- if .Values.ledger.existingClaim }}
+        - name: ledger
+          persistentVolumeClaim: {claimName: {{ .Values.ledger.existingClaim }}, readOnly: true}
+        {{- end }}
+        {{- with .Values.extraVolumes }}{{ toYaml . | nindent 8 }}{{ end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        {{- if .Values.affinity }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+        {{- else }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {{- include "tokenis.selectorLabels" . | nindent 20 }}
+        {{- end }}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: tokenis
+description: Tokenis disclosure-boundary MCP gateway -- aggregate questions over encrypted data, under admission control and audit.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/tokenismcp/tokenis-mcp
+sources: [https://github.com/tokenismcp/tokenis-mcp]
+icon: https://raw.githubusercontent.com/tokenismcp/tokenis-mcp/main/assets/logo-256.png
+keywords: [mcp, llm, privacy, homomorphic-encryption, gateway]
+annotations:
+  artifacthub.io/license: Apache-2.0
+maintainers:
+  - name: 4Chains Inc. / J1729 Labs
+    url: https://github.com/tokenismcp

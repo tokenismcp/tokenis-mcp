@@ -1,0 +1,77 @@
+# Prometheus alerting rules for Tokenis. Used as-is by deploy/compose and
+# rendered into a PrometheusRule by the Helm chart (prometheusRule.enabled).
+groups:
+  - name: tokenis
+    rules:
+      - alert: TokenisReplicaDown
+        expr: up{job=~".*tokenis.*"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Tokenis replica {{ $labels.instance }} is not being scraped"
+          description: "The replica has not answered /metrics for 2 minutes."
+
+      - alert: TokenisDatabaseUnreachable
+        expr: tokenis_database_up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Tokenis replica {{ $labels.instance }} cannot reach the shared-state database"
+          description: >-
+            Tool calls fail closed while the database is down: nothing is
+            answered without its admission record being stored.
+
+      - alert: TokenisStateDiverged
+        expr: tokenis_state_diverged == 1
+        labels: {severity: critical}
+        annotations:
+          summary: "Tokenis replica {{ $labels.instance }} stopped: the shared admission history changed under it"
+          description: >-
+            The state database was restored to an earlier point or edited while
+            the replica ran. It refuses every call and reports not ready. Decide
+            how to recover before restarting it (docs/deployment.md, "Backups").
+
+      - alert: TokenisTraceStorageUnavailable
+        expr: tokenis_trace_entries < 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Tokenis cannot read its disclosure trace on {{ $labels.instance }}"
+
+      - alert: TokenisDifferencingAttempts
+        # D2 refuses queries that, combined with earlier ones, would isolate
+        # individual records or small groups. A burst is a tracker attack or
+        # an agent stuck probing; look at the audit trail by principal.
+        expr: sum(increase(tokenis_denials_total{rule="D2"}[15m])) > 20
+        labels: {severity: warning}
+        annotations:
+          summary: "Many differencing (D2) denials in the last 15 minutes"
+          description: "Review the audit trail (admin dashboard or `tokenis-mcp audit`) for the principals involved."
+
+      - alert: TokenisTaintedCallsRefused
+        # D4-* rules apply while the caller's context holds untrusted content.
+        expr: sum(increase(tokenis_denials_total{rule=~"D4-.*"}[15m])) > 10
+        labels: {severity: warning}
+        annotations:
+          summary: "Calls from tainted contexts are being refused"
+          description: "An agent working on untrusted content keeps querying; possible prompt injection."
+
+      - alert: TokenisErrors
+        expr: >-
+          sum(rate(tokenis_tool_calls_total{outcome="error"}[10m]))
+          / clamp_min(sum(rate(tokenis_tool_calls_total[10m])), 1e-9) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 5% of Tokenis tool calls fail with an internal error"
+
+      - alert: TokenisSlowCalls
+        # Calls are padded to [disclosure] latency_granularity_ms; sustained
+        # p95 above a few quanta means contention on the tenant lock or a
+        # slow database.
+        expr: >-
+          histogram_quantile(0.95, sum by (le) (rate(tokenis_tool_call_duration_seconds_bucket[10m]))) > 5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Tokenis p95 tool-call latency above 5 s"

@@ -120,6 +120,18 @@ class ServerSettings:
     taint_header: Optional[str] = None
     default_taint: int = 0
     max_concurrency: int = 16
+    #: Stateless HTTP: every request stands alone (no MCP session held in
+    #: this process), so any replica behind a load balancer can serve it.
+    stateless: bool = False
+    log_format: str = "text"  # "text" | "json"
+
+
+@dataclass(frozen=True)
+class OpsSettings:
+    """Health, metrics and the admin dashboard (HTTP only; see tokenis.ops)."""
+
+    admin_token_env: Optional[str] = None
+    metrics_token_env: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +151,7 @@ class TokenisConfig:
     #: the connection URL comes from the environment variable state_url_env).
     state_backend: str = "file"
     state_url_env: str = "TOKENIS_STATE_URL"
+    ops: OpsSettings = field(default_factory=OpsSettings)
 
 
 # -- TOML parsing -----------------------------------------------------------------
@@ -173,7 +186,7 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     top = _table(
         dict(raw), "top level",
         ("tenant", "data", "columns", "admission", "decryption", "disclosure", "reveal",
-         "state", "server", "auth", "keys", "ledger"),
+         "state", "server", "auth", "keys", "ledger", "ops"),
     )
     tenant = _table(top.get("tenant"), "tenant", ("name", "epoch", "tokenizer_key_env"))
     data = _table(
@@ -293,13 +306,17 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     server_raw = _table(
         top.get("server"), "server",
         ("transport", "host", "port", "public_url", "allowed_hosts", "stdio_principal",
-         "taint_header", "default_taint", "max_concurrency"),
+         "taint_header", "default_taint", "max_concurrency", "stateless", "log_format"),
     )
     if "allowed_hosts" in server_raw:
         server_raw["allowed_hosts"] = tuple(server_raw["allowed_hosts"])
     server = _build(ServerSettings, "[server]", **server_raw)
     if server.transport not in ("stdio", "http"):
         raise ConfigError("[server] transport must be stdio or http")
+    if server.log_format not in ("text", "json"):
+        raise ConfigError("[server] log_format must be text or json")
+    ops = _build(OpsSettings, "[ops]", **_table(top.get("ops"), "ops",
+                                                ("admin_token_env", "metrics_token_env")))
 
     auth_raw = _table(top.get("auth"), "auth", ("mode", "api_keys_file", "jwt"))
     jwt = None
@@ -345,6 +362,7 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         ledger=ledger_path,
         state_backend=state_backend,
         state_url_env=str(state.get("url_env", "TOKENIS_STATE_URL")),
+        ops=ops,
     )
 
 

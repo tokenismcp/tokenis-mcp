@@ -52,6 +52,8 @@ from typing_extensions import Annotated
 
 from tokenis.gateway.latency import pad_to_granularity_async
 from tokenis.gateway.service import AdmissionDenied, ArgumentError, TokenisGatewayService
+from tokenis.gateway.state import StateMismatchError
+from tokenis.ops import Metrics
 from tokenis.server_auth import AuthenticationRequired, validate_principal
 
 log = logging.getLogger("tokenis.server")
@@ -197,6 +199,7 @@ def create_server(
     name: str = "tokenis",
     max_concurrency: int = 16,
     log_level: str = "WARNING",
+    metrics: Optional[Metrics] = None,
 ) -> MCPServer:
     """An :class:`MCPServer` for ``service``. See the module docstring for
     how to choose ``principal_resolver``; ``token_verifier`` and ``auth``
@@ -225,22 +228,41 @@ def create_server(
 
     async def run(ctx: Context, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         start = time.perf_counter()
+        outcome, rule = "error", None
         try:
             try:
                 principal = principal_resolver(ctx)
                 taint = resolve_taint(ctx)
             except AuthenticationRequired:
+                outcome = "unauthenticated"
                 raise ToolError("authentication required") from None
             call = functools.partial(svc.invoke, tool, principal, arguments, taint)
-            return await anyio.to_thread.run_sync(call, limiter=limiter)
+            result = await anyio.to_thread.run_sync(call, limiter=limiter)
+            outcome = "ok"
+            return result
         except AdmissionDenied as exc:
             # The rule goes to the operator's log (and the trace), never to the caller.
             log.info("denied tool=%s rule=%s", tool, exc.rule)
+            outcome, rule = "denied", exc.rule
             raise ToolError(str(exc)) from None
         except ArgumentError as exc:
+            outcome = "invalid"
             raise ToolError(f"invalid arguments: {exc}") from None
+        except StateMismatchError as exc:
+            # Fail closed; the operator's log and /readyz say why.
+            log.error("refusing calls: %s", exc)
+            raise ToolError("the gateway is temporarily unavailable") from None
+        except ToolError:
+            raise
+        except Exception:
+            # Anything else (a database outage, a bug) stays in the operator's
+            # log: driver messages can name hosts, users or queries.
+            log.exception("tool=%s failed", tool)
+            raise ToolError("the gateway is temporarily unavailable") from None
         finally:
             await pad_to_granularity_async(start, granularity)
+            if metrics is not None:
+                metrics.observe(tool, outcome, time.perf_counter() - start, rule)
 
     schema = svc.schema
     sealed = [c.name for c in schema.sealed]

@@ -92,7 +92,7 @@ from tokenis.gateway.admission import Predicate as AdmissionPredicate
 from tokenis.gateway.latency import quantize_latency
 from tokenis.gateway.reveal import RevealDenied, RevealObject, reveal
 from tokenis.gateway.schema import ColumnSpec, GatewaySettings, Schema
-from tokenis.gateway.state import AdmissionLog
+from tokenis.gateway.state import AdmissionLog, StateMismatchError
 from tokenis.semantic.tokenizer import ScopedTokenizer
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -285,7 +285,12 @@ class TokenisGatewayService:
         #: through PostgreSQL (see tokenis.gateway.pgstate).
         self.shared_state = shared_state
         self._last_seq = 0
+        self._last_digest = ""
         self._admission_stale = False
+        self._state_fingerprint = ""
+        #: Set when the shared history no longer matches this replica; every
+        #: call (and readiness) fails until the process restarts.
+        self.state_failure: Optional[str] = None
         self.trace = DisclosureTrace(
             path=self._state_dir / "trace.jsonl" if self._state_dir else None,
             hmac_key=audit_key,
@@ -520,8 +525,9 @@ class TokenisGatewayService:
         self._admission = self._new_admission(cell_attrs)
         self._build_decryptors()
         if self.shared_state is not None:
-            self.shared_state.open(self._fingerprint(), reset=self._reset_state)
-            self._last_seq = 0
+            self._state_fingerprint = self._fingerprint()
+            self.shared_state.open(self._state_fingerprint, reset=self._reset_state)
+            self._last_seq, self._last_digest = 0, ""
             self._sync_shared()
         elif self._state_dir is not None:
             self._log = AdmissionLog(
@@ -578,13 +584,23 @@ class TokenisGatewayService:
         (caller holds the transaction, so nothing new can appear meanwhile)."""
         if self.shared_state is None:
             return
+        if self.state_failure is not None:
+            raise StateMismatchError(self.state_failure)
         if self._admission_stale and self._sealed:
+            # A database call failed: whatever this replica last wrote may
+            # have been rolled back, so rebuild from the log as it stands.
             self._admission = self._new_admission(self._cell_attrs)
-            self._last_seq = 0
+            self._last_seq, self._last_digest = 0, ""
+        elif self._sealed:
+            try:
+                self.shared_state.check(self._state_fingerprint, self._last_seq, self._last_digest)
+            except StateMismatchError as exc:
+                self.state_failure = str(exc)
+                raise
         self._admission_stale = False
-        for seq, record in self.shared_state.records_after(self._last_seq):
+        for seq, record, digest in self.shared_state.records_after(self._last_seq):
             self._replay(record)
-            self._last_seq = seq
+            self._last_seq, self._last_digest = seq, digest
 
     def _cells(self) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """Group records into cells no admissible query can tell apart, so
@@ -726,7 +742,7 @@ class TokenisGatewayService:
         if op == "decide":
             record.update(filters=dict(filters or {}), function=function, column=column)
         if self.shared_state is not None:
-            self._last_seq = self.shared_state.append(record)
+            self._last_seq, self._last_digest = self.shared_state.append(record)
         else:
             assert self._log is not None  # noqa: S101 -- checked above
             self._log.append(record)
@@ -932,8 +948,8 @@ class TokenisGatewayService:
         domain = self._domains[key]
         if len(domain) > self.settings.disclosure.max_groups:
             raise ArgumentError(
-                f"{key!r} has more than {self.settings.disclosure.max_groups} groups; add filters "
-                "or group by a coarser column"
+                f"{key!r} has more than {self.settings.disclosure.max_groups} distinct values; "
+                "group by a coarser column, or use aggregate with a filter on the values you need"
             )
         groups = []
         for value in domain:

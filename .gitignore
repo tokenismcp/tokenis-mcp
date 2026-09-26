@@ -33,3 +33,4 @@ sdk/typescript/wasm/
 *.tgz
 sdk/typescript/LICENSE
 sdk/typescript/THIRD-PARTY-NOTICES.md
+deploy/compose/.env

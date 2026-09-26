@@ -1,0 +1,18 @@
+Tokenis {{ .Chart.AppVersion }} is starting with {{ .Values.replicaCount }} replicas sharing state in PostgreSQL.
+
+1. Watch the pods become ready (each loads and encrypts its data first):
+     kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+2. Create an API key (stored in the state database, valid on every replica):
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "tokenis.fullname" . }} -- \
+       tokenis-mcp keys create alice@example.com --config /config/tokenis.toml
+
+3. Point MCP clients at {{ .Values.server.publicUrl }}/mcp with that key as a bearer token.
+{{- if .Values.admin.enabled }}
+
+4. Admin dashboard: {{ .Values.server.publicUrl }}/admin (password: the token in Secret {{ .Values.admin.existingSecret }}).
+{{- end }}
+
+Verify the audit trail at any time:
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "tokenis.fullname" . }} -- \
+       tokenis-mcp audit verify --config /config/tokenis.toml

@@ -186,3 +186,43 @@ def test_api_keys_are_shared(tmp_path, tenant):
     assert [r.principal for r in two.list()] == ["alice@example.com"]
     assert one.revoke(record.key_id)
     assert two.verify(token) is None
+
+
+def test_a_history_restored_from_an_older_backup_fails_closed(tmp_path, tenant):
+    a, b = replicas(tmp_path, tenant)
+    total(a, PAIR[0])
+    total(b, {"region": "busan"})
+    # Simulate restoring the database from a backup taken before those calls.
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute("DELETE FROM tokenis_admission_log WHERE tenant = %s AND seq > 1", (tenant,))
+    with pytest.raises(StateMismatchError, match="changed underneath"):
+        total(b, {"region": "gangnam"})
+    assert b.state_failure is not None
+    with pytest.raises(StateMismatchError):  # stays closed until restarted
+        total(b, {"region": "gangnam"})
+
+
+def test_a_rewritten_record_is_detected_by_replicas_that_saw_the_original(tmp_path, tenant):
+    """The case a sequence-number check misses: after a restore, a replica
+    that never saw record 2 writes a new record 2. The replica that saw the
+    original must notice rather than skip the new one."""
+    a, b = replicas(tmp_path, tenant)
+    total(a, {"region": "busan"})
+    total(b, {"region": "gangnam"})          # b has seen seq 2
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute("DELETE FROM tokenis_admission_log WHERE tenant = %s AND seq = 2", (tenant,))
+    a._last_seq, a._last_digest = 1, a.shared_state.records_after(0)[0][2]  # a never saw seq 2
+    total(a, PAIR[0])                        # a writes a different seq 2
+    with pytest.raises(StateMismatchError):
+        total(b, PAIR[1])
+
+
+def test_a_reset_elsewhere_stops_old_replicas(tmp_path, tenant):
+    (old,) = replicas(tmp_path, tenant, count=1)
+    total(old, {"region": "busan"})
+    other = tmp_path / "other"
+    other.mkdir()
+    cfg = write_config(other, tenant, rows=ROWS + [("finance", "busan", 7)])
+    build_service(cfg, environ=env(), reset_admission_state=True)
+    with pytest.raises(StateMismatchError, match="reset or replaced"):
+        total(old, {"region": "busan"})

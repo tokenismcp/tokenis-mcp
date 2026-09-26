@@ -1,0 +1,177 @@
+# Tokenis Helm chart. See docs/deployment.md for a walk-through.
+#
+# Replicas share their admission history, audit trail and API keys through
+# PostgreSQL (required: stateDatabase). Each tool call takes a per-tenant
+# lock there, so replicas add availability, not throughput.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/tokenismcp/tokenis-mcp
+  tag: ""                      # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  # Workload identity for your KMS, e.g.
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/tokenis
+  #   iam.gke.io/gcp-service-account: tokenis@project.iam.gserviceaccount.com
+  #   azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+  annotations: {}
+  automount: false
+
+# The gateway's configuration, minus the sections the chart renders itself
+# ([server], [state] and [ops] -- set those through the values below).
+# Secrets never go here: name environment variables and supply them through
+# extraEnv / extraEnvFrom / the *.existingSecret values.
+config: |
+  [tenant]
+  name = "example"
+
+  # Read the source at start-up (each replica), or serve an ingested
+  # [ledger] from ledger.existingClaim instead.
+  [data]
+  url_env = "SOURCE_DATABASE_URL"
+  table = "customers"
+  id_column = "id"
+
+  [keys]
+  provider = "aws-kms"
+  key_id = "alias/tokenis"
+  keystore = "/keys/keystore.json"
+
+  [auth]
+  mode = "api_keys"            # keys live in the state database; or "jwt" with [auth.jwt]
+
+  [[columns]]
+  name = "customer_name"
+  protection = "token"
+  entity = true
+
+  [[columns]]
+  name = "industry"
+  protection = "open"
+
+  [[columns]]
+  name = "revenue"
+  protection = "sealed"
+  unit = "USD"
+
+  [admission]
+  min_query_set_size = 5
+  budget = 200
+  window = "day"
+
+server:
+  # The URL clients use (its host is accepted in Host headers).
+  publicUrl: "https://tokenis.example.com"
+  allowedHosts: []             # extra Host header values
+  taintHeader: "X-Tokenis-Taint"
+  maxConcurrency: 16
+  logFormat: json              # json | text
+  logLevel: INFO
+
+# Shared state: the PostgreSQL connection URL, from a Secret.
+#   kubectl create secret generic tokenis-state \
+#     --from-literal=url='postgresql://tokenis:...@db:5432/tokenis?sslmode=require'
+stateDatabase:
+  existingSecret: tokenis-state
+  key: url
+
+# The KMS-wrapped keystore from `tokenis-mcp secrets init` (safe to store as
+# a Secret: it is useless without the KMS key). Mounted at /keys.
+#   kubectl create secret generic tokenis-keystore --from-file=keystore.json
+keystore:
+  existingSecret: ""
+  key: keystore.json
+
+# An ingested ledger (`tokenis-mcp ingest`) on a ReadOnlyMany/ReadWriteMany
+# volume, mounted read-only at /ledger; set [ledger] path = "/ledger".
+ledger:
+  existingClaim: ""
+
+admin:
+  # Read-only dashboard at /admin; the token from this Secret is its password.
+  enabled: false
+  existingSecret: tokenis-admin
+  key: token
+
+metrics:
+  # /metrics is open inside the cluster by default; set a Secret to require
+  # a bearer token (and configure the ServiceMonitor with it).
+  tokenSecret: ""
+  tokenKey: token
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+  grafanaDashboard:
+    # A ConfigMap labelled for the Grafana sidecar.
+    enabled: false
+    labels:
+      grafana_dashboard: "1"
+
+extraEnv: []
+#  - name: SOURCE_DATABASE_URL
+#    valueFrom: {secretKeyRef: {name: crm-reader, key: url}}
+extraEnvFrom: []
+#  - secretRef: {name: tokenis-secrets}
+extraVolumes: []
+extraVolumeMounts: []
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  #  nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  hosts:
+    - host: tokenis.example.com
+      paths: [{path: /, pathType: Prefix}]
+  tls: []
+
+resources:
+  requests: {cpu: 250m, memory: 512Mi}
+  limits: {memory: 2Gi}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+
+networkPolicy:
+  # Restrict who may reach the gateway; egress stays open (database, KMS).
+  enabled: false
+  ingressFrom: []
+  #  - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: agents}}
+
+startupProbe:
+  # Loading a large source (or ledger) takes time before the first ready.
+  failureThreshold: 120
+  periodSeconds: 5
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+terminationGracePeriodSeconds: 30
