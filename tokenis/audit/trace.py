@@ -210,12 +210,54 @@ class FileTraceStorage:
 
     def append(self, entry: TraceEntry, mac: Optional[str]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        line = (json.dumps(entry_to_dict(entry, mac), sort_keys=True) + "\n").encode("utf-8")
         fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry_to_dict(entry, mac), sort_keys=True) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
+        with os.fdopen(fd, "ab") as fh:
+            size = os.fstat(fd).st_size
+            try:
+                fh.write(line)
+                fh.flush()
+                os.fsync(fd)
+            except BaseException:
+                # A partial or unsynced line (disk full, I/O error) must not
+                # stay: the next entry would be glued onto it and the trail
+                # would no longer verify. Cut back to the last good entry; the
+                # call fails and nothing is released.
+                try:
+                    fh.truncate(size)
+                    os.fsync(fd)
+                except OSError:
+                    pass
+                raise
         self._count, self._head = entry.index + 1, entry.digest
+
+    def tail(self, n: int) -> List[TraceEntry]:
+        """The last ``n`` entries, newest first, reading backwards from the
+        end of the file (cost independent of the trail's length)."""
+        if n <= 0 or not self.path.exists():
+            return []
+        with self.path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            pos, data = fh.tell(), b""
+            # n entries need n+1 newlines in view (the first chunk may start
+            # mid-line), or the start of the file.
+            while pos > 0 and data.count(b"\n") <= n:
+                step = min(65536, pos)
+                pos -= step
+                fh.seek(pos)
+                data = fh.read(step) + data
+        lines = data.split(b"\n")
+        if pos > 0:
+            lines = lines[1:]  # a partial first line
+        out: List[TraceEntry] = []
+        for raw in reversed([line for line in lines if line.strip()]):
+            try:
+                out.append(entry_from_dict(json.loads(raw.decode("utf-8")))[0])
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if len(out) == n:
+                break
+        return out
 
     def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
         if not self.path.exists():
@@ -253,7 +295,9 @@ class DisclosureTrace:
             raise ValueError("hmac_key must be at least 16 bytes")
         if path is not None and storage is not None:
             raise ValueError("pass path or storage, not both")
-        self._lock = threading.Lock()
+        # Shared storage brings its own lock (see PostgresTraceStorage.lock);
+        # one lock for both avoids a lock-order deadlock with readers.
+        self._lock = getattr(storage, "lock", None) or threading.RLock()
         self._hmac_key = hmac_key
         self._storage: TraceStorage
         if storage is not None:

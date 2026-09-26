@@ -58,6 +58,9 @@ class DataSource:
     query: Optional[str] = None
     table: Optional[str] = None
     fetch_size: int = 10_000
+    #: Database sources are read in this column's order (the [data]
+    #: id_column), so every replica sees the rows in the same order.
+    order_by: Optional[str] = None
 
     @property
     def label(self) -> str:
@@ -214,7 +217,7 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         if ("query" in data) == ("table" in data):
             raise ConfigError("[data]: a database source needs exactly one of query or table")
         url = data.get("url")
-        if url is not None and re.search(r"://[^/@]*:[^/@]*@", str(url)):
+        if url is not None and _url_has_password(str(url)):
             raise ConfigError(
                 "[data] url contains a password; put the whole URL in an environment variable "
                 "and name it with url_env"
@@ -225,8 +228,12 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         fetch = int(data.get("fetch_size", 10_000))
         if fetch < 1:
             raise ConfigError("[data] fetch_size must be positive")
+        order_by = data.get("id_column")
+        if order_by is not None and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(order_by)):
+            raise ConfigError("[data] id_column must be a plain column name for a database source")
         source_data = DataSource(format="sql", url=url, url_env=data.get("url_env"),
-                                 query=data.get("query"), table=table, fetch_size=fetch)
+                                 query=data.get("query"), table=table, fetch_size=fetch,
+                                 order_by=order_by)
     elif data:
         raise ConfigError("[data] needs a path, or url/url_env with query/table")
     if source_data is None and ledger_path is None:
@@ -488,10 +495,14 @@ def _iter_sql(
     try:
         engine = sqlalchemy.create_engine(url)
     except (sqlalchemy.exc.ArgumentError, ImportError) as exc:
-        raise ConfigError(f"cannot use the database URL: {exc}") from None
+        raise ConfigError(_redact(f"cannot use the database URL: {exc}", url)) from None
+    # Names are validated in parse_config. A stable order makes every replica
+    # (and every re-ingest) build identical cells and fingerprints.
+    order = f" ORDER BY {source.order_by}" if source.order_by else ""
     if source.table:
-        # The name is validated in parse_config ([A-Za-z_][A-Za-z0-9_.]*).
-        statement = sqlalchemy.text(f"SELECT * FROM {source.table}")  # noqa: S608
+        statement = sqlalchemy.text(f"SELECT * FROM {source.table}{order}")  # noqa: S608
+    elif order:
+        statement = sqlalchemy.text(f"SELECT * FROM ({source.query}) AS tokenis_source{order}")  # noqa: S608
     else:
         statement = sqlalchemy.text(str(source.query))
     label = source.table or "query"
@@ -503,7 +514,8 @@ def _iter_sql(
                 yield f"{label} row {number}", dict(row)
     except sqlalchemy.exc.SQLAlchemyError as exc:
         first = str(exc).splitlines()[0] if str(exc) else ""
-        raise ConfigError(f"database error reading {label}: {exc.__class__.__name__}: {first}") from None
+        raise ConfigError(_redact(f"database error reading {label}: {exc.__class__.__name__}: {first}",
+                                  url)) from None
     finally:
         engine.dispose()
 
@@ -566,9 +578,12 @@ def make_wrapper(keys: KeySettings, environ: Mapping[str, str]) -> Any:
             passphrase = environ.get(name)
             if not passphrase:
                 raise ConfigError(f"environment variable {name} (the keystore passphrase) is not set")
-            salt = None
+            salt: Optional[bytes] = None
             if keys.keystore.exists():
-                salt = base64.b64decode(keystore_header(keys.keystore)["wrapper"]["salt"])
+                try:
+                    salt = base64.b64decode(keystore_header(keys.keystore)["wrapper"]["salt"], validate=True)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ConfigError(f"{keys.keystore}: malformed keystore salt") from exc
             return LocalPassphraseWrapper(passphrase.encode(), salt)
         if keys.provider == "aws-kms":
             return AwsKmsWrapper(str(o("key_id")), o("region"))
@@ -602,6 +617,34 @@ def load_secrets(config: TokenisConfig, environ: Mapping[str, str]) -> Any:
         raise ConfigError(str(exc)) from None
 
 
+def _url_has_password(url: str) -> bool:
+    """A password in the userinfo (including ones containing '/') or in a
+    query parameter."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    if re.search(r"://[^@]*:[^@]*@", url):
+        return True
+    try:
+        query = urlsplit(url).query
+    except ValueError:
+        return True
+    return any(k.lower() in ("password", "passwd", "pwd") for k, _ in parse_qsl(query))
+
+
+def _redact(message: str, *urls: str) -> str:
+    """Driver errors may quote the connection string: never echo a password."""
+    from urllib.parse import unquote, urlsplit
+
+    for url in urls:
+        try:
+            password = urlsplit(url).password
+        except ValueError:
+            password = None
+        for secret in {password, unquote(password) if password else None} - {None, ""}:
+            message = message.replace(str(secret), "***")
+    return message
+
+
 def state_url(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> str:
     """The PostgreSQL URL for the shared state (credentials included, so it
     only ever comes from the environment)."""
@@ -622,12 +665,11 @@ def open_shared_state(config: TokenisConfig, environ: Optional[Mapping[str, str]
         return None
     from tokenis.gateway.pgstate import PostgresState
 
+    url = state_url(config, environ)
     try:
-        return PostgresState(state_url(config, environ), config.settings.tenant)
-    except ConfigError:
-        raise
+        return PostgresState(url, config.settings.tenant)
     except Exception as exc:  # noqa: BLE001 -- driver errors vary; report them as config errors
-        raise ConfigError(f"cannot open the postgres state: {exc}") from None
+        raise ConfigError(_redact(f"cannot open the postgres state: {exc}", url)) from None
 
 
 def api_key_store(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None,

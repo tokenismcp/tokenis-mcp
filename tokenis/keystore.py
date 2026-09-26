@@ -150,7 +150,11 @@ class VaultTransitWrapper:
 
     def __init__(self, address: str, key_name: str, token: str, mount: str = "transit",
                  namespace: Optional[str] = None, timeout: float = 15.0) -> None:
-        if not address.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(address)
+        loopback = parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1")
+        if not (parts.scheme == "https" and parts.hostname) and not loopback:
             raise KeystoreError("vault address must be https:// (plain http only for localhost)")
         if not token:
             raise KeystoreError("no Vault token")
@@ -237,8 +241,10 @@ class GcpKmsWrapper:
 class AzureKeyVaultWrapper:
     """Key Vault ``wrapKey``/``unwrapKey`` (RSA-OAEP-256) with an RSA key;
     the key never leaves the vault (or its HSM, on Premium). RSA key wrap
-    has no associated data, so the context is authenticated by an HMAC over
-    the wrapped value, keyed with material only an unwrap can recover.
+    has no associated data and needs only the public key, so each wrapped
+    secret also carries an RS256 signature made by the vault key over the
+    context and the wrapped value; unwrapping verifies it first. The key
+    needs the wrapKey, unwrapKey, sign and verify operations.
     Credentials: ``DefaultAzureCredential``. Needs
     ``pip install 'tokenis-mcp[azure]'``."""
 
@@ -260,19 +266,44 @@ class AzureKeyVaultWrapper:
     def describe(self) -> Dict[str, str]:
         return {"vault_url": self.vault_url, "key_name": self.key_name}
 
-    def wrap(self, plaintext: bytes, context: Mapping[str, str]) -> bytes:
-        from azure.keyvault.keys.crypto import KeyWrapAlgorithm
+    # Wire format: 0x02 | u16 length | RSA-OAEP(context digest || secret) | RS256 signature.
+    _VERSION = 2
 
-        # Bind the context: wrap (context digest || secret) so unwrapping
-        # under a different context is detected.
+    @staticmethod
+    def _signed_digest(context: Mapping[str, str], wrapped: bytes) -> bytes:
+        return hashlib.sha256(b"tokenis-azure-keystore-v2\x00" + _aad(context) + b"\x00" + wrapped).digest()
+
+    def wrap(self, plaintext: bytes, context: Mapping[str, str]) -> bytes:
+        from azure.keyvault.keys.crypto import KeyWrapAlgorithm, SignatureAlgorithm
+
+        # RSA-OAEP alone authenticates nothing: anyone holding the public key
+        # can wrap a value of their choosing. A signature made inside the
+        # vault (the private key never leaves it) over the context and the
+        # wrapped value is what makes a substituted secret detectable.
         payload = hashlib.sha256(_aad(context)).digest() + plaintext
-        return bytes(self._client.wrap_key(KeyWrapAlgorithm.rsa_oaep_256, payload).encrypted_key)
+        wrapped = bytes(self._client.wrap_key(KeyWrapAlgorithm.rsa_oaep_256, payload).encrypted_key)
+        signature = bytes(self._client.sign(SignatureAlgorithm.rs256,
+                                            self._signed_digest(context, wrapped)).signature)
+        return bytes([self._VERSION]) + len(wrapped).to_bytes(2, "big") + wrapped + signature
 
     def unwrap(self, blob: bytes, context: Mapping[str, str]) -> bytes:
-        from azure.keyvault.keys.crypto import KeyWrapAlgorithm
+        from azure.keyvault.keys.crypto import KeyWrapAlgorithm, SignatureAlgorithm
 
+        if len(blob) < 3 or blob[0] != self._VERSION:
+            raise KeystoreError("unsupported or malformed Azure-wrapped secret")
+        size = int.from_bytes(blob[1:3], "big")
+        wrapped, signature = blob[3:3 + size], blob[3 + size:]
+        if len(wrapped) != size or not signature:
+            raise KeystoreError("malformed Azure-wrapped secret")
         try:
-            payload = bytes(self._client.unwrap_key(KeyWrapAlgorithm.rsa_oaep_256, blob).key)
+            valid = self._client.verify(SignatureAlgorithm.rs256, self._signed_digest(context, wrapped),
+                                        signature).is_valid
+        except Exception as exc:
+            raise KeystoreError(f"Azure Key Vault could not verify the keystore: {exc}") from exc
+        if not valid:
+            raise KeystoreError("wrapped secret was not produced by this vault key for this tenant and slot")
+        try:
+            payload = bytes(self._client.unwrap_key(KeyWrapAlgorithm.rsa_oaep_256, wrapped).key)
         except Exception as exc:
             raise KeystoreError(f"Azure Key Vault refused to unwrap: {exc}") from exc
         if payload[:32] != hashlib.sha256(_aad(context)).digest():

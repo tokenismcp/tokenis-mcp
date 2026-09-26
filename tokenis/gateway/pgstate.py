@@ -35,6 +35,23 @@ from tokenis.gateway.state import StateMismatchError
 
 _GENESIS = "0" * 64
 
+#: Connection settings. Server-side timeouts bound how long a call can wait
+#: for the tenant lock or a statement; idle_in_transaction_session_timeout
+#: makes the server end the session of a replica that froze or died inside a
+#: transaction, which releases the tenant lock for the others. Keepalives and
+#: tcp_user_timeout notice a vanished database host.
+CONNECT_OPTIONS: Dict[str, Any] = {
+    "connect_timeout": 5,
+    "keepalives": 1,
+    "keepalives_idle": 10,
+    "keepalives_interval": 3,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 15000,
+    "options": ("-c statement_timeout=15000 -c lock_timeout=15000 "
+                "-c idle_in_transaction_session_timeout=30000"),
+    "application_name": "tokenis-gateway",
+}
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS tokenis_state (
     tenant      TEXT PRIMARY KEY,
@@ -45,7 +62,7 @@ CREATE TABLE IF NOT EXISTS tokenis_admission_log (
     tenant TEXT   NOT NULL,
     seq    BIGINT NOT NULL,
     record JSONB  NOT NULL,
-    digest TEXT   NOT NULL,   -- sha256(previous digest || record): a hash chain
+    digest TEXT   NOT NULL,   -- HMAC(audit key, previous digest || record): a keyed chain
     PRIMARY KEY (tenant, seq)
 );
 CREATE TABLE IF NOT EXISTS tokenis_trace (
@@ -86,6 +103,10 @@ class PostgresState:
         self.tenant = tenant
         self._conn_lock = threading.RLock()
         self._conn: Any = None
+        #: Key for the admission log's chain (the audit HMAC key, set by the
+        #: gateway). With it, a database account that lacks the keystore
+        #: cannot write a history that verifies.
+        self.chain_key: Optional[bytes] = None
         self._in_tx = False
         self._lock_key = int.from_bytes(
             hashlib.sha256(f"tokenis:{tenant}".encode()).digest()[:8], "big", signed=True)
@@ -96,22 +117,42 @@ class PostgresState:
 
     # -- connection ---------------------------------------------------------
 
+    def _connect(self) -> Any:
+        return self._psycopg.connect(self.url, autocommit=True, **CONNECT_OPTIONS)
+
     @contextmanager
     def _connection(self) -> Iterator[Any]:
         with self._conn_lock:
             if self._conn is None or self._conn.closed:
-                self._conn = self._psycopg.connect(self.url, autocommit=True)
+                self._conn = self._connect()
             try:
                 yield self._conn
             except self._psycopg.OperationalError:
-                # Drop a broken connection; the next call reconnects.
-                self._conn.close()
+                # Drop a broken connection; the next call reconnects. (An
+                # inner context may already have dropped it.)
+                if self._conn is not None:
+                    self._conn.close()
                 self._conn = None
                 raise
 
-    def ping(self) -> bool:
+    def _retry_once(self, fn: Any) -> Any:
+        """Run ``fn(conn)``; if the connection turns out to be dead (database
+        restart, failover, idle timeout), reconnect and run it once more.
+        Only for statements that are safe to repeat."""
         try:
             with self._connection() as conn:
+                return fn(conn)
+        except self._psycopg.OperationalError:
+            with self._connection() as conn:
+                return fn(conn)
+
+    def ping(self) -> bool:
+        """Readiness: a short-lived connection of its own, so the probe
+        answers promptly even while a call holds the main connection."""
+        try:
+            with self._psycopg.connect(self.url, autocommit=True, **{
+                    **CONNECT_OPTIONS, "connect_timeout": 2,
+                    "options": "-c statement_timeout=3000"}) as conn:
                 conn.execute("SELECT 1")
             return True
         except Exception:  # noqa: BLE001 -- readiness probe: any failure means not ready
@@ -122,21 +163,35 @@ class PostgresState:
         """Run the body under the tenant-wide advisory lock, committing at the
         end whether the body returned or raised: everything written records
         something that happened (a decision taken, a disclosure made)."""
-        with self._connection() as conn:
+        with self._conn_lock:
             if self._in_tx:
                 yield
                 return
-            conn.execute("BEGIN")
+            # BEGIN writes nothing, so a connection found dead here is
+            # replaced and BEGIN retried: the first call after a database
+            # restart succeeds instead of failing.
+            self._retry_once(lambda c: c.execute("BEGIN"))
+            conn = self._conn
             self._in_tx = True
             try:
                 conn.execute("SELECT pg_advisory_xact_lock(%s)", (self._lock_key,))
                 yield
+            except self._psycopg.OperationalError:
+                self._in_tx = False
+                conn.close()
+                self._conn = None
+                raise
             finally:
                 self._in_tx = False
                 if not conn.closed:
                     # On an aborted transaction (a failed statement) COMMIT
                     # rolls back instead; the gateway then resynchronises.
-                    conn.execute("COMMIT")
+                    try:
+                        conn.execute("COMMIT")
+                    except self._psycopg.OperationalError:
+                        conn.close()
+                        self._conn = None
+                        raise
 
     # -- admission log ------------------------------------------------------
 
@@ -184,13 +239,35 @@ class PostgresState:
                 f"replica (record {seen_seq} is gone or different): the database was restored "
                 "from an earlier backup or edited. Refusing to answer; see docs/deployment.md")
 
-    def records_after(self, seq: int) -> List[Tuple[int, Dict[str, Any], str]]:
-        """(seq, record, digest) for every record after ``seq``, oldest first."""
+    def link(self, prev: str, record: Dict[str, Any]) -> str:
+        """The chain link for ``record`` after ``prev``: HMAC-SHA256 under the
+        chain key when there is one, SHA-256 otherwise."""
+        body = json.dumps(record, sort_keys=True, separators=(",", ":"))
+        data = f"{prev}\n{body}".encode()
+        if self.chain_key:
+            return hmac.new(self.chain_key, data, hashlib.sha256).hexdigest()
+        return hashlib.sha256(data).hexdigest()
+
+    def records_after(self, seq: int, prev: str = _GENESIS) -> List[Tuple[int, Dict[str, Any], str]]:
+        """(seq, record, digest) for every record after ``seq``, oldest first,
+        each verified to follow ``prev`` (the digest of record ``seq``): no
+        gap, no edited record, no forged link."""
         with self._connection() as conn:
             rows = conn.execute(
                 "SELECT seq, record, digest FROM tokenis_admission_log WHERE tenant = %s "
                 "AND seq > %s ORDER BY seq", (self.tenant, seq)).fetchall()
-        return [(int(s), dict(r), str(d)) for s, r, d in rows]
+        out = []
+        expected = seq + 1
+        for s, raw, digest in rows:
+            record = dict(raw) if isinstance(raw, dict) else {}
+            if int(s) != expected or not hmac.compare_digest(self.link(prev, record), str(digest)):
+                raise StateMismatchError(
+                    f"the shared admission history for tenant {self.tenant!r} fails verification at "
+                    f"record {s}: a record is missing, edited, or was written without the audit key. "
+                    "Refusing to answer; see docs/deployment.md")
+            out.append((int(s), record, str(digest)))
+            prev, expected = str(digest), expected + 1
+        return out
 
     def append(self, record: Dict[str, Any]) -> Tuple[int, str]:
         """Append under the transaction's lock; returns (seq, digest)."""
@@ -200,7 +277,7 @@ class PostgresState:
                 "SELECT seq, digest FROM tokenis_admission_log WHERE tenant = %s "
                 "ORDER BY seq DESC LIMIT 1", (self.tenant,)).fetchone()
             seq, prev = (int(last[0]) + 1, str(last[1])) if last else (1, _GENESIS)
-            digest = hashlib.sha256(f"{prev}\n{body}".encode()).hexdigest()
+            digest = self.link(prev, json.loads(body))
             conn.execute("INSERT INTO tokenis_admission_log (tenant, seq, record, digest) "
                          "VALUES (%s, %s, %s, %s)", (self.tenant, seq, body, digest))
         return seq, digest
@@ -218,6 +295,13 @@ class PostgresTraceStorage:
 
     def __init__(self, state: PostgresState) -> None:
         self._state = state
+
+    @property
+    def lock(self) -> Any:
+        """The trace must use this lock, not one of its own: a tool call
+        holds it for its whole transaction, and a second lock taken in the
+        other order by a reader (metrics, dashboard) would deadlock."""
+        return self._state._conn_lock
 
     def head(self) -> Tuple[int, str]:
         with self._state._connection() as conn:
@@ -299,10 +383,9 @@ class PostgresApiKeyStore:
         if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX) or len(token) > 256:
             return None
         candidate = hashlib.sha256(token.encode()).hexdigest()
-        with self._state._connection() as conn:
-            row = conn.execute("SELECT principal, key_hash FROM tokenis_api_keys WHERE tenant = %s "
-                               "AND key_hash = %s AND NOT revoked",
-                               (self._state.tenant, candidate)).fetchone()
+        row = self._state._retry_once(lambda conn: conn.execute(
+            "SELECT principal, key_hash FROM tokenis_api_keys WHERE tenant = %s "
+            "AND key_hash = %s AND NOT revoked", (self._state.tenant, candidate)).fetchone())
         if row is None or not hmac.compare_digest(str(row[1]), candidate):
             return None
         return str(row[0])

@@ -36,10 +36,25 @@ def truncate_torn_tail(path: Path) -> bool:
     recorded never returned, so dropping it loses nothing that was used.
     Returns whether anything was cut."""
     with path.open("rb+") as fh:
-        data = fh.read()
-        if not data or data.endswith(b"\n"):
+        # Look only at the end of the file: a trail can be gigabytes.
+        fh.seek(0, os.SEEK_END)
+        end = fh.tell()
+        if end == 0:
             return False
-        fh.truncate(data.rfind(b"\n") + 1)
+        fh.seek(end - 1)
+        if fh.read(1) == b"\n":
+            return False
+        pos = end
+        while pos > 0:
+            step = min(65536, pos)
+            pos -= step
+            fh.seek(pos)
+            cut = fh.read(step).rfind(b"\n")
+            if cut >= 0:
+                fh.truncate(pos + cut + 1)
+                break
+        else:
+            fh.truncate(0)
         fh.flush()
         os.fsync(fh.fileno())
         return True

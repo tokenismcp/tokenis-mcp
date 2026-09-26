@@ -167,7 +167,7 @@ tenant, so a keystore cannot be swapped between tenants.
 | `key_id`, `region` | `aws-kms` | KMS key id or ARN; region (default from the AWS environment). Needs the `aws` extra |
 | `address`, `key_name`, `mount`, `namespace`, `token_env` | `vault-transit` | Vault address (`https://`, or `http://` on localhost only), transit key, mount (default `transit`), namespace, token variable (default `VAULT_TOKEN`) |
 | `key_name` | `gcp-kms` | `projects/.../cryptoKeys/...`. Needs the `gcp` extra |
-| `vault_url`, `key_name` | `azure-keyvault` | Key Vault URL and an RSA key name (RSA-OAEP-256). Needs the `azure` extra |
+| `vault_url`, `key_name` | `azure-keyvault` | Key Vault URL and an RSA key permitting wrapKey, unwrapKey, sign and verify (RSA-OAEP-256 plus an RS256 signature per secret). Needs the `azure` extra |
 
 Cloud credentials come from each SDK's usual sources (instance role,
 workload identity, environment); none go in the file.
@@ -212,7 +212,7 @@ Command-line flags `--transport`, `--host` and `--port` override these.
 | Key | Default | Meaning |
 |---|---|---|
 | `admin_token_env` | none | Variable holding the admin console password (at least 16 characters). Without it, `/admin` does not exist |
-| `metrics_token_env` | none | Variable holding a bearer token required on `/metrics`. Without it, `/metrics` is open: scrape it from inside your network |
+| `metrics_token_env` | none | Variable holding a bearer token required on `/metrics`. Without it, `/metrics` is open (scrape it from inside your network) and denials are not broken down by rule |
 
 Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`
 (ready once the ledger is sealed and, with the postgres backend, the

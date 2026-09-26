@@ -160,7 +160,7 @@ different pods was refused.
 |---|---|
 | `GET /healthz` | Liveness: the process serves requests |
 | `GET /readyz` | Readiness: ledger sealed; with postgres, database reachable and shared history intact. 503 otherwise, and the check that failed is named |
-| `GET /metrics` | Prometheus metrics (optionally behind `[ops] metrics_token_env`) |
+| `GET /metrics` | Prometheus metrics. Set `[ops] metrics_token_env` whenever callers can reach the port: only then are denials broken down by rule (an open breakdown would tell a caller why they were refused) |
 | `GET /admin` | Read-only admin console (`[ops] admin_token_env`) |
 
 **Admin console.** It shows health, traffic, denials by rule, per-tool
@@ -175,7 +175,7 @@ served under a strict, nonce-based Content Security Policy.
 | Metric | Type | Meaning |
 |---|---|---|
 | `tokenis_tool_calls_total{tool,outcome}` | counter | `ok`, `denied`, `invalid`, `unauthenticated`, `error` |
-| `tokenis_denials_total{rule}` | counter | Refusals by admission rule (D1-D5, D4-*) |
+| `tokenis_denials_total{rule}` | counter | Refusals by admission rule (D1-D5, D4-*); only with a metrics token |
 | `tokenis_tool_call_duration_seconds` | histogram | Per tool, after latency padding |
 | `tokenis_records`, `tokenis_trace_entries` | gauge | Ledger size, audit trail length (-1: unreadable) |
 | `tokenis_database_up`, `tokenis_state_diverged` | gauge | Postgres backend health |
@@ -195,6 +195,43 @@ ever sees the generic message.
 **Audit.** `tokenis-mcp audit verify --config F` walks the whole trail and
 checks every hash link and HMAC. The trail can live in a file or in
 PostgreSQL.
+
+## Sizing
+
+Memory grows with the data. With two sealed columns, a replica holds about
+1 GB per million records once serving, and peaks at about 1.5 times that
+while loading. Set the container limit accordingly (the chart's default of
+2 GiB fits about 1.3 million records). Admission control's own cost depends
+on the number of distinct combinations of open-column values (a few
+thousand in typical data), not on the record count.
+
+**Shared-state cost.** Each call makes about eight round trips to
+PostgreSQL inside its transaction. Measured with the database on the same
+host: 2.8 ms per call at the median (1.4 ms with the file backend), so one
+tenant sustains about 400 calls per second across all replicas. Over a
+network, add the round-trip time eight times. With the default 250 ms latency
+quantum, that is headroom for well over a hundred concurrently active
+clients per tenant.
+
+## When the database is unavailable
+
+With the postgres backend the gateway fails closed. It never answers
+without recording the decision:
+
+- Calls get "temporarily unavailable". Over HTTP, requests that cannot be
+  authenticated because the key store is unreachable get `503` with
+  `Retry-After: 2`.
+- `/readyz` answers `503` within 2.5 s, so the load balancer stops routing
+  to the replica. `/healthz` stays `200`, so it is not restarted.
+- Connections carry connect, statement and lock timeouts. The server ends a
+  session left idle inside a transaction after 30 s, so a replica that froze
+  mid-call cannot hold the tenant lock for the others.
+- When the database returns, the next call reconnects and service resumes.
+
+Measured with two replicas under load: a database restart caused about one
+second of `503`s; during a 25-second freeze, readiness answered `503` for the
+duration and calls failed rather than queueing; no answer was ever given
+without being recorded, and service resumed within a second of recovery.
 
 ## Backups
 

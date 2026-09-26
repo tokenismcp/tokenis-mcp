@@ -28,9 +28,11 @@ x-tokenis: &tokenis
   image: ${TOKENIS_IMAGE:-tokenis-mcp:local}
   build:
     context: ../..
-  env_file: .env
-  environment:
+  # Each container gets only the secrets it needs (not the whole .env).
+  environment: &tokenis-env
     TOKENIS_STATE_URL: postgresql://tokenis:${TOKENIS_DB_PASSWORD}@postgres:5432/tokenis
+    TOKENIS_KEYSTORE_PASSPHRASE: ${TOKENIS_KEYSTORE_PASSPHRASE}
+    TOKENIS_ADMIN_TOKEN: ${TOKENIS_ADMIN_TOKEN}
   volumes:
     - ./tokenis.toml:/config/tokenis.toml:ro
     - tokenis-state:/state
@@ -60,7 +62,7 @@ services:
   tokenis-init:
     <<: *tokenis
     environment:
-      TOKENIS_STATE_URL: postgresql://tokenis:${TOKENIS_DB_PASSWORD}@postgres:5432/tokenis
+      <<: *tokenis-env
       # Only the ingest step reads the source database.
       CRM_DATABASE_URL: postgresql+psycopg://crm_reader:${CRM_READER_PASSWORD}@postgres:5432/crm
     entrypoint: ["sh", "-c"]

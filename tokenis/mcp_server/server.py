@@ -51,7 +51,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_mod
 from typing_extensions import Annotated
 
 from tokenis.gateway.latency import pad_to_granularity_async
-from tokenis.gateway.service import AdmissionDenied, ArgumentError, TokenisGatewayService
+from tokenis.gateway.service import (
+    AdmissionDenied,
+    ArgumentError,
+    GatewayUnavailable,
+    TokenisGatewayService,
+)
 from tokenis.gateway.state import StateMismatchError
 from tokenis.ops import Metrics
 from tokenis.server_auth import AuthenticationRequired, validate_principal
@@ -251,6 +256,10 @@ def create_server(
         except StateMismatchError as exc:
             # Fail closed; the operator's log and /readyz say why.
             log.error("refusing calls: %s", exc)
+            raise ToolError("the gateway is temporarily unavailable") from None
+        except GatewayUnavailable as exc:
+            outcome = "unavailable"
+            log.warning("tool=%s: %s", tool, exc)
             raise ToolError("the gateway is temporarily unavailable") from None
         except ToolError:
             raise

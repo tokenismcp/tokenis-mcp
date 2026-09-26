@@ -49,7 +49,7 @@ def test_metrics_count_outcomes_and_rules_without_values():
     body = client.get("/metrics").text
     assert 'tokenis_tool_calls_total{tool="aggregate",outcome="ok"} 1' in body
     assert 'tokenis_tool_calls_total{tool="aggregate",outcome="denied"} 1' in body
-    assert 'tokenis_denials_total{rule="D1"} 1' in body
+    assert "rule=" not in body  # open /metrics: no per-rule breakdown
     assert 'tokenis_tool_call_duration_seconds_count{tool="aggregate"} 2' in body
     assert f"tokenis_records {service.record_count}\n" in body
     assert "4250000" not in body and "4,250,000" not in body
@@ -60,9 +60,24 @@ def test_metrics_count_outcomes_and_rules_without_values():
 
 
 def test_metrics_token():
-    _, _, client = build(metrics_token=SCRAPE)
+    _, server, client = build(metrics_token=SCRAPE)
+    with pytest.raises(ToolError):
+        call(server, "aggregate", {"function": "sum", "column": "revenue_2025",
+                                   "filters": {"industry": "retail"}})
     assert client.get("/metrics").status_code == 401
-    assert client.get("/metrics", headers={"Authorization": f"Bearer {SCRAPE}"}).status_code == 200
+    body = client.get("/metrics", headers={"Authorization": f"Bearer {SCRAPE}"}).text
+    assert 'tokenis_denials_total{rule="D1"} 1' in body
+
+
+def test_open_metrics_do_not_reveal_denial_rules():
+    """Regression (security review): a caller reading an open /metrics before
+    and after a query learned which rule refused it."""
+    _, server, client = build()
+    with pytest.raises(ToolError):
+        call(server, "aggregate", {"function": "sum", "column": "revenue_2025",
+                                   "filters": {"industry": "retail"}})
+    body = client.get("/metrics").text
+    assert 'outcome="denied"} 1' in body and "rule=" not in body
 
 
 def test_admin_is_off_without_a_token():
@@ -92,6 +107,16 @@ def test_admin_dashboard_requires_the_token_and_hides_values():
     assert data["tools"]["aggregate"]["ok"] == 1
     assert data["recent"][0]["principal"] == "alice"
     assert "4250000" not in json.dumps(data) and "value_summary" not in json.dumps(data)
+
+
+def test_admin_console_answers_only_its_own_host():
+    """Regression (security review): the Host allow-list protected /mcp
+    only, so a DNS-rebinding page could reach the console's origin."""
+    _, _, client = build(admin_token=ADMIN, admin_hosts=["tokenis.example.com"])
+    auth = {"Authorization": f"Bearer {ADMIN}"}
+    assert client.get("/admin", headers={**auth, "Host": "evil.example"}).status_code == 421
+    assert client.get("/admin", headers={**auth, "Host": "tokenis.example.com"}).status_code == 200
+    assert client.get("/healthz", headers={"Host": "10.0.0.7:8000"}).status_code == 200  # probes
 
 
 def test_json_logs():

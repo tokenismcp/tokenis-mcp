@@ -160,19 +160,102 @@ def test_changed_data_needs_an_explicit_reset(tmp_path, tenant):
     total(svc, {"region": "busan"})
 
 
-def test_a_failed_database_call_resynchronises(tmp_path, tenant):
+def test_a_dropped_connection_reconnects_and_keeps_the_invariant(tmp_path, tenant):
     a, b = replicas(tmp_path, tenant)
     total(a, {"region": "busan"})
-    # Kill a's connection from the server side mid-life.
+    # Kill a's connection from the server side (a database restart does this).
     with psycopg.connect(DSN, autocommit=True) as conn:
         conn.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
                      "WHERE pid = %s", (a.shared_state._conn.info.backend_pid,))
-    with pytest.raises(psycopg.OperationalError):
-        total(a, {"region": "gangnam"})
+    total(a, {"industry": "finance"})        # reconnects transparently
     total(b, PAIR[0])
-    # a reconnects, rebuilds from the shared log and still refuses.
     with pytest.raises(AdmissionDenied):
         total(a, PAIR[1])
+
+
+def test_a_failover_that_loses_committed_records_is_detected_after_an_error(tmp_path, tenant):
+    """Regression (security review): after a failed call the replica rebuilt
+    from whatever the database held, so a failover to a lagging standby --
+    which always drops connections -- slipped past the rollback check."""
+    a, _ = replicas(tmp_path, tenant)
+    total(a, PAIR[0])                        # committed: seq 1
+    real_append = a.shared_state.append
+
+    def failing_append(record):
+        raise psycopg.OperationalError("simulated connection loss")
+    a.shared_state.append = failing_append
+    with pytest.raises(psycopg.OperationalError):
+        total(a, {"region": "busan"})        # the call fails; state is marked stale
+    a.shared_state.append = real_append
+    with psycopg.connect(DSN, autocommit=True) as conn:  # the standby never had seq 1
+        conn.execute("DELETE FROM tokenis_admission_log WHERE tenant = %s", (tenant,))
+    with pytest.raises(StateMismatchError):
+        total(a, PAIR[1])
+    assert a.state_failure is not None
+
+
+def test_an_edited_record_is_detected_by_every_replica(tmp_path, tenant):
+    """Regression (security review): the chain was stored but not verified,
+    so a replica syncing later replayed an edited record."""
+    a, b = replicas(tmp_path, tenant)
+    total(a, PAIR[0])
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        conn.execute("UPDATE tokenis_admission_log SET record = jsonb_set(record, '{admitted}', 'false') "
+                     "WHERE tenant = %s AND seq = 1", (tenant,))
+    with pytest.raises(StateMismatchError, match="fails verification"):
+        total(b, PAIR[1])                    # b had not synced record 1 yet
+    with pytest.raises(StateMismatchError):
+        replicas(tmp_path, tenant, count=1)  # nor can a new replica start on it
+
+
+def test_the_chain_is_keyed_by_the_audit_key(tmp_path, tenant):
+    a, _ = replicas(tmp_path, tenant)
+    total(a, PAIR[0])
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        record, digest = conn.execute("SELECT record, digest FROM tokenis_admission_log "
+                                      "WHERE tenant = %s AND seq = 1", (tenant,)).fetchone()
+    import hashlib
+    import json as _json
+    body = _json.dumps(record, sort_keys=True, separators=(",", ":"))
+    assert digest != hashlib.sha256(f"{'0' * 64}\n{body}".encode()).hexdigest()  # not an unkeyed hash
+
+
+def test_tool_calls_and_readers_never_deadlock(tmp_path, tenant):
+    """Regression (stability review): a tool call held the connection lock and
+    then took the trace lock; /metrics and the dashboard took them in the
+    other order, and one scrape during a call wedged the replica for good."""
+    from tokenis.ops import Metrics, summary
+
+    (a,) = replicas(tmp_path, tenant, count=1)
+    metrics, stop, errors = Metrics(), threading.Event(), []
+
+    def calls():
+        for _ in range(80):
+            try:
+                total(a, {"region": "busan"})
+            except AdmissionDenied:
+                pass
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+    def readers():
+        while not stop.is_set():
+            try:
+                len(a.trace)
+                metrics.render(a)
+                summary(a, metrics)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+    workers = [threading.Thread(target=calls)] + [threading.Thread(target=readers) for _ in range(3)]
+    for t in workers:
+        t.start()
+    workers[0].join(timeout=60)
+    stop.set()
+    for t in workers[1:]:
+        t.join(timeout=10)
+    assert not any(t.is_alive() for t in workers), "deadlock"
+    assert not errors
 
 
 def test_api_keys_are_shared(tmp_path, tenant):

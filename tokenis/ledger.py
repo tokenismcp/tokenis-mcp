@@ -24,6 +24,7 @@ import io
 import json
 import os
 import secrets
+import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -99,8 +100,10 @@ def write_ledger(service: "TokenisGatewayService", path: Path, ledger_key: bytes
     manifest["payload_sha256"] = hashlib.sha256(ciphertext).hexdigest()
 
     path = Path(path)
-    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
-    tmp.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # A unique name: a killed ingest leaves its directory behind, and
+    # container pids repeat, so a pid-based name would block the next run.
+    tmp = Path(tempfile.mkdtemp(prefix=path.name + ".tmp-", dir=path.parent))
     for name, data in (("payload.bin", ciphertext),
                        ("manifest.json", (json.dumps(manifest, indent=2) + "\n").encode())):
         fd = os.open(tmp / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

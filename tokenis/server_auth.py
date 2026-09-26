@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -37,6 +38,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import anyio.to_thread
+
+log = logging.getLogger("tokenis.auth")
 
 TOKEN_PREFIX = "tkn_"  # noqa: S105 -- a key-format prefix, not a credential
 _PRINCIPAL_RE = re.compile(r"^[A-Za-z0-9._@:+-]{1,128}$")
@@ -180,13 +183,24 @@ class ApiKeyStore:
 class ApiKeyVerifier:
     """``mcp`` ``TokenVerifier`` backed by an `ApiKeyStore`."""
 
-    def __init__(self, store: ApiKeyStore) -> None:
+    def __init__(self, store: Any) -> None:
         self.store = store
 
     async def verify_token(self, token: str) -> Any:
+        import anyio
         from mcp.server.auth.provider import AccessToken
 
-        principal = self.store.verify(token)
+        # The store may do blocking I/O (a file, or the shared database): keep
+        # it off the event loop so one slow lookup cannot stall every request.
+        try:
+            principal = await anyio.to_thread.run_sync(self.store.verify, token)
+        except Exception as exc:  # noqa: BLE001 -- any store failure means "cannot tell"
+            # The key store is unreachable (e.g. the database restarting):
+            # neither "valid" nor "invalid" is true, so answer 503, not 401.
+            from tokenis.gateway.service import GatewayUnavailable
+
+            log.warning("API key store unavailable: %s", type(exc).__name__)
+            raise GatewayUnavailable("credential store unavailable") from None
         if principal is None:
             return None
         return AccessToken(token=token, client_id=principal, scopes=["tokenis"], subject=principal)

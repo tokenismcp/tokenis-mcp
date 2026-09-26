@@ -54,6 +54,42 @@ the end records how the crypto layer got here.
   extra, each Rust crate and the npm SDK. The container image is signed,
   and its SBOM and provenance are attested in the registry.
 
+### Security
+- Shared state: a replica rebuilding after a database error now checks
+  that the last committed record is still there, so a failover to a
+  lagging standby or a restore is refused (before, it was accepted). The
+  admission log is a chain keyed with the audit key and verified on every
+  replay.
+- Open `/metrics` no longer breaks denials down by rule (that told callers
+  why they were refused); set `[ops] metrics_token_env` to get the
+  breakdown.
+- Azure Key Vault: each wrapped secret carries a signature made inside the
+  vault, since RSA-OAEP alone can be produced with the public key.
+  **Keystores wrapped with Azure must be recreated** (`secrets init`, or
+  `secrets rewrap` from another provider); the key needs sign and verify
+  permissions.
+- `disclose_ratio` and `disclose_bucket` refuse band-mode columns
+  (thresholds could bisect the exact total).
+- The admin console enforces the Host allow-list; Compose passes each
+  container only its own secrets; stricter Vault address and URL password
+  checks; driver errors never echo a password.
+
+### Fixed (stability)
+- Deadlock between a tool call and `/metrics` or the dashboard with the
+  postgres backend.
+- A connection lost mid-call left the replica's state unmarked; database
+  restarts are now absorbed by replacing dead connections before a call.
+- Database connections have connect, statement and lock timeouts; waits for
+  the gateway lock are bounded; `/readyz` answers within 2.5 s; requests
+  that cannot be authenticated during an outage get 503 with `Retry-After`.
+- The history fingerprint no longer depends on row order, and database
+  sources are read in `id_column` order. **The fingerprint changed: restart
+  existing deployments once with `--reset-admission-state`.**
+- A failed audit-trail write no longer leaves a partial line behind.
+- Reading the newest trail entries no longer scans the whole file, and a
+  torn final line is repaired without reading the file into memory.
+- The API-key check no longer blocks the event loop.
+
 ### Fixed
 - `tokenis-core`: `elgamal::to_bytes_many` panicked on an empty slice (found
   by fuzzing). The Python `CiphertextVector.to_bytes` now raises instead of

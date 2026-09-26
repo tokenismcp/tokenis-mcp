@@ -10,7 +10,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - ports: [{port: http, protocol: TCP}]
-      {{- with .Values.networkPolicy.ingressFrom }}
-      from: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      # Without ingressFrom, only pods in this namespace (an empty "from"
+      # would admit every source, which is not what enabling a policy means).
+      from: {{- toYaml (.Values.networkPolicy.ingressFrom | default (list (dict "podSelector" (dict)))) | nindent 8 }}
 {{- end }}

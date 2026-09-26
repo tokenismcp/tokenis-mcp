@@ -38,7 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from tokenis.gateway.service import TokenisGatewayService
 
 _BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
-OUTCOMES = ("ok", "denied", "invalid", "unauthenticated", "error")
+OUTCOMES = ("ok", "denied", "invalid", "unauthenticated", "unavailable", "error")
 
 
 def _label(value: str) -> str:
@@ -60,8 +60,8 @@ class Metrics:
         self._durations: "deque[float]" = deque(maxlen=2000)
 
     def observe(self, tool: str, outcome: str, seconds: float, rule: Optional[str] = None) -> None:
-        minute = int(time.time() // 60)
         with self._lock:
+            minute = int(time.time() // 60)
             if not self._minutes or self._minutes[-1][0] != minute:
                 self._minutes.append([minute, 0, 0, 0])
             self._minutes[-1][1 if outcome == "ok" else 2 if outcome == "denied" else 3] += 1
@@ -102,7 +102,10 @@ class Metrics:
             "latency": {"p50": pct(0.5), "p95": pct(0.95), "p99": pct(0.99), "samples": len(durations)},
         }
 
-    def render(self, service: "TokenisGatewayService") -> str:
+    def render(self, service: "TokenisGatewayService", detail: bool = True) -> str:
+        """Prometheus text. Without ``detail``, denials are not broken down
+        by rule: an open /metrics would otherwise tell a caller which rule
+        refused their last query (the gateway hides that on purpose)."""
         from tokenis import __version__
 
         backend = "postgres" if service.shared_state is not None else "file"
@@ -141,10 +144,12 @@ class Metrics:
                       "# TYPE tokenis_tool_calls_total counter"]
             for (tool, outcome), n in sorted(self._calls.items()):
                 lines.append(f'tokenis_tool_calls_total{{tool="{_label(tool)}",outcome="{outcome}"}} {n}')
-            lines += ["# HELP tokenis_denials_total Admission denials by rule (D1-D5, ...).",
+            lines += [("# HELP tokenis_denials_total Admission denials by rule (D1-D5, ...); "
+                       "only when /metrics requires a token."),
                       "# TYPE tokenis_denials_total counter"]
-            for rule, n in sorted(self._denials.items()):
-                lines.append(f'tokenis_denials_total{{rule="{_label(rule)}"}} {n}')
+            if detail:
+                for rule, n in sorted(self._denials.items()):
+                    lines.append(f'tokenis_denials_total{{rule="{_label(rule)}"}} {n}')
             lines += ["# HELP tokenis_tool_call_duration_seconds Tool call latency (after padding).",
                       "# TYPE tokenis_tool_call_duration_seconds histogram"]
             for tool, h in sorted(self._hist.items()):
@@ -203,6 +208,41 @@ def _authorised(header: str, token: str) -> bool:
     return hmac.compare_digest(_bearer_or_basic(header).encode(), token.encode())
 
 
+class UnavailableMiddleware:
+    """ASGI middleware: a GatewayUnavailable raised before a response has
+    started (for instance by the API-key check while the database restarts)
+    becomes ``503 Service Unavailable`` with ``Retry-After`` instead of a bare
+    500, so clients retry rather than give up or drop their credentials."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        from tokenis.gateway.service import GatewayUnavailable
+
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def tracking_send(message: Any) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except GatewayUnavailable:
+            if started:
+                raise
+            body = b'{"error": "temporarily unavailable"}'
+            await send({"type": "http.response.start", "status": 503, "headers": [
+                (b"content-type", b"application/json"), (b"retry-after", b"2"),
+                (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+
+
 def summary(service: "TokenisGatewayService", metrics: Metrics, key_store: Any = None,
             recent: int = 50) -> Dict[str, Any]:
     """What the dashboard shows. No sealed values, no disclosed values."""
@@ -259,7 +299,11 @@ def install_routes(
     admin_token: Optional[str] = None,
     metrics_token: Optional[str] = None,
     key_store: Any = None,
+    admin_hosts: Optional[List[str]] = None,
 ) -> None:
+    """``admin_hosts``: Host header values the admin console answers to
+    (DNS-rebinding protection for the one browser-facing page; probes and
+    metrics are addressed by pod IP and are not browser-facing)."""
     import anyio
     from starlette.requests import Request
     from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
@@ -276,6 +320,10 @@ def install_routes(
         if service.state_failure is not None:
             checks["state"] = "diverged: restart this replica"
             ok = False
+        busy = service.busy_seconds()
+        if busy > 10:
+            checks["calls"] = f"one call has been running for {busy:.0f} s"
+            ok = False
         if service.shared_state is not None:
             up = service.shared_state.ping()
             checks["database"] = "ok" if up else "unreachable"
@@ -284,7 +332,11 @@ def install_routes(
 
     @server.custom_route("/readyz", methods=["GET"], include_in_schema=False)
     async def readyz(_request: Request) -> Response:
-        ok, checks = await anyio.to_thread.run_sync(_ready)
+        # Answer within a probe's timeout even when the database hangs: an
+        # unanswered probe is indistinguishable from a dead process.
+        ok, checks = False, {"database": "no answer within 2.5 s"}
+        with anyio.move_on_after(2.5):
+            ok, checks = await anyio.to_thread.run_sync(_ready, abandon_on_cancel=True)
         return JSONResponse({"status": "ready" if ok else "not ready", "checks": checks},
                             status_code=200 if ok else 503, headers=no_store)
 
@@ -293,11 +345,14 @@ def install_routes(
         if metrics_token and not _authorised(request.headers.get("authorization", ""), metrics_token):
             return PlainTextResponse("unauthorized\n", status_code=401,
                                      headers={"WWW-Authenticate": "Bearer"})
-        body = await anyio.to_thread.run_sync(metrics.render, service)
+        body = await anyio.to_thread.run_sync(metrics.render, service, bool(metrics_token))
         return PlainTextResponse(body, media_type="text/plain; version=0.0.4", headers=no_store)
 
     if not admin_token:
         return
+
+    def _host_ok(request: Request) -> bool:
+        return not admin_hosts or request.headers.get("host", "") in admin_hosts
 
     def _challenge() -> Response:
         return PlainTextResponse("admin token required\n", status_code=401,
@@ -305,6 +360,8 @@ def install_routes(
 
     @server.custom_route("/admin/api/summary", methods=["GET"], include_in_schema=False)
     async def admin_summary(request: Request) -> Response:
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
         if not _authorised(request.headers.get("authorization", ""), admin_token):
             return _challenge()
         try:
@@ -316,6 +373,8 @@ def install_routes(
 
     @server.custom_route("/admin", methods=["GET"], include_in_schema=False)
     async def admin_page(request: Request) -> Response:
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
         if not _authorised(request.headers.get("authorization", ""), admin_token):
             return _challenge()
         nonce = secrets.token_urlsafe(16)

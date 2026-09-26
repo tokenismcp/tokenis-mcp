@@ -38,6 +38,8 @@ groups:
         annotations:
           summary: "Tokenis cannot read its disclosure trace on {{ $labels.instance }}"
 
+      # The next two need per-rule denial counts, which /metrics only
+      # publishes when it requires a token ([ops] metrics_token_env).
       - alert: TokenisDifferencingAttempts
         # D2 refuses queries that, combined with earlier ones, would isolate
         # individual records or small groups. A burst is a tracker attack or

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Key management (every supported KMS) and the persisted, encrypted ledger."""
 import base64
+import hashlib
 import http.server
 import json
 import os
@@ -188,18 +189,45 @@ def test_azure_key_vault_contract(tmp_path):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     oaep = padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
 
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric import utils
+
+    pkcs1 = padding.PKCS1v15()
+
     class Client:
+        """Stands in for CryptographyClient: the private key stays inside."""
+
         def wrap_key(self, _alg, payload):
             return _Obj(encrypted_key=key.public_key().encrypt(payload, oaep))
 
         def unwrap_key(self, _alg, blob):
             return _Obj(key=key.decrypt(blob, oaep))
 
+        def sign(self, _alg, digest):
+            return _Obj(signature=key.sign(digest, pkcs1, utils.Prehashed(hashes.SHA256())))
+
+        def verify(self, _alg, digest, signature):
+            try:
+                key.public_key().verify(signature, digest, pkcs1, utils.Prehashed(hashes.SHA256()))
+                return _Obj(is_valid=True)
+            except InvalidSignature:
+                return _Obj(is_valid=False)
+
     wrapper = AzureKeyVaultWrapper("https://v.vault.azure.net", "tokenis", client=Client())
     path, _ = roundtrip(wrapper, tmp_path)
     blob = base64.b64decode(json.loads(path.read_text())["secrets"]["audit_key"])
-    with pytest.raises(KeystoreError, match="different tenant"):
+    with pytest.raises(KeystoreError, match="not produced by this vault key"):
         wrapper.unwrap(blob, {"tokenis": "keystore-v1", "tenant": "acme", "secret": "tokenizer_key"})
+
+    # Regression (security review): with only the public key, an attacker
+    # could wrap a secret of their choosing. Without the vault's signature
+    # it is now refused.
+    ctx = {"tokenis": "keystore-v1", "tenant": "acme", "secret": "tokenizer_key"}
+    forged_payload = hashlib.sha256(json.dumps(ctx, sort_keys=True).encode()).digest() + b"\x00" * 32
+    forged_wrapped = key.public_key().encrypt(forged_payload, oaep)
+    forged = bytes([2]) + len(forged_wrapped).to_bytes(2, "big") + forged_wrapped + b"\x01" * 256
+    with pytest.raises(KeystoreError, match="not produced by this vault key"):
+        wrapper.unwrap(forged, ctx)
 
 
 # -- ledger ---------------------------------------------------------------------------------

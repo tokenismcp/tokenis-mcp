@@ -47,6 +47,7 @@ import itertools
 import json
 import math
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -157,10 +158,25 @@ class Caller:
     taint: int = 0
 
 
+#: How long a call waits for the gateway's lock before giving up with
+#: GatewayUnavailable. Calls hold it for milliseconds; a long wait means one
+#: call is stuck (e.g. on an unresponsive database) and queueing more
+#: behind it would only exhaust the server's workers.
+LOCK_TIMEOUT_S = 20.0
+
+
+_GENESIS_DIGEST = "0" * 64
+
+
+class GatewayUnavailable(RuntimeError):
+    """The gateway cannot serve the call right now (busy or its state store
+    is unreachable). Fails closed; callers see a generic message."""
+
+
 def _locked(method: _F) -> _F:
     @functools.wraps(method)
     def wrapper(self: "TokenisGatewayService", *args: Any, **kwargs: Any) -> Any:
-        with self._lock, self._shared_transaction():
+        with self._hold(), self._shared_transaction():
             self._seal_locked()
             self._sync_shared()
             return method(self, *args, **kwargs)
@@ -243,6 +259,8 @@ class TokenisGatewayService:
         self.schema = schema
         self.settings = settings or GatewaySettings()
         self._lock = threading.RLock()
+        self._hold_depth = 0
+        self._held_since: Optional[float] = None
         self._sealed = False
         self._state_dir = Path(state_dir) if state_dir is not None else None
         self._reset_state = reset_admission_state
@@ -286,6 +304,11 @@ class TokenisGatewayService:
         self.shared_state = shared_state
         self._last_seq = 0
         self._last_digest = ""
+        #: The last record known to be committed: after a failed call, the
+        #: records this replica wrote may have been rolled back, but these
+        #: must still be in the database.
+        self._committed_seq = 0
+        self._committed_digest = ""
         self._admission_stale = False
         self._state_fingerprint = ""
         #: Set when the shared history no longer matches this replica; every
@@ -296,6 +319,8 @@ class TokenisGatewayService:
             hmac_key=audit_key,
             storage=shared_state.trace_storage() if shared_state is not None else None,
         )
+        if shared_state is not None and audit_key is not None:
+            shared_state.chain_key = audit_key
         self._attrs: Dict[str, np.ndarray] = {}
         # Filled at seal, when the per-record strings are released:
         self._record_count = 0
@@ -564,6 +589,28 @@ class TokenisGatewayService:
     # -- shared state (several replicas, one PostgreSQL) ---------------------------
 
     @contextlib.contextmanager
+    def _hold(self) -> Iterator[None]:
+        """The gateway lock, with a bounded wait, recording how long the
+        current holder has had it (readiness reports a stuck call)."""
+        if not self._lock.acquire(timeout=LOCK_TIMEOUT_S):
+            raise GatewayUnavailable(f"gateway busy: a call has held the lock for over {LOCK_TIMEOUT_S:.0f} s")
+        self._hold_depth += 1
+        if self._hold_depth == 1:
+            self._held_since = time.monotonic()
+        try:
+            yield
+        finally:
+            self._hold_depth -= 1
+            if self._hold_depth == 0:
+                self._held_since = None
+            self._lock.release()
+
+    def busy_seconds(self) -> float:
+        """How long the current call has held the gateway lock (0 if none)."""
+        since = self._held_since
+        return 0.0 if since is None else time.monotonic() - since
+
+    @contextlib.contextmanager
     def _shared_transaction(self) -> Iterator[None]:
         """With shared state, the whole call runs in one database transaction
         under the tenant's advisory lock; any database failure leaves the
@@ -578,6 +625,11 @@ class TokenisGatewayService:
         except self.shared_state.database_errors:
             self._admission_stale = True
             raise
+        except BaseException:
+            # A refusal or argument error: the transaction still committed.
+            self._committed_seq, self._committed_digest = self._last_seq, self._last_digest
+            raise
+        self._committed_seq, self._committed_digest = self._last_seq, self._last_digest
 
     def _sync_shared(self) -> None:
         """Replay admission calls other replicas logged since we last looked
@@ -586,19 +638,25 @@ class TokenisGatewayService:
             return
         if self.state_failure is not None:
             raise StateMismatchError(self.state_failure)
-        if self._admission_stale and self._sealed:
-            # A database call failed: whatever this replica last wrote may
-            # have been rolled back, so rebuild from the log as it stands.
-            self._admission = self._new_admission(self._cell_attrs)
-            self._last_seq, self._last_digest = 0, ""
-        elif self._sealed:
-            try:
+        try:
+            if self._admission_stale and self._sealed:
+                # A database call failed: what this replica last wrote may
+                # have been rolled back, but what was committed must still be
+                # there -- a failover to a lagging standby or a restore also
+                # drops connections, and must not slip through here.
+                self.shared_state.check(self._state_fingerprint, self._committed_seq,
+                                        self._committed_digest)
+                self._admission = self._new_admission(self._cell_attrs)
+                self._last_seq, self._last_digest = 0, ""
+            elif self._sealed:
                 self.shared_state.check(self._state_fingerprint, self._last_seq, self._last_digest)
-            except StateMismatchError as exc:
+            self._admission_stale = False
+            new = self.shared_state.records_after(self._last_seq, self._last_digest or _GENESIS_DIGEST)
+        except StateMismatchError as exc:
+            if self._sealed:
                 self.state_failure = str(exc)
-                raise
-        self._admission_stale = False
-        for seq, record, digest in self.shared_state.records_after(self._last_seq):
+            raise
+        for seq, record, digest in new:
             self._replay(record)
             self._last_seq, self._last_digest = seq, digest
 
@@ -678,12 +736,21 @@ class TokenisGatewayService:
             "catalogue": sorted(c.name for c in self.schema.sealed),
             "attributes": sorted(self._attrs),
         }
+        meta["fingerprint"] = 2
         h.update(json.dumps(meta, sort_keys=True).encode())
-        for name in sorted(self._attrs):
-            h.update(b"\x1e" + name.encode())
-            # Values are validated strings; the separator cannot collide
-            # because each column is length-prefixed by its record count.
-            h.update(b"\x1f".join(str(v).encode() for v in self._attrs[name]))
+        # The multiset of rows, independent of their order: replicas reading
+        # the same rows in a different order (a database without ORDER BY,
+        # a reshuffled heap) must agree. Each row hashes to a 256-bit number
+        # and the numbers are added modulo 2^256 -- unlike XOR, duplicate
+        # rows do not cancel.
+        names = sorted(self._attrs)
+        columns = [self._attrs[name] for name in names]
+        total = 0
+        for row in zip(*columns):
+            # JSON: unambiguous whatever characters the values contain.
+            digest = hashlib.sha256(json.dumps([str(v) for v in row]).encode()).digest()
+            total = (total + int.from_bytes(digest, "big")) % (1 << 256)
+        h.update(total.to_bytes(32, "big"))
         return h.hexdigest()
 
     def _replay(self, record: Dict[str, Any]) -> None:
@@ -812,6 +879,15 @@ class TokenisGatewayService:
         )
 
     # -- argument validation (schema-only, safe to report) -----------------------
+
+    def _exact_column(self, name: Any, tool: str) -> ColumnSpec:
+        """A sealed column the Reveal tools may use. A column reported only
+        in 1-2-5 bands is refused: caller-chosen thresholds (or ratios
+        against it) would narrow a total below its band by bisection."""
+        col = self._sealed_column(name)
+        if col.result_mode == "band":
+            raise ArgumentError(f"{col.name} is reported in bands only; {tool} cannot use it")
+        return col
 
     def _sealed_column(self, name: Any) -> ColumnSpec:
         try:
@@ -1101,7 +1177,7 @@ class TokenisGatewayService:
         self, caller: Caller, column: str, numerator_filters: Mapping[str, str],
         denominator_filters: Mapping[str, str], purpose: str,
     ) -> Dict[str, Any]:
-        col = self._sealed_column(column)
+        col = self._exact_column(column, "disclose_ratio")
         num_where, den_where = self._filters(numerator_filters), self._filters(denominator_filters)
         purpose = self._purpose(purpose)
         obj = RevealObject(
@@ -1125,7 +1201,7 @@ class TokenisGatewayService:
         self, caller: Caller, column: str, thresholds: Sequence[float], labels: Sequence[str],
         purpose: str, filters: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
-        col = self._sealed_column(column)
+        col = self._exact_column(column, "disclose_bucket")
         where = self._filters(filters)
         purpose = self._purpose(purpose)
         limit = self.settings.disclosure.max_buckets

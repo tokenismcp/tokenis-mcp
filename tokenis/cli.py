@@ -171,12 +171,6 @@ def cmd_serve(args: argparse.Namespace) -> None:
         token_verifier=verifier, auth=auth, max_concurrency=concurrency,
         log_level=args.log_level, metrics=metrics,
     )
-    install_routes(
-        server, service, metrics,
-        admin_token=ops_token(config.ops.admin_token_env, "admin_token_env"),
-        metrics_token=ops_token(config.ops.metrics_token_env, "metrics_token_env"),
-        key_store=key_store,
-    )
     allowed = list(server_cfg.allowed_hosts) if server_cfg else []
     public_host = urlparse(public_url).netloc
     if public_host and public_host not in allowed:
@@ -188,10 +182,24 @@ def cmd_serve(args: argparse.Namespace) -> None:
             allowed_hosts=allowed,
             allowed_origins=[f"{urlparse(public_url).scheme}://{h}" for h in allowed],
         )
+    metrics_token = ops_token(config.ops.metrics_token_env, "metrics_token_env")
+    install_routes(
+        server, service, metrics,
+        admin_token=ops_token(config.ops.admin_token_env, "admin_token_env"),
+        metrics_token=metrics_token,
+        key_store=key_store,
+        admin_hosts=allowed if security is not None else None,
+    )
+    if security is not None and metrics_token is None:
+        log.warning("/metrics is open on %s:%d; per-rule denial counts are withheld. Set [ops] "
+                    "metrics_token_env, or keep the port off the public network", host, port)
     import uvicorn
 
     stateless = bool(server_cfg and server_cfg.stateless)
     app = server.streamable_http_app(stateless_http=stateless, transport_security=security, host=host)
+    from tokenis.ops import UnavailableMiddleware
+
+    app.add_middleware(UnavailableMiddleware)
     log.info("serving %d records over HTTP on %s:%d (auth: %s%s)", service.record_count, host,
              port, auth_cfg.mode, ", stateless" if stateless else "")
     # log_config=None: uvicorn's loggers propagate to ours (and so follow

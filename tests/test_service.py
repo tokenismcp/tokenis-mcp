@@ -233,6 +233,21 @@ def test_decimal_values_are_exact_and_band_mode_hides_them():
     assert banded.aggregate("a", "sum", "amount", {"team": "x"})["value"] == "[2,000, 5,000)"
 
 
+def test_reveal_tools_cannot_narrow_a_banded_total():
+    """Regression (security review): with caller-chosen thresholds,
+    disclose_bucket bisected a band-mode total down to its exact value."""
+    settings = replace(_settings(), purposes=(RevealPurpose("board", "Board pack"),))
+    banded = TokenisGatewayService(_schema(result_mode="band"), KEY, settings)
+    for i, amount in enumerate([1500, 1600, 10, 20]):
+        banded.ingest(str(i), {"amount": amount, "team": "x" if i < 2 else "y"})
+    with pytest.raises(ArgumentError, match="bands only"):
+        banded.invoke("disclose_bucket", "a", {"column": "amount", "filters": {"team": "x"},
+                                               "thresholds": [3050], "labels": ["lo", "hi"], "purpose": "board"})
+    with pytest.raises(ArgumentError, match="bands only"):
+        banded.invoke("disclose_ratio", "a", {"column": "amount", "numerator_filters": {"team": "x"},
+                                              "denominator_filters": {"team": "y"}, "purpose": "board"})
+
+
 def test_variance(svc):
     service = TokenisGatewayService(_schema(allow_variance=True), KEY, _settings())
     for i, (amount, team) in enumerate([(1, "x"), (3, "x"), (5, "y"), (5, "y")]):

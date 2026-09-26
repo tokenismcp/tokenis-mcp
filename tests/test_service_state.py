@@ -53,6 +53,20 @@ def test_differencing_across_a_restart_is_refused(tmp_path):
     assert exc.value.rule == "D2"
 
 
+def test_row_order_does_not_change_the_history_fingerprint(tmp_path):
+    """Regression (stability review): the fingerprint hashed rows in load
+    order, so a replica whose database returned the same rows in another
+    order refused to start."""
+    first = gateway(tmp_path)
+    first.invoke("aggregate", "mallory", {**SUM, "filters": {"industry": "tech"}})
+    reordered = gateway(tmp_path, rows=list(reversed(ROWS)))
+    with pytest.raises(AdmissionDenied):  # and the history still applies
+        reordered.invoke("aggregate", "mallory",
+                         {**SUM, "filters": {"industry": "tech", "region": "gangnam"}})
+    with pytest.raises(StateMismatchError):  # different rows are still detected
+        gateway(tmp_path, rows=ROWS + [("tech", "gangnam", 1)]).seal()
+
+
 def test_budget_survives_a_restart(tmp_path):
     first = gateway(tmp_path, budget=2)
     for _ in range(2):
@@ -126,3 +140,29 @@ def test_torn_final_lines_from_a_crash_are_repaired(tmp_path):
     # ...and the files stay loadable afterwards (appends did not land after garbage).
     again = gateway(tmp_path)
     assert again.trace.verify_chain() and len(again.trace) == 3
+
+
+def test_a_failed_trail_write_leaves_a_valid_trail(tmp_path, monkeypatch):
+    """Regression (stability review): a partial write (disk full) stayed in
+    the file, the next entry was glued onto it, and the trail no longer
+    verified -- nor would the gateway restart."""
+    import tokenis.audit.trace as trace_module
+
+    svc = gateway(tmp_path)
+    svc.invoke("aggregate", "a", {**SUM, "filters": {"industry": "finance"}})
+    real_fsync = trace_module.os.fsync
+    calls = {"n": 0}
+
+    def failing_fsync(fd):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError(28, "No space left on device")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(trace_module.os, "fsync", failing_fsync)
+    with pytest.raises(OSError):
+        svc.invoke("aggregate", "a", {**SUM, "filters": {"region": "busan"}})
+    monkeypatch.setattr(trace_module.os, "fsync", real_fsync)
+    svc.invoke("aggregate", "a", {**SUM, "filters": {"region": "busan"}})
+    assert svc.trace.verify_chain()
+    assert gateway(tmp_path).trace.verify_chain()  # and it restarts

@@ -102,8 +102,10 @@ admin:
   key: token
 
 metrics:
-  # /metrics is open inside the cluster by default; set a Secret to require
-  # a bearer token (and configure the ServiceMonitor with it).
+  # /metrics shares the MCP port, so an Ingress that routes "/" exposes it.
+  # Set a Secret to require a bearer token (the ServiceMonitor then sends
+  # it); only then are denials broken down by rule, which the alert rules
+  # for D2/D4 need. Without a token, keep /metrics off your Ingress.
   tokenSecret: ""
   tokenKey: token
   serviceMonitor:
@@ -142,6 +144,9 @@ ingress:
       paths: [{path: /, pathType: Prefix}]
   tls: []
 
+# Memory grows with the data: about 1 GB per million records with two sealed
+# columns once serving, with a peak about 1.5x that while loading. See
+# docs/deployment.md ("Sizing").
 resources:
   requests: {cpu: 250m, memory: 512Mi}
   limits: {memory: 2Gi}
@@ -158,6 +163,7 @@ autoscaling:
 
 networkPolicy:
   # Restrict who may reach the gateway; egress stays open (database, KMS).
+  # Empty ingressFrom = pods in the release's namespace only.
   enabled: false
   ingressFrom: []
   #  - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: agents}}

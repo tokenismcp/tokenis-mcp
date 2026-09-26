@@ -87,6 +87,8 @@ Prometheus, Grafana) is one command; see
 | Coverage-guided fuzzing | Four libFuzzer targets; about 6 million executions in the preparation runs, no open crash | `fuzz/`; nightly CI (`.github/workflows/fuzz.yml`) |
 | Input fuzzing | Tampered ledger, keystore, trail, admission log, ciphertext encodings, configuration; 5,000 examples each, clean | `tests/test_fuzz_inputs.py` |
 | Deployment | Helm chart installed on a real Kubernetes (k3s): hardened pod spec, cross-pod differencing refused, restore divergence detected | [deployment.md](deployment.md) |
+| End to end | Installed wheel over MCP stdio: 22 check groups (238 admitted aggregates, every admitted `group_by` group, similarity, ratio, bucket, compare, exists) equal to values computed from the plaintext | — |
+| Failure injection | Two HTTP replicas on PostgreSQL: 36 differencing pairs raced across replicas and principals (0 answered in full); database paused 25 s, restarted, and a replica killed, all under load | [deployment.md](deployment.md#when-the-database-is-unavailable) |
 | Supply chain | `cargo audit`, `cargo deny`, `pip-audit`, `npm audit`; SBOMs, provenance and Sigstore signatures on every release | `.github/workflows/`, `deny.toml`, [verifying-releases.md](verifying-releases.md) |
 | Static rules | `unsafe` forbidden; `unwrap`, `expect`, `panic` and slice indexing denied in the Rust workspace; `mypy` and `ruff` on Python | `Cargo.toml`, `pyproject.toml` |
 
@@ -104,6 +106,16 @@ following; each fix has a regression test. Earlier history is in
 | P-4 | Kubernetes test (database restore under running pods) | After the state database was rolled back, a replica that had not seen the lost records continued. It wrote new records under the same sequence numbers, which other replicas would skip | Medium (admission history could silently diverge between replicas) | Hash-chained admission log; per-call check of the last seen record; fail closed, `/readyz` 503, alert |
 | P-5 | Review | Unexpected tool errors (e.g. a database outage) could return driver messages, including host names, to callers | Low | Generic message to callers; details in the operator log |
 | P-6 | Documentation audit | Docs said the differencing audit was per principal; it is (correctly) shared across all principals | Documentation | Docs corrected |
+| P-7 | Independent security review | After any database error a replica rebuilt from the log without the rollback check, so a failover that lost committed records was accepted; a working attack isolated one record | High | Check against the last committed record before rebuilding |
+| P-8 | Independent security review | The admission-log chain was stored but never recomputed, so an edited record was replayed by replicas that synced later | Medium | Chain keyed with the audit key, verified link by link |
+| P-9 | Independent security review | Open `/metrics` broke denials down by rule, telling a caller why they were refused | Medium | Per-rule counts only behind the metrics token |
+| P-10 | Independent security review | Azure Key Vault wrapping (RSA-OAEP) could be produced with the public key alone, so secrets could be substituted | Medium | Vault-side signature over context and wrapped value |
+| P-11 | Independent security review | `disclose_bucket` could bisect a band-mode total to its exact value | Low | Reveal tools refuse band-mode columns |
+| P-12 | Independent security review | Admin console outside the Host allow-list; Compose passed every secret to every container; loose Vault and URL checks; a driver error could echo a password | Low | Fixed individually |
+| P-13 | Independent stability review | Lock-order deadlock between a tool call (connection lock, then trace lock) and `/metrics` or the dashboard (the reverse); a scrape during a call wedged the replica | High | One lock; the regression test fails on the old code |
+| P-14 | Independent stability review | A connection lost mid-call raised `AttributeError`, so the state was not marked stale | High | Fixed; dead connections are replaced before a call |
+| P-15 | Independent stability review | Row-order-dependent fingerprint; partial trail writes left corrupt files; blocking key lookups on the event loop; readiness waited behind calls; whole-file trail reads; a per-minute counter race; ingest temp directory reuse | Medium/Low | Fixed individually, with tests |
+| P-16 | Failure injection (database paused under load) | Calls and readiness waited for the whole outage | Medium | Timeouts, bounded lock waits, readiness in 2.5 s, 503 with `Retry-After` |
 
 ## 5. Where we would look first
 

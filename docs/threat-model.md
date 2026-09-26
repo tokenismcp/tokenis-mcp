@@ -107,13 +107,13 @@ Code references are to this repository; tests are in `tests/` unless stated.
 | T14 | Forge or confuse a JWT | Asymmetric algorithms only; `exp`/`iss`/`aud` required; `none`/HMAC refused | `server_auth.py::JwtVerifier` | `test_server_auth.py::test_algorithm_confusion_and_alg_none_are_rejected`, `test_invalid_jwts_are_rejected` |
 | T15 | Steal API keys from storage | Stored as SHA-256 hashes; compared in constant time; revocable without restart | `server_auth.py`, `pgstate.py::PostgresApiKeyStore` | `test_api_key_lifecycle`, `test_pgstate.py::test_api_keys_are_shared` |
 | T16 | Unauthenticated HTTP | HTTP refuses to start without `[auth]` | `config.py` | `test_config.py` |
-| T17 | DNS rebinding from a victim's browser (ADV4) | Host/Origin allow-list whenever not bound to localhost | `cli.py::cmd_serve` | Manual; see audit guide |
+| T17 | DNS rebinding from a victim's browser (ADV4) | Host/Origin allow-list on `/mcp` and the admin console whenever not bound to localhost | `cli.py::cmd_serve`, `ops.py::install_routes` | `test_ops.py::test_admin_console_answers_only_its_own_host` |
 
 ### Secrets and stored data (ADV5)
 
 | # | Threat | Mitigation | Code | Evidence |
 |---|---|---|---|---|
-| T18 | Read secrets from the keystore file | Every secret wrapped by a KMS (or scrypt + AES-GCM locally), with the tenant and slot as encryption context, so one blob cannot be swapped for another | `keystore.py` | `test_keystore_ledger.py`; `test_fuzz_inputs.py::test_a_tampered_keystore_never_yields_other_secrets` |
+| T18 | Read or substitute secrets in the keystore file | Every secret wrapped by a KMS (or scrypt + AES-GCM locally), with the tenant and slot as encryption context, so one blob cannot be swapped for another. Azure's RSA-OAEP needs only the public key, so each Azure-wrapped secret also carries a signature made inside the vault | `keystore.py` | `test_keystore_ledger.py` (including a forged Azure entry); `test_fuzz_inputs.py::test_a_tampered_keystore_never_yields_other_secrets` |
 | T19 | Read or alter the ledger | Sealed values are ciphertexts; the whole payload is AES-256-GCM under the ledger key with the manifest as AAD | `ledger.py` | `test_fuzz_inputs.py::test_a_tampered_ledger_never_loads_different_data` |
 | T20 | Credentials in config files | A password in `[data] url` is refused; URLs come from the environment | `config.py` | `test_db_source.py::test_credentials_stay_out_of_the_config` |
 | T21 | Secrets in logs, reprs or errors | Redacted reprs; driver errors are never returned to callers | `keystore.py::Secrets`, `server.py::run` | `test_crypto_security.py::test_secrets_not_in_repr` |
@@ -123,7 +123,7 @@ Code references are to this repository; tests are in `tests/` unless stated.
 | # | Threat | Mitigation | Code | Evidence |
 |---|---|---|---|---|
 | T22 | Edit or reorder the audit trail | Hash chain + HMAC per entry; verified end to end on open and by `audit verify` | `audit/trace.py` | `test_tampered_or_rekeyed_trace_refuses_to_load`; fuzzed by `test_a_tampered_audit_trail_is_detected` |
-| T23 | Roll back or edit the shared admission log (restore from an old backup, or a DB account) | Log is hash-chained; each replica checks, inside every transaction, that the last record it saw is unchanged; otherwise it refuses all calls and reports not ready | `pgstate.py::check`, `service.py::_sync_shared` | `test_pgstate.py::test_a_history_restored_from_an_older_backup_fails_closed`, `test_a_rewritten_record_is_detected_by_replicas_that_saw_the_original`; verified on k3s |
+| T23 | Roll back or edit the shared admission log (restore from an old backup, failover to a lagging standby, or a DB account) | The log is a chain keyed with the audit key and verified link by link on every replay. Each replica checks, inside every transaction, that the last record it saw is unchanged, and after a failed call that the last record it knows was committed is still there. Otherwise it refuses all calls and reports not ready | `pgstate.py::check`, `records_after`, `service.py::_sync_shared` | `test_pgstate.py`: restored backup, rewritten record, edited record, failover after an error, keyed chain; verified on k3s |
 | T24 | Reset history from another replica with different data | Fingerprint check on every call | `pgstate.py::check` | `test_a_reset_elsewhere_stops_old_replicas` |
 | T25 | Corrupt state files to crash or confuse startup | Every parser rejects damage with its own error type | `state.py`, `trace.py`, `keystore.py`, `ledger.py` | `test_fuzz_inputs.py` (all properties) |
 
@@ -141,9 +141,18 @@ Code references are to this repository; tests are in `tests/` unless stated.
 | # | Threat | Mitigation | Code | Evidence |
 |---|---|---|---|---|
 | T30 | Dashboard leaks values or is scriptable | No values in the summary API; nonce CSP; `textContent` only; constant-time token check; no-store | `ops.py`, `assets/admin.html` | `test_ops.py::test_admin_dashboard_requires_the_token_and_hides_values` |
-| T31 | Metrics leak data | Only counts by tool, outcome and rule; optional bearer token | `ops.py::Metrics` | `test_metrics_count_outcomes_and_rules_without_values` |
+| T31 | Metrics leak data, or tell a caller why they were refused | Only counts by tool and outcome; the per-rule breakdown only when `/metrics` requires a token | `ops.py::Metrics` | `test_metrics_count_outcomes_and_rules_without_values`, `test_open_metrics_do_not_reveal_denial_rules` |
 | T32 | Tampered release artifact | Build provenance attestations, Sigstore keyless signatures, SHA256SUMS, CycloneDX SBOMs | `.github/workflows/release.yml` | [verifying-releases.md](verifying-releases.md) |
 | T33 | Vulnerable dependency | `cargo audit`, `cargo deny`, `pip-audit`, `npm audit` in CI | `.github/workflows/ci.yml` | CI |
+
+### Availability and failure behaviour (A7)
+
+| # | Threat | Mitigation | Code | Evidence |
+|---|---|---|---|---|
+| T34 | Deadlock between tool calls and readers (metrics, dashboard) | One lock order: shared trace storage lends its connection lock to the trace | `pgstate.py::PostgresTraceStorage.lock`, `trace.py` | `test_pgstate.py::test_tool_calls_and_readers_never_deadlock` (fails on the old code) |
+| T35 | A frozen or restarting database hangs the cluster | Connect, statement and lock timeouts; the server ends sessions idle in a transaction (releasing the tenant lock); dead connections are replaced before a call; waits for the gateway lock are bounded; readiness answers within 2.5 s on its own connection; callers get 503 with `Retry-After` | `pgstate.py::CONNECT_OPTIONS`, `service.py::_hold`, `ops.py` | Failure-injection runs (database paused 25 s, restarted, replica killed) in [audit-guide.md](audit-guide.md) |
+| T36 | A failed trail write (disk full) corrupts the trail | The partial line is cut back and the call fails closed | `trace.py::FileTraceStorage.append` | `test_service_state.py::test_a_failed_trail_write_leaves_a_valid_trail` |
+| T37 | Replicas disagree because rows arrive in a different order | Database sources are read in `id_column` order; the history fingerprint is independent of row order | `config.py::_iter_sql`, `service.py::_fingerprint` | `test_service_state.py::test_row_order_does_not_change_the_history_fingerprint` |
 
 ## 6. Security invariants
 
@@ -188,9 +197,10 @@ disproves one has found a vulnerability.
 | R3 | D2 is a tractable relaxation (P4 Remark 10): it may under-refuse low-weight combinations not visible in the reduced basis | The exact problem is NP-hard | Larger *k*, band mode for sensitive columns |
 | R4 | Temporal differencing across data refreshes | Answers about two data versions can be compared | Refresh in batches; see [deployment.md](deployment.md#changes-over-time) |
 | R5 | Cutting entries from the end of the audit trail is not detectable by the chain alone | A hash chain cannot prove its own length | Ship the trail off-host; record the head digest (`audit verify`) externally |
-| R6 | A database account that can rewrite the whole admission log while **every** replica is stopped can erase history consistently | The chain is unkeyed; replicas detect only changes to what they already saw | Grant write only to the gateway role; enable database audit logging; keep backups immutable |
+| R6 | A database account can delete the newest admission records while **every** replica is stopped (a keyed chain cannot prove its own length), and so reset budgets | It cannot forge or edit records without the audit key, and running replicas detect any rollback | Grant write only to the gateway role; enable database audit logging; keep backups immutable |
 | R7 | The admin token is a static shared secret | Simplicity | Put `/admin` behind your SSO proxy; rotate the token |
 | R8 | `[data] query` runs as written | SQL is not parsed | Use a read-only database role (documented) |
+| R12 | A call already waiting on a frozen database waits until the database answers or TCP gives up (about 15 s) | A frozen server process still acknowledges TCP | Readiness takes the replica out of rotation within seconds; further calls fail fast |
 | R9 | Embeddings for `similarity_search` are held in the clear | Nearest-neighbour search on ciphertexts is not implemented | Omit `embedding_column` where embeddings are sensitive |
 | R10 | Throughput per tenant is serialised | Required by invariant 2 | Separate tenants; size the latency quantum |
 | R11 | No independent audit yet | — | This document and [audit-guide.md](audit-guide.md) prepare for one |
