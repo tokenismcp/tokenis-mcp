@@ -23,18 +23,31 @@ over groups of at least *k* records (or coarser forms of them), keyed
 pseudonyms, and purpose-gated Reveals — each recorded in a signed audit
 trail under an authenticated identity.
 
+For the full picture: [docs/threat-model.md](docs/threat-model.md) (assets,
+boundaries, adversaries, every mitigation with its code and test),
+[docs/audit-guide.md](docs/audit-guide.md) (for reviewers) and
+[docs/verifying-releases.md](docs/verifying-releases.md) (signatures,
+provenance, SBOMs).
+
 ## Deploying safely
 
 - **Run the gateway on a host you control**, with the data file, the state
   directory and the two secrets readable only by its service account.
-- **Secrets come from the environment** (`TOKENIS_TOKENIZER_KEY`,
-  `TOKENIS_AUDIT_KEY`, generated with `tokenis-mcp keygen-secret`), ideally
-  injected from a secret manager. Keep the tokenizer key stable (rotating it
-  changes every token; bump `[tenant] epoch` to rotate deliberately) and the
-  audit key away from anyone who can write the trace file.
-- **Set `[state] dir`.** Without it, a restart forgets the admission history
-  (so the second half of a differencing pair can be asked after a restart)
-  and the audit trail. `tokenis-mcp check` warns when it is missing.
+- **Keep secrets in a KMS-wrapped keystore** (`[keys]`, `tokenis-mcp secrets
+  init`) with AWS KMS, Google Cloud KMS, Azure Key Vault or Vault Transit,
+  and let only the gateway's identity unwrap. Environment variables
+  (`TOKENIS_TOKENIZER_KEY`, `TOKENIS_AUDIT_KEY`) remain supported for small
+  deployments. Keep the tokenizer key stable (bump `[tenant] epoch` to
+  rotate every token deliberately) and the audit key away from anyone who
+  can write the trail.
+- **Serve from an encrypted ledger** (`tokenis-mcp ingest`, `[ledger]`) so
+  serving hosts never read the source data.
+- **Persist the admission state**: `[state] dir` for one process, or
+  `[state] backend = "postgres"` for several replicas. Without either, a
+  restart forgets the admission history (so the second half of a
+  differencing pair can be asked after a restart). Give the state database
+  to the gateway's role alone, and never restore it to an earlier point
+  while replicas run ([docs/deployment.md](docs/deployment.md#backups)).
 - **Changing the data is a security event.** A gateway restarted on
   different data refuses to start until `--reset-admission-state` is given,
   because answers computed on the old data can be differenced against
@@ -43,10 +56,9 @@ trail under an authenticated identity.
   a larger *k* when data changes often.
 - **HTTP needs TLS in front** (a reverse proxy or load balancer). The server
   refuses to run HTTP without authentication; set `public_url` and
-  `allowed_hosts` so Host-header validation matches your domain. Run **one
-  process per dataset**: budgets and the differencing history live in that
-  process's state directory, so several replicas would each allow a full
-  budget.
+  `allowed_hosts` so Host-header validation matches your domain. Several
+  replicas **must** use the postgres state backend: with the file backend,
+  each process would keep its own history and allow its own full budget.
 - **Identity.** Use `[auth] mode = "jwt"` with your IdP where you can, so the
   principal is the real end user; API keys identify whoever holds the key.
   Never let an agent framework pass a user identity through a tool argument.
@@ -71,9 +83,12 @@ trail under an authenticated identity.
   in the strict sense: its memory-access pattern depends on the plaintext,
   so a co-located attacker with cache-timing access to the gateway host
   could learn about decrypted aggregates.
-- The ElGamal private key is generated per process and held in memory, not
-  in an HSM/KMS. Sealed data is re-encrypted from the source file at each
-  start.
+- The ElGamal private key is held in process memory: generated per process,
+  or unwrapped at start-up from the KMS-protected keystore. It never lives
+  inside an HSM, and decryption happens in the gateway process.
+- Cutting entries from the end of the audit trail is not detectable from the
+  trail alone; record the head digest (`tokenis-mcp audit verify`)
+  off-host.
 - D2 is P4's tractable relaxation of an NP-hard question (Remark 10): it
   can over-refuse, and in principle under-refuse low-weight combinations
   that do not appear as a row of the reduced basis.
@@ -92,7 +107,12 @@ trail under an authenticated identity.
 - Choosing or forging the principal, bypassing API-key or JWT verification,
   or reaching tools over HTTP without credentials.
 - A disclosure that is not recorded in the trace, or a trace edit that
-  `verify_chain()` / `tokenis-mcp audit verify` does not detect.
+  `verify_chain()` / `tokenis-mcp audit verify` does not detect (other than
+  cutting its tail).
+- Two replicas sharing a database admitting what one process would refuse,
+  or a replica answering on an admission history that changed under it.
+- Reading values or acting through the admin console, `/metrics` or the
+  probes.
 - Bugs in `crates/tokenis-core` or its bindings that break
   `Dec(Enc(x) + Enc(y)) = x + y`, leak key material or one-time secrets,
   accept an invalid point, let a mask or triple be used twice, or let input

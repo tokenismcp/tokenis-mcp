@@ -220,14 +220,16 @@ class FileTraceStorage:
     def scan(self) -> Iterator[Tuple[TraceEntry, Optional[str], Optional[str], str]]:
         if not self.path.exists():
             return
-        with self.path.open(encoding="utf-8") as fh:
-            for lineno, line in enumerate(fh, start=1):
-                if not line.strip():
+        with self.path.open("rb") as fh:
+            for lineno, raw in enumerate(fh, start=1):
+                if not raw.strip():
                     continue
                 where = f"{self.path}:{lineno}"
                 try:
-                    entry, digest, mac = entry_from_dict(json.loads(line))
-                except (ValueError, KeyError, TypeError) as exc:
+                    # UnicodeDecodeError is a ValueError: garbage bytes are
+                    # an integrity failure like any other edit.
+                    entry, digest, mac = entry_from_dict(json.loads(raw.decode("utf-8")))
+                except (ValueError, KeyError, TypeError, AttributeError) as exc:
                     raise TraceIntegrityError(f"{where}: unreadable entry") from exc
                 yield entry, digest, mac, where
 

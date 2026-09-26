@@ -1,0 +1,74 @@
+# Fuzzing. On pull requests touching the crypto core or the parsers: a short
+# smoke run of every target. Nightly: long runs, with the corpus carried over
+# between runs so coverage keeps growing. A crash fails the job and uploads
+# the reproducer.
+name: Fuzz
+
+on:
+  pull_request:
+    paths:
+      - "crates/tokenis-core/**"
+      - "fuzz/**"
+      - "tokenis/ledger.py"
+      - "tokenis/keystore.py"
+      - "tokenis/audit/**"
+      - "tokenis/gateway/state.py"
+      - "tokenis/config.py"
+      - "tests/test_fuzz_inputs.py"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per Rust target
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wire_formats, elgamal_arithmetic, decrypt_untrusted, delegation]
+    env:
+      SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '1800' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz ${{ matrix.target }} for ${{ env.SECONDS_PER_TARGET }}s
+        working-directory: fuzz
+        run: |
+          cargo fuzz run "${{ matrix.target }}" -O -- \
+            -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+
+  python:
+    # Property-based fuzzing of the ledger, keystore, audit trail, admission
+    # log, ciphertext encodings and configuration (tests/test_fuzz_inputs.py).
+    runs-on: ubuntu-latest
+    env:
+      TOKENIS_FUZZ_EXAMPLES: ${{ github.event_name == 'pull_request' && '500' || '20000' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q tests/test_fuzz_inputs.py

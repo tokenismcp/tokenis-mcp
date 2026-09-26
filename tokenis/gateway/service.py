@@ -687,6 +687,16 @@ class TokenisGatewayService:
         return h.hexdigest()
 
     def _replay(self, record: Dict[str, Any]) -> None:
+        try:
+            self._replay_record(record)
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise StateMismatchError(
+                f"the admission history holds a corrupt record ({type(exc).__name__}: {exc}); "
+                "it was edited or damaged. Restore it, or reset it deliberately "
+                "(--reset-admission-state)"
+            ) from None
+
+    def _replay_record(self, record: Dict[str, Any]) -> None:
         assert self._admission is not None  # noqa: S101 -- set just before replay
         context = QueryContext(
             subject_id=record["subject"],

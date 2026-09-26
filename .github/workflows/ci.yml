@@ -265,6 +265,8 @@ jobs:
           tool: cargo-audit
       - name: cargo audit (RustSec)
         run: cargo audit
+      - name: cargo deny (advisories, licenses, sources, bans; see deny.toml)
+        uses: EmbarkStudios/cargo-deny-action@v2
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

@@ -164,6 +164,9 @@ Prometheus metrics and a read-only admin console.
 | [Deployment](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/deployment.md) | Docker Compose, Kubernetes, monitoring, backups |
 | [LLM integration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/llm-integration.md) | Anthropic / OpenAI-compatible APIs without an MCP client |
 | [Troubleshooting](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/troubleshooting.md) | Error messages and what to do |
+| [Threat model](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/threat-model.md) | Assets, boundaries, adversaries, every mitigation with its code and test |
+| [Guide for auditors](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/audit-guide.md) | Scope, build, fuzzing, evidence, findings fixed so far |
+| [Verifying releases](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/verifying-releases.md) | Signatures, provenance attestations and SBOMs |
 
 ## Security model
 

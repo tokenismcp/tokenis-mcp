@@ -341,17 +341,19 @@ impl CiphertextVector {
 
     /// Serialize: ``u64`` count, then each ciphertext's wire encoding
     /// prefixed by its one-byte length.
-    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let items = &self.items;
-        let out = py.detach(|| {
+        let out = py.detach(|| -> Option<Vec<u8>> {
             let chunk = items.len().div_ceil(workers(items.len())).max(1);
+            // A worker that failed must fail the call: dropping its chunk
+            // would write a count that no longer matches the items.
             let parts: Vec<Vec<Vec<u8>>> = std::thread::scope(|scope| {
                 let handles: Vec<_> = items
                     .chunks(chunk)
                     .map(|part| scope.spawn(move || eg::to_bytes_many(part)))
                     .collect();
-                handles.into_iter().filter_map(|h| h.join().ok()).collect()
-            });
+                handles.into_iter().map(|h| h.join().ok()).collect::<Option<Vec<_>>>()
+            })?;
             let mut out = Vec::with_capacity(8 + items.len() * 68);
             out.extend_from_slice(&(items.len() as u64).to_le_bytes());
             for bytes in parts.iter().flatten() {
@@ -359,9 +361,12 @@ impl CiphertextVector {
                 out.push(u8::try_from(bytes.len()).unwrap_or(u8::MAX));
                 out.extend_from_slice(bytes);
             }
-            out
+            Some(out)
         });
-        PyBytes::new(py, &out)
+        let out = out.ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("ciphertext encoding failed in a worker thread")
+        })?;
+        Ok(PyBytes::new(py, &out))
     }
 
     /// Parse what :meth:`to_bytes` wrote, validating every point (in

@@ -43,7 +43,25 @@ the end records how the crypto layer got here.
 - CI runs the database tests against real PostgreSQL and MySQL servers, and
   lints, renders and schema-validates the Helm chart and alert rules.
 
+- **Audit readiness:** coverage-guided fuzzing of the Rust core (four
+  libFuzzer targets in `fuzz/`) and property-based fuzzing of every
+  tamperable input (`tests/test_fuzz_inputs.py`), run on pull requests and
+  nightly; a threat model, a guide for auditors and release-verification
+  instructions; `cargo deny` license and source policy.
+- **Signed releases with SBOMs:** every release file gets a Sigstore
+  (cosign, keyless) signature bundle, a `SHA256SUMS` file and build
+  provenance. CycloneDX SBOMs cover the Python package with every runtime
+  extra, each Rust crate and the npm SDK. The container image is signed,
+  and its SBOM and provenance are attested in the registry.
+
 ### Fixed
+- `tokenis-core`: `elgamal::to_bytes_many` panicked on an empty slice (found
+  by fuzzing). The Python `CiphertextVector.to_bytes` now raises instead of
+  writing a short encoding if a worker thread fails.
+- Damaged state files (audit trail, admission log, keystore, ledger
+  manifest) and unusual config paths now raise the component's own error
+  instead of `UnicodeDecodeError`, `KeyError` or `AttributeError` (found by
+  fuzzing).
 - Startup failures (history mismatch, a trail that fails verification, too
   few records) print one clear line instead of a Python traceback.
 - Unexpected errors during a tool call (for example a database outage) no

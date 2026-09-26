@@ -326,6 +326,10 @@ pub fn scalar_mul(a: &Ciphertext, k: i64) -> Ciphertext {
 /// are therefore swapped for the generator before normalising and mapped
 /// back to the all-zero key afterwards, both branch-free.
 fn batch_keys(points: &[ProjectivePoint]) -> Vec<[u8; COMPRESSED_LEN]> {
+    // k256's batch inversion panics on an empty batch (found by fuzzing).
+    if points.is_empty() {
+        return Vec::new();
+    }
     let is_identity: Vec<Choice> = points.iter().map(|p| p.is_identity()).collect();
     let safe: Vec<ProjectivePoint> = points
         .iter()
@@ -659,6 +663,13 @@ mod tests {
             ct.c2,
             pk.point * r - ProjectivePoint::GENERATOR * Scalar::from(42u64)
         );
+    }
+
+    #[test]
+    fn batched_encoding_of_nothing_is_nothing() {
+        // Regression: k256's batch inversion panicked on an empty batch
+        // (found by fuzz/fuzz_targets/elgamal_arithmetic.rs).
+        assert!(to_bytes_many(&[]).is_empty());
     }
 
     #[test]

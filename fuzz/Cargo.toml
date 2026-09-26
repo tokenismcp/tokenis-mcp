@@ -1,0 +1,48 @@
+# Coverage-guided fuzzing of tokenis-core (cargo-fuzz / libFuzzer).
+#   cargo +nightly fuzz run elgamal_arithmetic -- -max_total_time=60
+# Kept out of the main workspace: it needs a nightly toolchain.
+[package]
+name = "tokenis-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+rand_chacha = "0.3"
+tokenis-core = { path = "../crates/tokenis-core" }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "wire_formats"
+path = "fuzz_targets/wire_formats.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "elgamal_arithmetic"
+path = "fuzz_targets/elgamal_arithmetic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decrypt_untrusted"
+path = "fuzz_targets/decrypt_untrusted.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "delegation"
+path = "fuzz_targets/delegation.rs"
+test = false
+doc = false
+bench = false

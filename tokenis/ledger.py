@@ -125,9 +125,18 @@ def read_manifest(path: Path) -> Dict[str, Any]:
         manifest = json.loads((Path(path) / "manifest.json").read_text())
     except (OSError, ValueError) as exc:
         raise LedgerError(f"cannot read ledger manifest in {path}: {exc}") from exc
-    if manifest.get("format") != FORMAT or manifest.get("version") != VERSION:
+    if not isinstance(manifest, dict) or manifest.get("format") != FORMAT or manifest.get("version") != VERSION:
         raise LedgerError(f"{path} is not a version-{VERSION} Tokenis ledger")
+    for key, kind in _MANIFEST_FIELDS.items():
+        if not isinstance(manifest.get(key), kind) or isinstance(manifest.get(key), bool) is not (kind is bool):
+            raise LedgerError(f"{path}: manifest field {key!r} is missing or malformed")
     return dict(manifest)
+
+
+_MANIFEST_FIELDS: Dict[str, Any] = {
+    "tenant": str, "epoch": int, "records": int, "schema": dict, "public_key": str,
+    "created": int, "nonce": str, "payload_sha256": str,
+}
 
 
 def load_ledger(
@@ -162,7 +171,7 @@ def load_ledger(
     try:
         plaintext = AESGCM(ledger_key).decrypt(bytes.fromhex(manifest["nonce"]), ciphertext,
                                                _canonical(core))
-    except InvalidTag as exc:
+    except (InvalidTag, ValueError) as exc:  # ValueError: a malformed nonce
         raise LedgerError(f"{path}: wrong ledger key, or the ledger was modified") from exc
     size = int.from_bytes(plaintext[:8], "big")
     meta = json.loads(plaintext[8:8 + size])

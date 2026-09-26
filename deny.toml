@@ -1,0 +1,30 @@
+# Supply-chain policy for the Rust workspace, enforced in CI (cargo deny check).
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories: vulnerabilities fail the build; so do yanked crates.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses compatible with distributing under Apache-2.0 -- only
+# the ones the dependency tree uses today; a new one needs a deliberate review.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

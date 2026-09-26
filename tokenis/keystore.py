@@ -349,8 +349,10 @@ def keystore_header(path: Path) -> Dict[str, Any]:
         doc = json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
         raise KeystoreError(f"cannot read keystore {path}: {exc}") from exc
-    if doc.get("version") != KEYSTORE_VERSION:
-        raise KeystoreError(f"{path}: unsupported keystore version")
+    if not isinstance(doc, dict) or doc.get("version") != KEYSTORE_VERSION:
+        raise KeystoreError(f"{path}: not a version-{KEYSTORE_VERSION} keystore")
+    if not isinstance(doc.get("wrapper"), dict) or not isinstance(doc.get("secrets"), dict):
+        raise KeystoreError(f"{path}: malformed keystore (wrapper or secrets missing)")
     return dict(doc)
 
 
@@ -358,15 +360,15 @@ def load_keystore(path: Path, wrapper: KeyWrapper, tenant: str) -> Secrets:
     doc = keystore_header(path)
     if doc.get("tenant") != tenant:
         raise KeystoreError(f"{path} belongs to tenant {doc.get('tenant')!r}, not {tenant!r}")
-    if doc["wrapper"]["kind"] != wrapper.kind:
+    if doc["wrapper"].get("kind") != wrapper.kind:
         raise KeystoreError(
-            f"{path} is wrapped with {doc['wrapper']['kind']}, but {wrapper.kind} is configured"
+            f"{path} is wrapped with {doc['wrapper'].get('kind')!r}, but {wrapper.kind} is configured"
         )
     out = {}
     for name in SECRET_NAMES:
         try:
-            blob = base64.b64decode(doc["secrets"][name])
-        except (KeyError, ValueError) as exc:
+            blob = base64.b64decode(doc["secrets"][name], validate=True)
+        except (KeyError, ValueError, TypeError) as exc:
             raise KeystoreError(f"{path}: missing or malformed {name}") from exc
         out[name] = wrapper.unwrap(blob, _context(tenant, name))
     return Secrets(**out)

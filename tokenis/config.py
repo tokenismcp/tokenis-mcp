@@ -169,10 +169,13 @@ def _table(raw: Any, where: str, allowed: Tuple[str, ...]) -> Dict[str, Any]:
 
 
 def _path(base: Path, value: Any, where: str) -> Path:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value or "\x00" in value:
         raise ConfigError(f"{where} must be a path string")
-    p = Path(value).expanduser()
-    return p if p.is_absolute() else (base / p).resolve()
+    try:
+        p = Path(value).expanduser()
+        return p if p.is_absolute() else (base / p).resolve()
+    except (OSError, RuntimeError, ValueError) as exc:  # e.g. "~nosuchuser", symlink loops
+        raise ConfigError(f"{where}: {exc}") from None
 
 
 def _build(kind: Any, where: str, **kwargs: Any) -> Any:

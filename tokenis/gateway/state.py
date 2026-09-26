@@ -78,13 +78,13 @@ class AdmissionLog:
                          "created": time.time()})
 
     def _header(self) -> Dict[str, Any]:
-        with self.path.open(encoding="utf-8") as fh:
+        with self.path.open("rb") as fh:
             first = fh.readline()
         try:
-            header = json.loads(first)
-        except ValueError as exc:
+            header = json.loads(first.decode("utf-8"))
+        except ValueError as exc:  # includes UnicodeDecodeError
             raise StateMismatchError(f"{self.path}: unreadable header") from exc
-        if header.get("type") != "header" or header.get("version") != LOG_VERSION:
+        if not isinstance(header, dict) or header.get("type") != "header" or header.get("version") != LOG_VERSION:
             raise StateMismatchError(f"{self.path}: not a version-{LOG_VERSION} admission log")
         return dict(header)
 
@@ -97,14 +97,16 @@ class AdmissionLog:
 
     def records(self) -> Iterator[Dict[str, Any]]:
         """Every logged admission call, oldest first."""
-        with self.path.open(encoding="utf-8") as fh:
+        with self.path.open("rb") as fh:
             lines = fh.readlines()
         for i, line in enumerate(lines[1:], start=2):
             try:
-                record = json.loads(line)
-            except ValueError as exc:
+                record = json.loads(line.decode("utf-8"))
+            except ValueError as exc:  # includes UnicodeDecodeError
                 raise StateMismatchError(f"{self.path}:{i}: corrupt record") from exc
-            yield dict(record)
+            if not isinstance(record, dict):
+                raise StateMismatchError(f"{self.path}:{i}: corrupt record")
+            yield record
 
     def append(self, record: Dict[str, Any]) -> None:
         """Durably record one admission call before its result is used."""
