@@ -30,12 +30,14 @@ import socket
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcp.server.mcpserver import MCPServer
 
     from tokenis.gateway.service import TokenisGatewayService
+
+log = logging.getLogger("tokenis.ops")
 
 _BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
 OUTCOMES = ("ok", "denied", "invalid", "unauthenticated", "unavailable", "error")
@@ -244,8 +246,10 @@ class UnavailableMiddleware:
 
 
 def summary(service: "TokenisGatewayService", metrics: Metrics, key_store: Any = None,
-            recent: int = 50) -> Dict[str, Any]:
-    """What the dashboard shows. No sealed values, no disclosed values."""
+            recent: int = 50, call_log: Any = None, range_key: str = "24h") -> Dict[str, Any]:
+    """What the dashboard shows. No sealed values, no disclosed values.
+    Statistics come from the call log (the whole cluster, any range);
+    without one, from this process's counters."""
     from tokenis import __version__
 
     adm = service.settings.admission
@@ -271,8 +275,19 @@ def summary(service: "TokenisGatewayService", metrics: Metrics, key_store: Any =
         "columns": [{"name": c.name, "protection": c.protection, "description": c.description,
                      "unit": c.unit} for c in service.schema.columns],
         "purposes": [{"name": p.name, "description": p.description} for p in service.settings.purposes],
-        **metrics.snapshot(),
+        "key_management": key_store is not None,
     }
+    if call_log is not None:
+        try:
+            out["stats"] = {"scope": "cluster", **call_log.overview(range_key)}
+        except Exception as exc:  # noqa: BLE001 -- show the rest of the dashboard
+            out["stats_error"] = type(exc).__name__
+    else:
+        snap = metrics.snapshot()
+        out["stats"] = {"scope": "replica", "range": "1h", "step_seconds": 60,
+                        "timeline": snap["timeline"], "tools": snap["tools"],
+                        "denials_by_rule": snap["denials_by_rule"], "latency": snap["latency"],
+                        "totals": {}, "previous": {}, "replicas": []}
     try:
         out["trace_entries"] = len(service.trace)
         out["recent"] = [
@@ -300,6 +315,7 @@ def install_routes(
     metrics_token: Optional[str] = None,
     key_store: Any = None,
     admin_hosts: Optional[List[str]] = None,
+    call_log: Any = None,
 ) -> None:
     """``admin_hosts``: Host header values the admin console answers to
     (DNS-rebinding protection for the one browser-facing page; probes and
@@ -358,18 +374,154 @@ def install_routes(
         return PlainTextResponse("admin token required\n", status_code=401,
                                  headers={"WWW-Authenticate": 'Basic realm="tokenis admin"', **no_store})
 
-    @server.custom_route("/admin/api/summary", methods=["GET"], include_in_schema=False)
-    async def admin_summary(request: Request) -> Response:
+    def _guard(request: Request, write: bool = False) -> Optional[Response]:
+        """None if the request may proceed, else the response to send."""
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
         if not _authorised(request.headers.get("authorization", ""), admin_token):
             return _challenge()
+        if write:
+            # CSRF: browsers send Basic credentials to any page that submits
+            # here. A JSON body plus a custom header force a CORS preflight,
+            # which this server never approves, and the Origin must be ours.
+            origin = request.headers.get("origin")
+            host = request.headers.get("host", "")
+            if (not request.headers.get("content-type", "").startswith("application/json")
+                    or request.headers.get("x-tokenis-console") != "1"
+                    or (origin is not None and origin.split("://", 1)[-1] != host)):
+                return JSONResponse({"error": "rejected: not sent by the console"}, status_code=403)
+        return None
+
+    def _source(request: Request) -> str:
+        client = request.client.host if request.client else "?"
+        forwarded = request.headers.get("x-forwarded-for", "")
+        agent = request.headers.get("user-agent", "")[:300]
+        return f"{client}" + (f" (via {forwarded[:60]})" if forwarded else "") + (f"; {agent}" if agent else "")
+
+    def _audit(action: str, target: str, detail: str, request: Request) -> None:
+        if call_log is not None:
+            call_log.admin_event("admin console", action, target, detail, _source(request))
+        log.info("admin %s %s %s", action, target, detail)
+
+    @server.custom_route("/admin/api/summary", methods=["GET"], include_in_schema=False)
+    async def admin_summary(request: Request) -> Response:
+        if (denied := _guard(request)) is not None:
+            return denied
         try:
             recent = max(1, min(500, int(request.query_params.get("recent", "100"))))
         except ValueError:
             recent = 100
-        data = await anyio.to_thread.run_sync(summary, service, metrics, key_store, recent)
+        range_key = request.query_params.get("range", "24h")
+        data = await anyio.to_thread.run_sync(
+            lambda: summary(service, metrics, key_store, recent, call_log, range_key))
         return JSONResponse(data, headers=no_store)
+
+    def _principals(range_key: str) -> Dict[str, Any]:
+        rows = call_log.principals(range_key) if call_log is not None else []
+        names = {r["principal"] for r in rows}
+        if key_store is not None:
+            for record in key_store.list():
+                if not record.revoked and record.principal not in names:
+                    rows.append({"principal": record.principal, "calls": 0, "answered": 0, "denied": 0,
+                                 "last_seen": None, "rules": {}})
+                    names.add(record.principal)
+        budgets = service.budgets(sorted(names)) if names else {}
+        for row in rows:
+            row["budget"] = budgets.get(row["principal"])
+        return {"range": range_key, "principals": rows}
+
+    @server.custom_route("/admin/api/principals", methods=["GET"], include_in_schema=False)
+    async def admin_principals(request: Request) -> Response:
+        if (denied := _guard(request)) is not None:
+            return denied
+        data = await anyio.to_thread.run_sync(_principals, request.query_params.get("range", "24h"))
+        return JSONResponse(data, headers=no_store)
+
+    @server.custom_route("/admin/api/activity", methods=["GET"], include_in_schema=False)
+    async def admin_activity(request: Request) -> Response:
+        if (denied := _guard(request)) is not None:
+            return denied
+        events = await anyio.to_thread.run_sync(call_log.admin_events) if call_log is not None else []
+        return JSONResponse({"events": events}, headers=no_store)
+
+    @server.custom_route("/admin/api/keys", methods=["POST"], include_in_schema=False)
+    async def admin_create_key(request: Request) -> Response:
+        if (denied := _guard(request, write=True)) is not None:
+            return denied
+        if key_store is None:
+            return JSONResponse({"error": "this gateway authenticates with JWTs; keys are managed by your "
+                                          "identity provider"}, status_code=409)
+        try:
+            body = await request.json()
+            principal = str(body.get("principal", "")).strip()
+            token, record = await anyio.to_thread.run_sync(key_store.create, principal)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc) or "invalid request"}, status_code=400)
+        await anyio.to_thread.run_sync(_audit, "create key", record.key_id, f"principal {principal}", request)
+        return JSONResponse({"token": token, "key": record.public_view()}, status_code=201, headers=no_store)
+
+    @server.custom_route("/admin/api/keys/{key_id}/revoke", methods=["POST"], include_in_schema=False)
+    async def admin_revoke_key(request: Request) -> Response:
+        if (denied := _guard(request, write=True)) is not None:
+            return denied
+        if key_store is None:
+            return JSONResponse({"error": "no API keys on this gateway"}, status_code=409)
+        key_id = request.path_params["key_id"]
+        if not key_id.isalnum() or len(key_id) > 64:
+            return JSONResponse({"error": "invalid key id"}, status_code=400)
+        revoked = await anyio.to_thread.run_sync(key_store.revoke, key_id)
+        if not revoked:
+            return JSONResponse({"error": "no active key with that id"}, status_code=404)
+        await anyio.to_thread.run_sync(_audit, "revoke key", key_id, "", request)
+        return JSONResponse({"revoked": key_id}, headers=no_store)
+
+    def _csv(rows: Any, header: List[str]) -> Any:
+        import csv
+        import io
+
+        def stream() -> Iterator[str]:
+            buffer = io.StringIO()
+            writer = csv.writer(buffer)
+            writer.writerow(header)
+            for row in rows:
+                # Neutralise spreadsheet formulas in caller-controlled text.
+                writer.writerow([f"'{v}" if isinstance(v, str) and v[:1] in "=+-@\t\r" else v for v in row])
+                if buffer.tell() > 65536:
+                    yield buffer.getvalue()
+                    buffer.seek(0)
+                    buffer.truncate()
+            yield buffer.getvalue()
+        return stream()
+
+    def _iso(seconds: float) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+
+    @server.custom_route("/admin/api/export/{kind}.csv", methods=["GET"], include_in_schema=False)
+    async def admin_export(request: Request) -> Response:
+        from starlette.responses import StreamingResponse
+
+        from tokenis.calllog import range_spec
+
+        if (denied := _guard(request)) is not None:
+            return denied
+        kind = request.path_params["kind"]
+        range_key, length, _ = range_spec(request.query_params.get("range", "24h"))
+        if kind == "calls" and call_log is not None:
+            rows: Any = ((_iso(int(ts) / 1000), rep_, tool, who, outcome, rule, dur)
+                         for ts, rep_, tool, who, outcome, rule, dur in call_log.export(range_key))
+            header = ["time_utc", "replica", "tool", "principal", "outcome", "rule", "duration_ms"]
+        elif kind == "audit":
+            since = time.time() - length
+            rows = ((e.index, _iso(e.audit.timestamp), e.kind, e.audit.principal, e.audit.obj_ref,
+                     e.audit.purpose, e.audit.decision, e.audit.detail, e.digest)
+                    for e, _d, _m, _w in service.trace._storage.scan() if e.audit.timestamp >= since)
+            header = ["index", "time_utc", "kind", "principal", "object", "purpose", "decision", "rule", "digest"]
+        else:
+            return PlainTextResponse("unknown export\n", status_code=404)
+        await anyio.to_thread.run_sync(_audit, "export", f"{kind}.csv", f"range {range_key}", request)
+        name = f"tokenis-{service.settings.tenant}-{kind}-{range_key}-{time.strftime('%Y%m%d-%H%M')}.csv"
+        return StreamingResponse(_csv(rows, header), media_type="text/csv; charset=utf-8", headers={
+            **no_store, "Content-Disposition": f'attachment; filename="{name}"'})
 
     @server.custom_route("/admin", methods=["GET"], include_in_schema=False)
     async def admin_page(request: Request) -> Response:

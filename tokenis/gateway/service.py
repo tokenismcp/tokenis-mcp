@@ -976,6 +976,21 @@ class TokenisGatewayService:
         }
 
     @_locked
+    def budgets(self, principals: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """Budget left in the current window for each principal (untainted),
+        after syncing with the other replicas -- for the admin console.
+        Public admission state only."""
+        assert self._admission is not None  # noqa: S101 -- _locked sealed the ledger
+        total = self.settings.admission.budget
+        out: Dict[str, Dict[str, Any]] = {}
+        for principal in principals:
+            context = self._context(Caller(principal=principal))
+            remaining = self._admission.remaining_budget(context)
+            out[principal] = {"budget": total, "remaining": remaining, "used": max(0, total - remaining),
+                              "window": self.settings.admission.window, "window_key": context.window}
+        return out
+
+    @_locked
     def _aggregate(
         self, caller: Caller, function: str, column: Optional[str] = None,
         filters: Optional[Mapping[str, str]] = None,

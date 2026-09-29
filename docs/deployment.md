@@ -163,12 +163,32 @@ different pods was refused.
 | `GET /metrics` | Prometheus metrics. Set `[ops] metrics_token_env` whenever callers can reach the port: only then are denials broken down by rule (an open breakdown would tell a caller why they were refused) |
 | `GET /admin` | Read-only admin console (`[ops] admin_token_env`) |
 
-**Admin console.** It shows health, traffic, denials by rule, per-tool
-outcomes, the audit trail (searchable, filterable; disclosed values are never
-shown), API keys and the policy in force. Sign in with HTTP Basic auth, using
-any user name and the admin token as the password. It is read-only: keys are
-managed with `tokenis-mcp keys`. The page makes no external requests and is
-served under a strict, nonce-based Content Security Policy.
+**Admin console.** Sign in with HTTP Basic auth, using any user name and
+the admin token as the password. Every number comes from the database, so
+every replica shows the same cluster-wide figures, over the last hour, 24
+hours, 7 days or 30 days, and nothing resets when a process restarts.
+
+| Page | Shows |
+|---|---|
+| Overview | Health, calls and denial rate compared with the previous period, latency percentiles, traffic, denials by rule, per-tool outcomes, recent audit entries, top users, and each replica with when it last served a call |
+| Users | Per principal: calls, answers, refusals, the most frequent refusal rule, and the budget left in the current window. Exports every call as CSV |
+| Audit trail | The shared, signed trail: searchable and filterable, exportable as CSV. Disclosed values are never shown or exported |
+| Access | API keys: issue one (shown once), revoke one (effective on every replica with the next request). An admin activity log records every issue, revocation and export, with its source |
+| Policy & schema | The admission settings and column protection in force |
+
+Every call is recorded (tool, principal, outcome, rule, time, replica; never
+an argument or a value) in `tokenis_calls`, in the shared database, or in
+`calls.sqlite` in the state directory for a single server. Records are
+written in the background every two seconds, so the console can lag by that
+much, and recording never slows or fails a call. They are kept for
+`[ops] stats_retention_days` (90). This is operational data: the security
+record is the signed audit trail, written before any answer is released.
+
+The console's write actions accept only requests the console itself makes
+(a JSON body, a custom header and a same-origin `Origin`), so another site
+cannot use a signed-in administrator's browser to issue or revoke keys. The
+page makes no external requests and is served under a strict, nonce-based
+Content Security Policy.
 
 **Metrics** (all labels are low-cardinality; none carries a value):
 

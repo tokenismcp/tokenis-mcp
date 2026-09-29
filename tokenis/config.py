@@ -135,6 +135,8 @@ class OpsSettings:
 
     admin_token_env: Optional[str] = None
     metrics_token_env: Optional[str] = None
+    #: How long per-call statistics (the admin console's data) are kept.
+    stats_retention_days: int = 90
 
 
 @dataclass(frozen=True)
@@ -326,7 +328,10 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     if server.log_format not in ("text", "json"):
         raise ConfigError("[server] log_format must be text or json")
     ops = _build(OpsSettings, "[ops]", **_table(top.get("ops"), "ops",
-                                                ("admin_token_env", "metrics_token_env")))
+                                                ("admin_token_env", "metrics_token_env",
+                                                 "stats_retention_days")))
+    if not isinstance(ops.stats_retention_days, int) or not 1 <= ops.stats_retention_days <= 3650:
+        raise ConfigError("[ops] stats_retention_days must be 1 to 3650")
 
     auth_raw = _table(top.get("auth"), "auth", ("mode", "api_keys_file", "jwt"))
     jwt = None
@@ -670,6 +675,26 @@ def open_shared_state(config: TokenisConfig, environ: Optional[Mapping[str, str]
         return PostgresState(url, config.settings.tenant)
     except Exception as exc:  # noqa: BLE001 -- driver errors vary; report them as config errors
         raise ConfigError(_redact(f"cannot open the postgres state: {exc}", url)) from None
+
+
+def open_call_log(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> Any:
+    """Where the admin console's call statistics live: the shared database
+    with the postgres backend, a SQLite file in the state directory for one
+    server, or memory."""
+    from tokenis.calllog import PostgresCallLog, SqliteCallLog
+
+    retention = config.ops.stats_retention_days
+    tenant = config.settings.tenant
+    if config.state_backend == "postgres":
+        url = state_url(config, environ)
+        try:
+            return PostgresCallLog(url, tenant, retention_days=retention).start()
+        except Exception as exc:  # noqa: BLE001 -- driver errors vary
+            raise ConfigError(_redact(f"cannot open the call statistics table: {exc}", url)) from None
+    if config.state_dir is not None:
+        config.state_dir.mkdir(parents=True, exist_ok=True)
+        return SqliteCallLog(str(config.state_dir / "calls.sqlite"), tenant, retention_days=retention).start()
+    return SqliteCallLog(":memory:", tenant, retention_days=retention).start()
 
 
 def api_key_store(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None,

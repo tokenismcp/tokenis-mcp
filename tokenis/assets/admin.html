@@ -389,6 +389,90 @@ td.r, th.r { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------------ console additions */
+.range { margin-right: 4px; }
+.range button { min-width: 42px; }
+.delta { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
+.delta.up { color: var(--ok); background: var(--ok-soft); }
+.delta.down { color: var(--bad); background: var(--bad-soft); }
+.delta.flat { color: var(--muted); background: var(--surface-3); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 34px; padding: 0 13px; border-radius: 9px; font-weight: 580; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow); text-decoration: none; white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s, opacity .12s;
+}
+.btn:hover { border-color: var(--border-strong); }
+.btn svg { width: 15px; height: 15px; }
+.btn.primary { background: var(--accent-fill); border-color: transparent; color: #1b1308; }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn.danger { background: var(--bad-fill); border-color: transparent; color: #fff; }
+.btn.subtle-danger { color: var(--bad); }
+.btn.subtle-danger:hover { border-color: var(--bad); background: var(--bad-soft); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.status-dot.live { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status-dot.idle { background: var(--warn); }
+.status-dot.gone { background: var(--faint); }
+.rep-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 18px; border-top: 1px solid var(--border); }
+.rep-row:first-child { border-top: 0; }
+.rep-row .rep-name { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-row .rep-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.budget { display: grid; gap: 4px; min-width: 130px; }
+.budget .bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.budget .bar span { display: block; height: 100%; border-radius: 99px; background: var(--accent-fill); }
+.budget .bar span.hot { background: var(--warn); }
+.budget .bar span.out { background: var(--bad-fill); }
+.budget .label { font-size: 11.5px; color: var(--muted); }
+tr.clickable { cursor: pointer; }
+dialog.modal {
+  border: 1px solid var(--border-strong); border-radius: 14px; padding: 0; width: min(460px, calc(100vw - 32px));
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg);
+}
+dialog.modal::backdrop { background: rgba(8, 10, 14, .45); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+dialog.modal[open] { animation: pop .16s ease-out; }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+.modal-head { padding: 18px 20px 4px; }
+.modal-head h3 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.modal-head p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.modal-body { padding: 14px 20px 4px; display: grid; gap: 10px; }
+.modal-foot { padding: 16px 20px 18px; display: flex; justify-content: flex-end; gap: 8px; }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.field input {
+  height: 38px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2);
+  font-family: var(--mono); font-size: 13px;
+}
+.field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.field .hint { font-size: 12px; color: var(--muted); }
+.field .error { font-size: 12px; color: var(--bad); min-height: 16px; }
+.secret {
+  display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px dashed var(--accent-ring);
+}
+.secret code { flex: 1; font-family: var(--mono); font-size: 12.5px; word-break: break-all; color: var(--text); }
+.warn-box { display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; line-height: 1.5; }
+.warn-box svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: grid; gap: 8px; }
+.toast {
+  display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 380px; padding: 11px 14px;
+  border-radius: 11px; background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg);
+  font-size: 13px; animation: pop .16s ease-out;
+}
+.toast svg { width: 16px; height: 16px; flex: none; }
+.toast.ok svg { color: var(--ok); } .toast.bad svg { color: var(--bad); }
+.deny { color: var(--bad); font-weight: 600; }
+td time, td .who { white-space: nowrap; }
+.scope { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.users-mini .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 18px; border-top: 1px solid var(--border); }
+.users-mini .item:first-child { border-top: 0; }
+.users-mini .num { font-weight: 600; }
+.range-mobile { display: none; }
+@media (max-width: 860px) { .range { display: none; } .range-mobile { display: inline-flex; justify-self: start; } }
 </style>
 </head>
 <body>
@@ -421,6 +505,10 @@ td.r, th.r { text-align: right; }
     <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1.5 1.5 0 0 1 0 2.1l-6.2 6.2a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8" cy="8" r="1.3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1-3.9 4-6 7.5-6s6.5 2.1 7.5 6"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5V9h4.5"/><path d="M12 8v4.3l2.8 1.7"/></symbol>
   </defs>
 </svg>
 
@@ -436,8 +524,9 @@ td.r, th.r { text-align: right; }
     <nav class="nav" aria-label="Sections">
       <div class="nav-label">Monitor</div>
       <a href="#overview" data-page="overview"><svg><use href="#i-overview"/></svg>Overview</a>
+      <a href="#users" data-page="users"><svg><use href="#i-users"/></svg>Users<span class="count" id="nav-users"></span></a>
       <a href="#audit" data-page="audit"><svg><use href="#i-audit"/></svg>Audit trail<span class="count" id="nav-audit"></span></a>
-      <div class="nav-label">Configure</div>
+      <div class="nav-label">Manage</div>
       <a href="#access" data-page="access"><svg><use href="#i-key"/></svg>Access<span class="count" id="nav-keys"></span></a>
       <a href="#policy" data-page="policy"><svg><use href="#i-shield"/></svg>Policy &amp; schema</a>
     </nav>
@@ -447,7 +536,7 @@ td.r, th.r { text-align: right; }
         <div class="value"><span id="tenant" class="skeleton">tenant</span></div>
         <div class="meta" id="tenant-meta">&nbsp;</div>
       </div>
-      <div class="version"><span id="version">Tokenis</span><span>Read-only</span></div>
+      <div class="version"><span id="version">Tokenis</span><span id="scope-note">Cluster view</span></div>
     </div>
   </aside>
   <div class="scrim" id="scrim"></div>
@@ -457,9 +546,15 @@ td.r, th.r { text-align: right; }
       <button class="icon-btn menu-btn" id="menu" aria-label="Open navigation"><svg><use href="#i-menu"/></svg></button>
       <div>
         <h1 id="page-title">Overview</h1>
-        <div class="crumb" id="page-sub">Disclosure activity on this gateway</div>
+        <div class="crumb" id="page-sub">Disclosure activity across the gateway</div>
       </div>
       <div class="spacer"></div>
+      <div class="segmented range" role="group" aria-label="Time range" id="range">
+        <button data-r="1h" aria-pressed="false">1h</button>
+        <button data-r="24h" aria-pressed="true">24h</button>
+        <button data-r="7d" aria-pressed="false">7d</button>
+        <button data-r="30d" aria-pressed="false">30d</button>
+      </div>
       <span class="live" id="live" role="status"><span class="pulse"></span><span class="txt" id="live-txt">Connecting…</span></span>
       <button class="icon-btn" id="pause" aria-label="Pause live updates" title="Pause live updates"><svg><use href="#i-pause"/></svg></button>
       <button class="icon-btn" id="theme" aria-label="Theme" title="Theme"><svg><use href="#i-monitor"/></svg></button>
@@ -469,6 +564,12 @@ td.r, th.r { text-align: right; }
       <div class="banner" id="banner" role="alert">
         <svg><use href="#i-alert"/></svg><span id="banner-txt"></span>
         <button id="retry">Retry</button>
+      </div>
+      <div class="segmented range-mobile" role="group" aria-label="Time range" id="range-m">
+        <button data-r="1h" aria-pressed="false">1h</button>
+        <button data-r="24h" aria-pressed="true">24h</button>
+        <button data-r="7d" aria-pressed="false">7d</button>
+        <button data-r="30d" aria-pressed="false">30d</button>
       </div>
 
       <!-- ================================================= overview -->
@@ -482,13 +583,13 @@ td.r, th.r { text-align: right; }
             <div class="foot" id="k-records-foot">&nbsp;</div>
           </div>
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-activity"/></svg>Tool calls · 1h</div>
+            <div class="label"><svg><use href="#i-activity"/></svg><span id="k-calls-label">Tool calls</span></div>
             <div class="value" id="k-calls"><span class="skeleton">000</span></div>
             <div class="foot" id="k-calls-foot">&nbsp;</div>
             <svg class="spark" id="s-calls" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
           </div>
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-ban"/></svg>Denial rate · 1h</div>
+            <div class="label"><svg><use href="#i-ban"/></svg>Denial rate</div>
             <div class="value" id="k-denied"><span class="skeleton">00%</span></div>
             <div class="foot" id="k-denied-foot">&nbsp;</div>
             <svg class="spark" id="s-denied" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -508,23 +609,23 @@ td.r, th.r { text-align: right; }
         <div class="grid-2">
           <div class="card">
             <div class="card-head">
-              <div><h2>Traffic</h2><div class="sub">Tool calls per minute, last 60 minutes · this replica</div></div>
+              <div><h2>Traffic</h2><div class="sub" id="traffic-sub">Tool calls</div></div>
               <div class="right legend"><span><i class="sw-ok"></i>Answered</span><span><i class="sw-denied"></i>Denied</span><span><i class="sw-other"></i>Other</span></div>
             </div>
             <div class="card-body">
               <div class="chart" id="traffic"></div>
-              <div class="axis"><span>60 min ago</span><span>45</span><span>30</span><span>15</span><span>now</span></div>
+              <div class="axis" id="axis"></div>
             </div>
           </div>
           <div class="card">
-            <div class="card-head"><div><h2>Denials by rule</h2><div class="sub">Why questions were refused · since start</div></div></div>
+            <div class="card-head"><div><h2>Denials by rule</h2><div class="sub" id="rules-sub">Why questions were refused</div></div></div>
             <div class="card-body"><div class="rules" id="rules"></div></div>
           </div>
         </div>
 
         <div class="grid-2e">
           <div class="card">
-            <div class="card-head"><div><h2>Tools</h2><div class="sub">Outcomes since this replica started</div></div></div>
+            <div class="card-head"><div><h2>Tools</h2><div class="sub" id="tools-sub">Outcomes</div></div></div>
             <div class="card-body flush"><div class="table-wrap"><table id="tools"></table></div></div>
           </div>
           <div class="card">
@@ -535,6 +636,34 @@ td.r, th.r { text-align: right; }
             <div class="card-body flush"><div class="activity" id="activity"></div></div>
           </div>
         </div>
+
+        <div class="grid-2e">
+          <div class="card">
+            <div class="card-head">
+              <div><h2>Top users</h2><div class="sub" id="topusers-sub">Most active principals</div></div>
+              <div class="right"><a class="link" href="#users">All users →</a></div>
+            </div>
+            <div class="card-body flush"><div class="users-mini" id="topusers"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>Replicas</h2><div class="sub" id="replicas-sub">Gateway processes that served calls</div></div></div>
+            <div class="card-body flush"><div id="replicas"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================= users -->
+      <section class="page" id="page-users" aria-labelledby="page-title">
+        <div class="card">
+          <div class="toolbar">
+            <label class="search"><span class="sr-only">Search users</span><svg><use href="#i-search"/></svg>
+              <input id="uq" type="search" placeholder="Search users…" autocomplete="off"></label>
+            <span class="count" id="users-count"></span>
+            <a class="btn sm" id="export-calls" href="#" download><svg><use href="#i-download"/></svg>Export calls (CSV)</a>
+          </div>
+          <div class="table-wrap tall"><table id="users"></table></div>
+        </div>
+        <p class="note">Budgets are the admitted queries each user has left in the current window, as every replica sees them. Select a user to open their audit trail.</p>
       </section>
 
       <!-- ================================================= audit -->
@@ -543,31 +672,39 @@ td.r, th.r { text-align: right; }
           <div class="toolbar">
             <label class="search"><span class="sr-only">Search</span><svg><use href="#i-search"/></svg>
               <input id="q" type="search" placeholder="Search principal, object, purpose, rule…" autocomplete="off"></label>
-            <div class="segmented" role="group" aria-label="Filter by decision">
+            <div class="segmented" role="group" aria-label="Filter by decision" id="decision">
               <button data-f="all" aria-pressed="true">All</button>
               <button data-f="permit" aria-pressed="false">Answered</button>
               <button data-f="deny" aria-pressed="false">Denied</button>
             </div>
             <span class="count" id="audit-count"></span>
+            <a class="btn sm" id="export-audit" href="#" download><svg><use href="#i-download"/></svg>Export (CSV)</a>
           </div>
           <div class="table-wrap tall"><table id="audit"></table></div>
         </div>
-        <p class="note">Entries are hash-chained and HMAC-signed; verify the full chain with <span class="mono">tokenis-mcp audit verify</span>. Disclosed values are never shown here.</p>
+        <p class="note">Entries are hash-chained and HMAC-signed; verify the full chain with <span class="mono">tokenis-mcp audit verify</span>. Disclosed values are never shown or exported here.</p>
       </section>
 
       <!-- ================================================= access -->
       <section class="page" id="page-access" aria-labelledby="page-title">
         <div class="grid-kpi" id="access-kpis"></div>
         <div class="card">
-          <div class="card-head"><div><h2>API keys</h2><div class="sub" id="keys-sub">Bearer credentials accepted by every replica</div></div></div>
+          <div class="card-head">
+            <div><h2>API keys</h2><div class="sub" id="keys-sub">Bearer credentials accepted by every replica</div></div>
+            <div class="right"><button class="btn primary sm" id="new-key"><svg><use href="#i-plus"/></svg>New API key</button></div>
+          </div>
           <div class="card-body flush"><div class="table-wrap"><table id="keys"></table></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h2>Manage keys</h2><div class="sub">This console is read-only. Keys are created and revoked from the CLI; a revocation applies on the next request.</div></div></div>
+          <div class="card-head"><div><h2>Admin activity</h2><div class="sub">Keys issued and revoked, and exports, from this console</div></div></div>
+          <div class="card-body flush"><div class="table-wrap"><table id="admin-log"></table></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>From the command line</h2><div class="sub">The same operations, for scripts and automation</div></div></div>
           <div class="card-body stack">
             <div class="cmd"><code>tokenis-mcp keys create analyst@example.com --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
             <div class="cmd"><code>tokenis-mcp keys revoke KEY_ID --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
-            <p class="note">The key is printed once and stored only as a SHA-256 hash. Principals come from credentials, never from tool arguments.</p>
+            <p class="note">Keys are stored only as SHA-256 hashes; a revocation applies on the next request, on every replica. Principals come from credentials, never from tool arguments.</p>
           </div>
         </div>
       </section>
@@ -587,12 +724,57 @@ td.r, th.r { text-align: right; }
     </div>
   </main>
 </div>
+
+<dialog class="modal" id="dlg-create" aria-labelledby="dlg-create-title">
+  <form method="dialog" id="create-form">
+    <div class="modal-head">
+      <h3 id="dlg-create-title">New API key</h3>
+      <p>The key identifies one principal: every budget, audit entry and refusal is attached to it.</p>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="principal">Principal</label>
+        <input id="principal" name="principal" required maxlength="128" placeholder="analyst@example.com" autocomplete="off" spellcheck="false">
+        <div class="hint">Letters, digits and <span class="mono">. _ @ : + -</span>; up to 128 characters. Usually the person's e-mail or an agent name.</div>
+        <div class="error" id="create-error"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn" data-close>Cancel</button>
+      <button type="submit" class="btn primary" id="create-submit"><svg><use href="#i-key"/></svg>Create key</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="dlg-token" aria-labelledby="dlg-token-title">
+  <div class="modal-head">
+    <h3 id="dlg-token-title">Key created</h3>
+    <p id="token-for"></p>
+  </div>
+  <div class="modal-body">
+    <div class="secret"><code id="token-value"></code><button class="copy" id="token-copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
+    <div class="warn-box"><svg><use href="#i-alert"/></svg><span>This is the only time the key is shown. Only its hash is stored, so it cannot be recovered; store it in your secret manager now.</span></div>
+  </div>
+  <div class="modal-foot"><button class="btn primary" data-close>Done</button></div>
+</dialog>
+
+<dialog class="modal" id="dlg-revoke" aria-labelledby="dlg-revoke-title">
+  <div class="modal-head">
+    <h3 id="dlg-revoke-title">Revoke this key?</h3>
+    <p id="revoke-text"></p>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn danger" id="revoke-confirm"><svg><use href="#i-ban"/></svg>Revoke key</button>
+  </div>
+</dialog>
+
 <div class="tooltip" id="tip" role="tooltip"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script nonce="{{nonce}}">
 "use strict";
 (() => {
-  const REFRESH_MS = 10000;
   const RULES = {
     "D1": "Too few (or nearly all) records matched",
     "D2": "Would isolate records combined with earlier answers",
@@ -602,18 +784,23 @@ td.r, th.r { text-align: right; }
     "D4-surface": "Only COUNT is allowed in untrusted contexts",
     "D4-external-effect": "Tool with external effect refused while tainted",
     "D5": "Column not in the approved catalogue",
+    "exposure-cap": "Per-record exposure cap reached",
     "no-subject": "Caller identity missing",
+    "zero-denominator": "Ratio with a zero denominator",
   };
   const PROT = {
     open: ["Open", "i-eye", "Released verbatim; filterable"],
     token: ["Token", "i-hash", "Released only as a keyed pseudonym"],
     sealed: ["Sealed", "i-lock", "Encrypted; only aggregates over ≥ k records leave"],
   };
+  const RANGE_TEXT = { "1h": "last hour", "24h": "last 24 hours", "7d": "last 7 days", "30d": "last 30 days" };
+  const PRINCIPAL_RE = /^[A-Za-z0-9._@:+-]{1,128}$/;
 
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
-  const nf = new Intl.NumberFormat();
-  const cf = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const LOCALE = "en-US";
+  const nf = new Intl.NumberFormat(LOCALE);
+  const cf = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
 
   function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
@@ -623,7 +810,7 @@ td.r, th.r { text-align: right; }
       else if (k === "text") el.textContent = v;
       else el.setAttribute(k, v === true ? "" : v);
     }
-    for (const kid of kids.flat()) if (kid != null) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    for (const kid of kids.flat()) if (kid != null && kid !== "") el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
     return el;
   }
   function icon(name, cls) {
@@ -645,13 +832,14 @@ td.r, th.r { text-align: right; }
   };
 
   function ago(t) {
+    if (t == null) return "never";
     const s = Math.max(0, Date.now() / 1000 - t);
     if (s < 45) return "just now";
     if (s < 3600) return Math.round(s / 60) + "m ago";
     if (s < 86400) return Math.round(s / 3600) + "h ago";
     return Math.round(s / 86400) + "d ago";
   }
-  const stamp = (t) => new Date(t * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const stamp = (t) => new Date(t * 1000).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
   function duration(s) {
     if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min";
     if (s < 86400) return (s / 3600).toFixed(1) + " h";
@@ -670,16 +858,44 @@ td.r, th.r { text-align: right; }
   function empty(title, text, ic) {
     return h("div", { class: "empty" }, icon(ic || "i-activity"), h("b", { text: title }), h("span", { text }));
   }
-  function table(el, cols, rows, emptyNode) {
+  function table(el, cols, rows, emptyNode, onRow) {
     el.replaceChildren();
     const thead = h("thead", {}, h("tr", {}, cols.map(c => h("th", { class: c.cls || null, text: c.label }))));
     const tbody = h("tbody");
-    for (const r of rows) tbody.append(h("tr", {}, r.map((cell, i) => h("td", { class: cols[i].cls || null }, cell))));
+    rows.forEach((r, i) => {
+      const tr = h("tr", { class: onRow ? "clickable" : null }, r.map((cell, j) => h("td", { class: cols[j].cls || null }, cell)));
+      if (onRow) tr.addEventListener("click", (ev) => { if (!ev.target.closest("button, a")) onRow(i); });
+      tbody.append(tr);
+    });
     el.append(thead, tbody);
     if (!rows.length && emptyNode) tbody.append(h("tr", {}, h("td", { colspan: String(cols.length) }, emptyNode)));
   }
+  function toast(text, tone) {
+    const el = h("div", { class: "toast " + (tone || "ok"), role: "status" }, icon(tone === "bad" ? "i-alert" : "i-check"), h("span", { text }));
+    $("toasts").append(el);
+    setTimeout(() => el.remove(), 4200);
+  }
 
-  /* ------------------------------------------------------------- theme */
+  /* ---------------------------------------------------------- api */
+  async function api(path) {
+    const r = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+    if (r.status === 401) throw new Error("Your session expired. Reload the page to sign in again.");
+    if (!r.ok) throw new Error("The gateway answered HTTP " + r.status + ".");
+    return r.json();
+  }
+  async function post(path, body) {
+    const r = await fetch(path, {
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Tokenis-Console": "1" },
+      body: JSON.stringify(body || {}),
+    });
+    let data = {};
+    try { data = await r.json(); } catch { /* empty body */ }
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    return data;
+  }
+
+  /* ------------------------------------------------------- theme */
   const THEMES = ["system", "light", "dark"];
   const THEME_ICON = { system: "i-monitor", light: "i-sun", dark: "i-moon" };
   let theme = store.get("theme") || "system";
@@ -697,18 +913,32 @@ td.r, th.r { text-align: right; }
   });
   applyTheme();
 
-  /* ------------------------------------------------------------ routing */
+  /* ------------------------------------------------------- range */
+  let range = store.get("range") || "24h";
+  if (!RANGE_TEXT[range]) range = "24h";
+  function syncRange() {
+    document.querySelectorAll("#range button, #range-m button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.r === range)));
+    $("export-calls").href = `admin/api/export/calls.csv?range=${range}`;
+    $("export-audit").href = `admin/api/export/audit.csv?range=${range}`;
+  }
+  document.querySelectorAll("#range button, #range-m button").forEach(b => b.addEventListener("click", () => {
+    range = b.dataset.r; store.set("range", range); syncRange(); schedule(); refresh();
+  }));
+  syncRange();
+
+  /* ----------------------------------------------------- routing */
   const PAGES = {
-    overview: ["Overview", "Disclosure activity on this gateway"],
+    overview: ["Overview", "Disclosure activity across the gateway"],
+    users: ["Users", "Activity, refusals and remaining budget per principal"],
     audit: ["Audit trail", "Every answer and refusal, hash-chained across replicas"],
     access: ["Access", "Who can call the gateway"],
     policy: ["Policy & schema", "Admission controls and column protection in force"],
   };
+  let page = "overview";
   function route() {
-    const page = (location.hash || "#overview").slice(1);
-    const name = PAGES[page] ? page : "overview";
-    if (route.current && route.current !== name) window.scrollTo(0, 0);
-    route.current = name;
+    const name = PAGES[(location.hash || "#overview").slice(1)] ? (location.hash || "#overview").slice(1) : "overview";
+    if (page !== name) window.scrollTo(0, 0);
+    page = name;
     for (const p of Object.keys(PAGES)) $("page-" + p).classList.toggle("active", p === name);
     document.querySelectorAll(".nav a").forEach(a => {
       if (a.dataset.page === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -717,13 +947,13 @@ td.r, th.r { text-align: right; }
     $("page-sub").textContent = PAGES[name][1];
     document.title = PAGES[name][0] + " · Tokenis Console";
     $("app").classList.remove("nav-open");
+    if (data) refreshExtras();
   }
   window.addEventListener("hashchange", route);
   $("menu").addEventListener("click", () => $("app").classList.add("nav-open"));
   $("scrim").addEventListener("click", () => $("app").classList.remove("nav-open"));
-  route();
 
-  /* ------------------------------------------------------------- charts */
+  /* ------------------------------------------------------ charts */
   const tip = $("tip");
   function showTip(ev, title, rows) {
     tip.replaceChildren(h("div", { class: "t-title", text: title }),
@@ -736,18 +966,23 @@ td.r, th.r { text-align: right; }
     tip.style.left = x + "px"; tip.style.top = y + "px";
   }
   const hideTip = () => tip.classList.remove("show");
-
   function niceMax(v) {
     if (v <= 4) return 4;
     const p = Math.pow(10, Math.floor(Math.log10(v)));
     for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
     return 10 * p;
   }
-  function traffic(timeline) {
+  function bucketLabel(t, step) {
+    const d = new Date(t * 1000);
+    if (step < 86400 && range !== "7d" && range !== "30d") return d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    return d.toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  }
+  function traffic(timeline, step) {
     const box = $("traffic");
-    const W = 600, H = 200, n = timeline.length, gap = 2.2, bw = W / n - gap;
+    const n = Math.max(1, timeline.length);
+    const W = 600, H = 200, gap = n > 50 ? 2.2 : 3, bw = W / n - gap;
     const max = niceMax(Math.max(...timeline.map(b => b.ok + b.denied + b.other), 0));
-    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": "Tool calls per minute" });
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": "Tool calls over time" });
     for (let i = 1; i <= 4; i++) {
       const y = H - (H * i) / 4 + .5;
       svg.append(svgEl("line", { class: "grid-line", x1: 0, x2: W, y1: y, y2: y, "stroke-dasharray": i === 4 ? "0" : "3 4", "vector-effect": "non-scaling-stroke" }));
@@ -764,19 +999,27 @@ td.r, th.r { text-align: right; }
         y -= hgt;
         g.append(svgEl("rect", { class: "bar f-" + key, x, y, width: Math.max(1, bw), height: hgt, rx: 1.5 }));
       }
-      const time = new Date(b.t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-      g.addEventListener("mousemove", ev => showTip(ev, time, [
+      g.addEventListener("mousemove", ev => showTip(ev, bucketLabel(b.t, step), [
         ["sw-ok", "Answered", nf.format(b.ok)], ["sw-denied", "Denied", nf.format(b.denied)], ["sw-other", "Other", nf.format(b.other)],
       ]));
       g.addEventListener("mouseleave", hideTip);
       svg.append(g);
     });
-    box.replaceChildren(svg, h("span", { class: "ymax", text: nf.format(max) + " / min" }));
+    const unit = step >= 3600 ? (step / 3600) + " h" : (step / 60) + " min";
+    box.replaceChildren(svg, h("span", { class: "ymax", text: nf.format(max) + " / " + unit }));
+    const axis = $("axis");
+    axis.replaceChildren();
+    if (timeline.length) {
+      for (let i = 0; i < 5; i++) {
+        const b = timeline[Math.min(timeline.length - 1, Math.round(i * (timeline.length - 1) / 4))];
+        axis.append(h("span", { text: i === 4 ? "now" : bucketLabel(b.t, step) }));
+      }
+    }
   }
   function spark(el, values, tone) {
     el.replaceChildren();
     el.setAttribute("class", "spark spark-" + tone);
-    if (!values.length || Math.max(...values) === 0) return;
+    if (values.length < 2 || Math.max(...values) === 0) return;
     const max = Math.max(...values), n = values.length;
     const pts = values.map((v, i) => [(i / (n - 1)) * 100, 38 - (v / max) * 32]);
     const id = el.id + "-g";
@@ -789,9 +1032,18 @@ td.r, th.r { text-align: right; }
       svgEl("polygon", { points: `0,40 ${line} 100,40`, fill: `url(#${id})` }),
       svgEl("polyline", { class: "line", points: line, "stroke-width": "1.6", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
   }
+  function delta(cur, prev, upIsGood, asPoints) {
+    if (!prev && !cur) return h("span", { class: "delta flat", text: "no change" });
+    if (!prev) return h("span", { class: "delta flat", text: "new" });
+    const change = asPoints ? cur - prev : ((cur - prev) / prev) * 100;
+    if (Math.abs(change) < 0.5) return h("span", { class: "delta flat", text: "±0" + (asPoints ? " pt" : "%") });
+    const good = (change > 0) === upIsGood;
+    return h("span", { class: "delta " + (good ? "up" : "down"),
+      text: (change > 0 ? "▲ " : "▼ ") + Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0) + (asPoints ? " pt" : "%") });
+  }
 
-  /* ------------------------------------------------------------- render */
-  let data = null, filter = "all";
+  /* ------------------------------------------------------ render */
+  let data = null, users = null, activity = null, filter = "all";
 
   function renderHealth(d) {
     const hc = d.health || {};
@@ -801,7 +1053,7 @@ td.r, th.r { text-align: right; }
         ? ["i-db", "Shared state", hc.database === "ok" ? "PostgreSQL connected" : "Database unreachable", hc.database === "ok" ? "tone-ok" : "tone-bad"]
         : ["i-db", "State", "Local file", "tone-accent"],
       ["i-shield", "History integrity", hc.state === "consistent" ? "Hash chain consistent" : "Diverged — restart needed", hc.state === "consistent" ? "tone-ok" : "tone-bad"],
-      ["i-server", "Replica", d.replica + " · pid " + d.pid, "tone-accent"],
+      ["i-server", "Serving this console", d.replica + " · pid " + d.pid, "tone-accent"],
     ];
     $("health").replaceChildren(...items.map(([ic, label, value, tone]) =>
       h("div", {}, h("span", { class: "h-icon " + tone }, icon(ic)), h("div", {}, h("div", { class: "h-label", text: label }), h("div", { class: "h-value", title: value, text: value })))));
@@ -809,25 +1061,33 @@ td.r, th.r { text-align: right; }
 
   function renderOverview(d) {
     renderHealth(d);
-    const tl = d.timeline || [];
+    const st = d.stats || { timeline: [], totals: {}, previous: {}, tools: {}, denials_by_rule: {}, replicas: [], latency: {} };
+    const rt = RANGE_TEXT[st.range] || RANGE_TEXT[range];
+    const scope = st.scope === "cluster" ? "all replicas" : "this replica";
+    const tl = st.timeline || [];
     const totals = tl.map(b => b.ok + b.denied + b.other);
-    const calls = totals.reduce((a, b) => a + b, 0);
-    const denied = tl.reduce((a, b) => a + b.denied, 0);
+    const sumObj = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
+    const calls = st.scope === "cluster" ? sumObj(st.totals) : totals.reduce((a, b) => a + b, 0);
+    const denied = st.scope === "cluster" ? (st.totals.denied || 0) : tl.reduce((a, b) => a + b.denied, 0);
+    const prevCalls = sumObj(st.previous), prevDenied = (st.previous || {}).denied || 0;
+
     $("k-records").textContent = nf.format(d.records);
     $("k-records-foot").replaceChildren(h("span", { text: d.columns.filter(c => c.protection === "sealed").length + " sealed columns" }));
+    $("k-calls-label").textContent = "Tool calls · " + (st.range || range);
     $("k-calls").textContent = cf.format(calls);
-    const last5 = totals.slice(-5).reduce((a, b) => a + b, 0);
-    $("k-calls-foot").textContent = (last5 / 5).toFixed(1) + " / min lately";
-    spark($("s-calls"), totals.slice(-30), "accent");
+    $("k-calls-foot").replaceChildren(st.scope === "cluster" ? delta(calls, prevCalls, true) : "", h("span", { text: st.scope === "cluster" ? "vs previous period" : "this replica, last hour" }));
+    spark($("s-calls"), totals, "accent");
     const rate = calls ? (100 * denied) / calls : 0;
+    const prevRate = prevCalls ? (100 * prevDenied) / prevCalls : 0;
     $("k-denied").replaceChildren(calls ? rate.toFixed(rate < 10 ? 1 : 0) : "—", calls ? h("small", { text: "%" }) : "");
-    $("k-denied-foot").textContent = calls ? nf.format(denied) + " of " + nf.format(calls) + " refused" : "No calls yet";
-    spark($("s-denied"), tl.slice(-30).map(b => b.denied), "bad");
-    const lat = d.latency || {};
+    $("k-denied-foot").replaceChildren(calls && st.scope === "cluster" ? delta(rate, prevRate, false, true) : "",
+      h("span", { text: calls ? nf.format(denied) + " of " + nf.format(calls) + " refused" : "No calls in range" }));
+    spark($("s-denied"), tl.map(b => b.denied), "bad");
+    const lat = st.latency || {};
     if (lat.p95 != null) {
-      const ms = lat.p95 * 1000;
+      const ms = lat.p95;
       $("k-latency").replaceChildren(ms >= 1000 ? (ms / 1000).toFixed(2) : Math.round(ms), h("small", { text: ms >= 1000 ? "s" : "ms" }));
-      $("k-latency-foot").textContent = "p50 " + Math.round(lat.p50 * 1000) + " ms · padded to " + d.policy.latency_granularity_ms + " ms";
+      $("k-latency-foot").textContent = "p50 " + Math.round(lat.p50) + " ms · padded to " + d.policy.latency_granularity_ms + " ms";
     } else {
       $("k-latency").textContent = "—";
       $("k-latency-foot").textContent = "Padded to " + d.policy.latency_granularity_ms + " ms quanta";
@@ -835,23 +1095,26 @@ td.r, th.r { text-align: right; }
     $("k-trace").textContent = d.trace_entries == null ? "—" : cf.format(d.trace_entries);
     $("k-trace-foot").textContent = d.trace_error ? "Storage unavailable" : "Signed, hash-chained";
 
-    traffic(tl.length ? tl : Array.from({ length: 60 }, (_, i) => ({ t: 0, ok: 0, denied: 0, other: 0 })));
+    $("traffic-sub").textContent = `Tool calls per ${st.step_seconds >= 3600 ? (st.step_seconds / 3600) + " h" : (st.step_seconds / 60) + " min"} · ${rt} · ${scope}`;
+    traffic(tl.length ? tl : [], st.step_seconds || 60);
 
-    const rules = Object.entries(d.denials_by_rule || {}).sort((a, b) => b[1] - a[1]);
+    $("rules-sub").textContent = `Why questions were refused · ${rt}`;
+    const rules = Object.entries(st.denials_by_rule || {}).sort((a, b) => b[1] - a[1]);
     const rmax = Math.max(1, ...rules.map(r => r[1]));
     $("rules").replaceChildren(...(rules.length ? rules.map(([rule, n]) => {
       const fill = h("div", { class: "fill" });
       fill.style.width = (100 * n / rmax) + "%";
       return h("div", { class: "rule-row" },
-        h("span", { class: "badge rule", text: rule }),
+        h("span", { class: "badge rule", text: rule || "—" }),
         h("span", { class: "desc", title: RULES[rule] || rule, text: RULES[rule] || "Refused" }),
         h("span", { class: "n", text: nf.format(n) }),
         h("div", { class: "track" }, fill));
-    }) : [empty("No denials", "Every question so far was answerable.", "i-check")]));
+    }) : [empty("No denials", "Every question in this period was answerable.", "i-check")]));
 
-    const tools = Object.entries(d.tools || {}).map(([tool, o]) => {
-      const total = Object.values(o).reduce((a, b) => a + b, 0);
-      return { tool, total, ok: o.ok || 0, denied: o.denied || 0, bad: (o.invalid || 0) + (o.error || 0) + (o.unauthenticated || 0) };
+    $("tools-sub").textContent = `Outcomes · ${rt} · ${scope}`;
+    const tools = Object.entries(st.tools || {}).map(([tool, o]) => {
+      const total = sumObj(o);
+      return { tool, total, ok: o.ok || 0, denied: o.denied || 0, bad: total - (o.ok || 0) - (o.denied || 0) };
     }).sort((a, b) => b.total - a.total);
     table($("tools"), [{ label: "Tool" }, { label: "Calls", cls: "r" }, { label: "Answered", cls: "r hide-sm" }, { label: "Denied", cls: "r hide-sm" }, { label: "Mix" }],
       tools.map(t => {
@@ -861,9 +1124,9 @@ td.r, th.r { text-align: right; }
           const s = h("span", { class: cls }); s.style.width = (100 * v / t.total) + "%"; bar.append(s);
         }
         return [h("span", { class: "mono", text: t.tool }), nf.format(t.total), nf.format(t.ok), nf.format(t.denied), bar];
-      }), empty("No tool calls yet", "Calls appear here as soon as a client queries this replica."));
+      }), empty("No tool calls in this period", "Calls appear here as soon as a client queries the gateway.", "i-activity"));
 
-    const recent = (d.recent || []).slice(0, 7);
+    const recent = (d.recent || []).slice(0, 6);
     $("activity").replaceChildren(...(recent.length ? recent.map(e => {
       const ok = e.decision === "permit";
       return h("div", { class: "item" },
@@ -871,8 +1134,70 @@ td.r, th.r { text-align: right; }
         h("div", { class: "what" },
           h("div", { class: "top" }, h("span", { text: e.principal }), !ok && e.rule ? h("span", { class: "badge rule", text: e.rule }) : null),
           h("div", { class: "bottom mono muted", title: e.object, text: e.object })),
-        h("time", { datetime: new Date(e.time * 1000).toISOString(), title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time) }));
+        h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time) }));
     }) : [empty("No activity yet", "Answers and refusals will be listed here.", "i-audit")]));
+
+    $("replicas-sub").textContent = `Gateway processes that served calls · ${rt}`;
+    const reps = st.replicas || [];
+    const now = Date.now() / 1000;
+    $("replicas").replaceChildren(...(reps.length ? reps.map(r => {
+      const age = now - r.last_seen;
+      const state = age < 120 ? "live" : age < 900 ? "idle" : "gone";
+      const mine = r.replica === `${d.replica}:${d.pid}`;
+      return h("div", { class: "rep-row" },
+        h("span", { class: "status-dot " + state, title: state === "live" ? "Served a call in the last 2 minutes" : state === "idle" ? "Quiet for a few minutes" : "No calls recently" }),
+        h("span", { class: "rep-name", title: r.replica, text: r.replica }),
+        mine ? h("span", { class: "tag", text: "this console" }) : h("span"),
+        h("span", { class: "rep-meta", text: `${cf.format(r.calls)} calls · ${ago(r.last_seen)}` }));
+    }) : [empty(st.scope === "cluster" ? "No replica served calls in this period" : "Per-replica view", st.scope === "cluster" ? "Replicas appear once they answer a call." : "Cluster statistics need a state backend.", "i-server")]));
+
+    renderTopUsers();
+  }
+
+  function renderTopUsers() {
+    const box = $("topusers");
+    $("topusers-sub").textContent = `Most active principals · ${RANGE_TEXT[range]}`;
+    if (!users) { box.replaceChildren(h("div", { class: "empty" }, h("span", { class: "skeleton", text: "loading users" }))); return; }
+    const top = users.principals.filter(u => u.calls > 0).slice(0, 5);
+    box.replaceChildren(...(top.length ? top.map(u => {
+      const rate = u.calls ? Math.round(100 * u.denied / u.calls) : 0;
+      return h("div", { class: "item" }, who(u.principal),
+        h("span", { class: "muted" }, h("span", { class: "num", text: nf.format(u.calls) }), ` calls · ${rate}% refused`));
+    }) : [empty("No users active in this period", "Principals appear after their first call.", "i-users")]));
+  }
+
+  function budgetCell(b) {
+    if (!b) return h("span", { class: "muted", text: "—" });
+    const used = b.budget ? b.used / b.budget : 0;
+    const fill = h("span", { class: used >= 1 ? "out" : used >= 0.8 ? "hot" : null });
+    fill.style.width = Math.min(100, used * 100) + "%";
+    return h("div", { class: "budget" }, h("div", { class: "bar" }, fill),
+      h("span", { class: "label", text: `${nf.format(b.remaining)} of ${nf.format(b.budget)} left · ${b.window === "total" ? "lifetime" : "per " + b.window}` }));
+  }
+
+  function renderUsers() {
+    if (!users) return;
+    const q = $("uq").value.trim().toLowerCase();
+    const rows = users.principals.filter(u => !q || u.principal.toLowerCase().includes(q));
+    $("users-count").textContent = `${nf.format(rows.length)} users · ${RANGE_TEXT[range]}`;
+    $("nav-users").textContent = users.principals.length ? String(users.principals.length) : "";
+    table($("users"), [
+      { label: "User" }, { label: "Calls", cls: "r" }, { label: "Answered", cls: "r hide-sm" }, { label: "Denied", cls: "r" },
+      { label: "Denial rate", cls: "r hide-sm" }, { label: "Top refusal", cls: "hide-sm" }, { label: "Budget" }, { label: "Last seen", cls: "hide-sm" },
+    ], rows.map(u => {
+      const top = Object.entries(u.rules || {}).sort((a, b) => b[1] - a[1])[0];
+      const rate = u.calls ? (100 * u.denied / u.calls) : 0;
+      return [who(u.principal), nf.format(u.calls), nf.format(u.answered), nf.format(u.denied),
+        h("span", { class: rate >= 25 ? "deny" : "muted", text: u.calls ? rate.toFixed(rate < 10 ? 1 : 0) + "%" : "—" }),
+        top ? h("span", { class: "badge rule", title: RULES[top[0]] || "", text: `${top[0]} × ${top[1]}` }) : h("span", { class: "muted", text: "—" }),
+        budgetCell(u.budget),
+        h("span", { class: "muted", title: u.last_seen ? stamp(u.last_seen) : "", "data-ago": u.last_seen ? String(u.last_seen) : null, text: ago(u.last_seen) })];
+    }), empty(q ? "No matching users" : "No users yet", q ? "Try another search." : "Create an API key on the Access page.", "i-users"),
+    (i) => { $("q").value = rows[i].principal; filter = "all"; syncDecision(); location.hash = "#audit"; if (data) renderAudit(data); });
+  }
+
+  function syncDecision() {
+    document.querySelectorAll("#decision button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.f === filter)));
   }
 
   function renderAudit(d) {
@@ -880,7 +1205,7 @@ td.r, th.r { text-align: right; }
     const rows = (d.recent || []).filter(e =>
       (filter === "all" || e.decision === filter) &&
       (!q || [e.principal, e.object, e.purpose, e.rule, e.kind].some(v => (v || "").toLowerCase().includes(q))));
-    $("audit-count").textContent = `${nf.format(rows.length)} of ${nf.format((d.recent || []).length)} latest · ${nf.format(d.trace_entries || 0)} total`;
+    $("audit-count").textContent = `${nf.format(rows.length)} of latest ${nf.format((d.recent || []).length)} · ${nf.format(d.trace_entries || 0)} total`;
     table($("audit"), [
       { label: "#", cls: "r" }, { label: "Time" }, { label: "Principal" }, { label: "Request" },
       { label: "Purpose", cls: "hide-sm" }, { label: "Decision" }, { label: "Rule" },
@@ -893,33 +1218,65 @@ td.r, th.r { text-align: right; }
       e.decision === "permit" ? pill("Answered", "tone-ok") : pill("Denied", "tone-bad"),
       e.rule ? h("span", { class: "badge rule", title: RULES[e.rule] || "", text: e.rule }) : h("span", { class: "muted", text: "—" }),
     ]), empty(q || filter !== "all" ? "No matching entries" : "The audit trail is empty",
-      q || filter !== "all" ? "Try a different search or filter." : "Entries appear with the first tool call.", "i-search"));
+      q || filter !== "all" ? "Try a different search or filter; the export covers the whole period." : "Entries appear with the first tool call.", "i-search"));
     $("nav-audit").textContent = d.trace_entries ? cf.format(d.trace_entries) : "";
   }
 
+  let revokeTarget = null;
   function renderAccess(d) {
     const keys = d.api_keys;
+    const managed = !!d.key_management;
     const active = (keys || []).filter(k => !k.revoked);
     const principals = new Set(active.map(k => k.principal));
     const kpi = (ic, label, value, foot) => h("div", { class: "card kpi" },
       h("div", { class: "label" }, icon(ic), label), h("div", { class: "value", text: value }), h("div", { class: "foot", text: foot }));
     $("access-kpis").replaceChildren(
-      kpi("i-key", "Active keys", keys ? nf.format(active.length) : "—", keys ? nf.format(keys.length - active.length) + " revoked" : "Not using API keys"),
-      kpi("i-users", "Principals", keys ? nf.format(principals.size) : "—", "With at least one active key"),
-      kpi("i-shield", "Authentication", keys ? "API keys" : "JWT / other", keys ? "Stored as SHA-256 hashes" : "Managed by your identity provider"));
-    $("nav-keys").textContent = keys ? String(active.length) : "";
-    if (!keys) {
+      kpi("i-key", "Active keys", managed ? nf.format(active.length) : "—", managed ? nf.format((keys || []).length - active.length) + " revoked" : "Not using API keys"),
+      kpi("i-users", "Principals", managed ? nf.format(principals.size) : "—", "With at least one active key"),
+      kpi("i-shield", "Authentication", managed ? "API keys" : "JWT", managed ? "Stored as SHA-256 hashes" : "Managed by your identity provider"));
+    $("nav-keys").textContent = managed ? String(active.length) : "";
+    $("new-key").disabled = !managed;
+    $("new-key").title = managed ? "" : "Keys are managed by your identity provider";
+    if (!managed) {
       $("keys").replaceChildren(h("tbody", {}, h("tr", {}, h("td", {}, empty("API keys are not in use", "This gateway authenticates callers with JWTs from your identity provider.", "i-key")))));
       return;
     }
     const sorted = [...keys].sort((a, b) => (a.revoked - b.revoked) || (b.created_at - a.created_at));
-    table($("keys"), [{ label: "Key ID" }, { label: "Principal" }, { label: "Created" }, { label: "Status" }],
-      sorted.map(k => [
-        h("span", { class: "mono", text: k.key_id }),
-        who(k.principal),
-        h("time", { title: stamp(k.created_at), "data-ago": String(k.created_at), text: ago(k.created_at), class: "muted" }),
-        k.revoked ? pill("Revoked", "tone-bad") : pill("Active", "tone-ok"),
-      ]), empty("No API keys yet", "Create one with the command below.", "i-key"));
+    table($("keys"), [{ label: "Key ID" }, { label: "Principal" }, { label: "Created" }, { label: "Status" }, { label: "", cls: "r" }],
+      sorted.map(k => {
+        let action = h("span");
+        if (!k.revoked) {
+          action = h("button", { class: "btn sm subtle-danger" }, icon("i-ban"), "Revoke");
+          action.addEventListener("click", () => {
+            revokeTarget = k;
+            $("revoke-text").textContent = `Key ${k.key_id} for ${k.principal} stops working on every replica with the next request. This cannot be undone; issue a new key if needed.`;
+            $("dlg-revoke").showModal();
+          });
+        }
+        return [h("span", { class: "mono", text: k.key_id }), who(k.principal),
+          h("time", { title: stamp(k.created_at), "data-ago": String(k.created_at), text: ago(k.created_at), class: "muted" }),
+          k.revoked ? pill("Revoked", "tone-bad") : pill("Active", "tone-ok"), action];
+      }), empty("No API keys yet", "Create the first one with “New API key”.", "i-key"));
+  }
+
+  function shortSource(src) {
+    const text = String(src || ""), cut = text.indexOf(";");
+    const addr = cut < 0 ? text : text.slice(0, cut), agent = cut < 0 ? "" : text.slice(cut + 1);
+    const browser = /Edg\//.test(agent) ? "Edge" : /Chrome\//.test(agent) ? "Chrome" : /Firefox\//.test(agent) ? "Firefox"
+      : /Safari\//.test(agent) ? "Safari" : /curl|python|httpx/i.test(agent) ? "script" : agent.trim().split("/")[0];
+    return addr.trim() + (browser ? " · " + browser : "");
+  }
+
+  function renderActivity() {
+    if (!activity) return;
+    const ACTION = { "create key": ["Key created", "tone-ok"], "revoke key": ["Key revoked", "tone-bad"], "export": ["Export", "tone-accent"] };
+    table($("admin-log"), [{ label: "Time" }, { label: "Action" }, { label: "Target" }, { label: "Detail", cls: "hide-sm" }, { label: "From", cls: "hide-sm" }],
+      activity.events.map(e => {
+        const [label, tone] = ACTION[e.action] || [e.action, "tone-accent"];
+        return [h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time), class: "muted" }),
+          pill(label, tone), h("span", { class: "mono", text: e.target }), h("span", { class: "muted", text: e.detail || "—" }),
+          h("span", { class: "muted", title: e.source, text: shortSource(e.source) })];
+      }), empty("No admin activity yet", "Keys issued or revoked here, and exports, are recorded.", "i-history"));
   }
 
   function renderPolicy(d) {
@@ -953,6 +1310,7 @@ td.r, th.r { text-align: right; }
     t.textContent = d.tenant;
     $("tenant-meta").textContent = `Epoch ${d.epoch} · ${d.state_backend === "postgres" ? "shared state" : "file state"} · up ${duration(d.uptime_seconds)}`;
     $("version").textContent = "Tokenis v" + d.version;
+    $("scope-note").textContent = d.stats && d.stats.scope === "cluster" ? "Cluster view" : "Single replica";
   }
 
   function render() {
@@ -964,8 +1322,8 @@ td.r, th.r { text-align: right; }
     renderPolicy(data);
   }
 
-  /* ------------------------------------------------------------ polling */
-  let paused = store.get("paused") === "1", timer = null, lastOk = 0, failing = false;
+  /* ----------------------------------------------------- polling */
+  let paused = store.get("paused") === "1", timer = null, lastOk = 0, failing = false, inflight = false;
   function setLive() {
     const live = $("live");
     live.classList.toggle("paused", paused);
@@ -975,25 +1333,35 @@ td.r, th.r { text-align: right; }
     btn.replaceChildren(icon(paused ? "i-play" : "i-pause"));
     btn.title = btn.ariaLabel = paused ? "Resume live updates" : "Pause live updates";
   }
-  async function refresh() {
+  async function refreshExtras() {
     try {
-      const r = await fetch("admin/api/summary?recent=250", { credentials: "same-origin", cache: "no-store" });
-      if (r.status === 401) throw new Error("Your session expired. Reload the page to sign in again.");
-      if (!r.ok) throw new Error("The gateway answered HTTP " + r.status + ".");
-      data = await r.json();
+      if (page === "overview" || page === "users") { users = await api(`admin/api/principals?range=${range}`); renderTopUsers(); renderUsers(); }
+      if (page === "access") { activity = await api("admin/api/activity"); renderActivity(); }
+    } catch (e) { /* the main refresh reports connection problems */ }
+  }
+  async function refresh() {
+    if (inflight) return;
+    inflight = true;
+    try {
+      data = await api(`admin/api/summary?recent=300&range=${range}`);
       lastOk = Date.now(); failing = false;
       $("banner").classList.remove("show");
       render();
+      await refreshExtras();
+      if (data.stats_error) toast("Statistics are temporarily unavailable (" + data.stats_error + ")", "bad");
     } catch (e) {
       failing = true;
       $("banner-txt").textContent = "Could not refresh: " + (e.message || e);
       $("banner").classList.add("show");
+    } finally {
+      inflight = false;
     }
     setLive();
   }
   function schedule() {
     clearInterval(timer);
-    if (!paused) timer = setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_MS);
+    const every = range === "7d" || range === "30d" ? 30000 : 10000;
+    if (!paused) timer = setInterval(() => { if (!document.hidden) refresh(); }, every);
   }
   $("pause").addEventListener("click", () => {
     paused = !paused; store.set("paused", paused ? "1" : "0");
@@ -1002,20 +1370,68 @@ td.r, th.r { text-align: right; }
   $("retry").addEventListener("click", refresh);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !paused) refresh(); });
 
+  /* ----------------------------------------------------- actions */
   $("q").addEventListener("input", () => data && renderAudit(data));
-  document.querySelectorAll(".segmented button").forEach(b => b.addEventListener("click", () => {
-    filter = b.dataset.f;
-    document.querySelectorAll(".segmented button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-    if (data) renderAudit(data);
+  $("uq").addEventListener("input", renderUsers);
+  document.querySelectorAll("#decision button").forEach(b => b.addEventListener("click", () => {
+    filter = b.dataset.f; syncDecision(); if (data) renderAudit(data);
   }));
-  document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", async () => {
+  document.querySelectorAll("dialog [data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+
+  $("new-key").addEventListener("click", () => {
+    $("principal").value = ""; $("create-error").textContent = "";
+    $("dlg-create").showModal(); $("principal").focus();
+  });
+  $("create-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const principal = $("principal").value.trim();
+    if (!PRINCIPAL_RE.test(principal)) { $("create-error").textContent = "Use 1-128 letters, digits or . _ @ : + -"; return; }
+    $("create-submit").disabled = true;
+    try {
+      const res = await post("admin/api/keys", { principal });
+      $("dlg-create").close();
+      $("token-for").textContent = `API key ${res.key.key_id} for ${res.key.principal}. Use it as the bearer token of an MCP client.`;
+      $("token-value").textContent = res.token;
+      $("dlg-token").showModal();
+      toast("Key created for " + res.key.principal);
+      refresh();
+    } catch (e) {
+      $("create-error").textContent = e.message;
+    } finally {
+      $("create-submit").disabled = false;
+    }
+  });
+  $("dlg-token").addEventListener("close", () => { $("token-value").textContent = ""; });
+  $("token-copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("token-value").textContent); toast("Key copied to the clipboard"); }
+    catch { toast("Copy failed; select the key and copy it manually", "bad"); }
+  });
+  $("revoke-confirm").addEventListener("click", async () => {
+    if (!revokeTarget) return;
+    const k = revokeTarget;
+    $("revoke-confirm").disabled = true;
+    try {
+      await post(`admin/api/keys/${encodeURIComponent(k.key_id)}/revoke`, {});
+      $("dlg-revoke").close();
+      toast(`Key ${k.key_id} revoked`);
+      refresh();
+    } catch (e) {
+      toast("Revoke failed: " + e.message, "bad");
+    } finally {
+      $("revoke-confirm").disabled = false;
+      revokeTarget = null;
+    }
+  });
+  document.querySelectorAll(".cmd .copy").forEach(b => b.addEventListener("click", async () => {
     const text = b.parentElement.querySelector("code").textContent;
     try { await navigator.clipboard.writeText(text); } catch { return; }
     b.classList.add("done"); b.lastChild.textContent = "Copied";
     setTimeout(() => { b.classList.remove("done"); b.lastChild.textContent = "Copy"; }, 1600);
   }));
   document.addEventListener("keydown", ev => {
-    if (ev.key === "/" && document.activeElement !== $("q")) { location.hash = "#audit"; setTimeout(() => $("q").focus(), 0); ev.preventDefault(); }
+    if (ev.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) && !document.querySelector("dialog[open]")) {
+      location.hash = "#audit"; setTimeout(() => $("q").focus(), 0); ev.preventDefault();
+    }
     if (ev.key === "Escape") $("app").classList.remove("nav-open");
   });
   setInterval(() => {
@@ -1023,6 +1439,7 @@ td.r, th.r { text-align: right; }
     setLive();
   }, 15000);
 
+  route();
   setLive();
   refresh();
   schedule();

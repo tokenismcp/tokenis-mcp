@@ -140,7 +140,8 @@ Code references are to this repository; tests are in `tests/` unless stated.
 
 | # | Threat | Mitigation | Code | Evidence |
 |---|---|---|---|---|
-| T30 | Dashboard leaks values or is scriptable | No values in the summary API; nonce CSP; `textContent` only; constant-time token check; no-store | `ops.py`, `assets/admin.html` | `test_ops.py::test_admin_dashboard_requires_the_token_and_hides_values` |
+| T30 | Dashboard leaks values or is scriptable | No values in the summary API, the statistics or the exports; nonce CSP; `textContent` only; constant-time token check; no-store; spreadsheet formulas neutralised in CSV exports | `ops.py`, `calllog.py`, `assets/admin.html` | `test_ops.py::test_admin_dashboard_requires_the_token_and_hides_values`, `test_console.py::test_exports_are_csv_logged_and_free_of_values`, `test_csv_neutralises_spreadsheet_formulas` |
+| T38 | Another site makes a signed-in administrator's browser issue or revoke keys (CSRF) | Write actions require a JSON body, a custom header (forcing a CORS preflight the server never approves) and a same-origin `Origin`; every issue, revocation and export is written to the admin activity log with its source | `ops.py::_guard`, `calllog.py::admin_event` | `test_console.py::test_key_management_is_protected_against_csrf_and_needs_the_token` |
 | T31 | Metrics leak data, or tell a caller why they were refused | Only counts by tool and outcome; the per-rule breakdown only when `/metrics` requires a token | `ops.py::Metrics` | `test_metrics_count_outcomes_and_rules_without_values`, `test_open_metrics_do_not_reveal_denial_rules` |
 | T32 | Tampered release artifact | Build provenance attestations, Sigstore keyless signatures, SHA256SUMS, CycloneDX SBOMs | `.github/workflows/release.yml` | [verifying-releases.md](verifying-releases.md) |
 | T33 | Vulnerable dependency | `cargo audit`, `cargo deny`, `pip-audit`, `npm audit` in CI | `.github/workflows/ci.yml` | CI |

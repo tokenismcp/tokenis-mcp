@@ -165,11 +165,17 @@ def cmd_serve(args: argparse.Namespace) -> None:
             _die(f"[ops] {what}: set {env_name} to a secret of at least 16 characters")
         return token
 
+    from tokenis.config import open_call_log
+
     metrics = Metrics()
+    try:
+        call_log = open_call_log(config)
+    except ConfigError as exc:
+        _die(str(exc))
     server = create_server(
         service, principal_resolver=authenticated_principal, taint_resolver=taint,
         token_verifier=verifier, auth=auth, max_concurrency=concurrency,
-        log_level=args.log_level, metrics=metrics,
+        log_level=args.log_level, metrics=metrics, call_log=call_log,
     )
     allowed = list(server_cfg.allowed_hosts) if server_cfg else []
     public_host = urlparse(public_url).netloc
@@ -189,6 +195,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         metrics_token=metrics_token,
         key_store=key_store,
         admin_hosts=allowed if security is not None else None,
+        call_log=call_log,
     )
     if security is not None and metrics_token is None:
         log.warning("/metrics is open on %s:%d; per-rule denial counts are withheld. Set [ops] "

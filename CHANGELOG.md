@@ -54,6 +54,22 @@ the end records how the crypto layer got here.
   extra, each Rust crate and the npm SDK. The container image is signed,
   and its SBOM and provenance are attested in the registry.
 
+### Added (admin console)
+- **Cluster-wide, persistent statistics:** every call (tool, principal,
+  outcome, rule, time, replica; never an argument or a value) is recorded
+  in the shared database (or SQLite for one server), written in the
+  background. The console shows the same numbers on every replica over
+  1 hour, 24 hours, 7 days or 30 days, compared with the previous period,
+  and nothing resets on restart. Latency percentiles are exact.
+- **Users page:** calls, refusals, top refusal rule and remaining budget
+  per principal. **Replicas** and **top users** panels on the overview.
+- **Key management in the console:** issue a key (shown once) and revoke
+  one, with CSRF protection, and an **admin activity log** of every issue,
+  revocation and export.
+- **CSV exports** of calls and of the audit trail (no values; spreadsheet
+  formulas neutralised).
+- `[ops] stats_retention_days` (default 90).
+
 ### Security
 - Shared state: a replica rebuilding after a database error now checks
   that the last committed record is still there, so a failover to a

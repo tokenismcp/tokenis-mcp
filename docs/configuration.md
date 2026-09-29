@@ -212,6 +212,7 @@ Command-line flags `--transport`, `--host` and `--port` override these.
 | Key | Default | Meaning |
 |---|---|---|
 | `admin_token_env` | none | Variable holding the admin console password (at least 16 characters). Without it, `/admin` does not exist |
+| `stats_retention_days` | `90` | How long the per-call statistics behind the admin console are kept (1-3650) |
 | `metrics_token_env` | none | Variable holding a bearer token required on `/metrics`. Without it, `/metrics` is open (scrape it from inside your network) and denials are not broken down by rule |
 
 Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`

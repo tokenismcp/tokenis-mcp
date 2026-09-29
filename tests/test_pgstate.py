@@ -309,3 +309,24 @@ def test_a_reset_elsewhere_stops_old_replicas(tmp_path, tenant):
     build_service(cfg, environ=env(), reset_admission_state=True)
     with pytest.raises(StateMismatchError, match="reset or replaced"):
         total(old, {"region": "busan"})
+
+
+def test_console_statistics_are_shared_by_replicas(tenant):
+    """The admin console's numbers come from one table every replica writes."""
+    from tokenis.calllog import PostgresCallLog
+
+    a = PostgresCallLog(URL, tenant, replica="replica-a")
+    b = PostgresCallLog(URL, tenant, replica="replica-b")
+    for i in range(12):
+        a.record("aggregate", f"user{i % 3}", "denied" if i % 4 == 0 else "ok", "D2" if i % 4 == 0 else None, 0.26)
+    for _ in range(5):
+        b.record("group_by", "user9", "ok", None, 0.51)
+    b.flush()
+    for view in (a.overview("1h"), b.overview("1h")):  # the same from either replica
+        assert view["totals"] == {"ok": 14, "denied": 3} and view["denials_by_rule"] == {"D2": 3}
+        assert {r["replica"] for r in view["replicas"]} == {"replica-a", "replica-b"}
+        assert view["latency"]["p50"] == 260.0 and view["latency"]["p99"] == 510.0
+    assert {r["principal"] for r in a.principals("24h")} == {"user0", "user1", "user2", "user9"}
+    assert len(list(b.export("1h"))) == 17
+    a.admin_event("admin console", "revoke key", "abc123", "", "10.0.0.1")
+    assert b.admin_events()[0]["target"] == "abc123"

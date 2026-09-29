@@ -205,6 +205,7 @@ def create_server(
     max_concurrency: int = 16,
     log_level: str = "WARNING",
     metrics: Optional[Metrics] = None,
+    call_log: Optional[Any] = None,
 ) -> MCPServer:
     """An :class:`MCPServer` for ``service``. See the module docstring for
     how to choose ``principal_resolver``; ``token_verifier`` and ``auth``
@@ -233,7 +234,7 @@ def create_server(
 
     async def run(ctx: Context, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         start = time.perf_counter()
-        outcome, rule = "error", None
+        outcome, rule, principal = "error", None, ""
         try:
             try:
                 principal = principal_resolver(ctx)
@@ -270,8 +271,11 @@ def create_server(
             raise ToolError("the gateway is temporarily unavailable") from None
         finally:
             await pad_to_granularity_async(start, granularity)
+            elapsed = time.perf_counter() - start
             if metrics is not None:
-                metrics.observe(tool, outcome, time.perf_counter() - start, rule)
+                metrics.observe(tool, outcome, elapsed, rule)
+            if call_log is not None:  # queued; written to the database in batches
+                call_log.record(tool, principal, outcome, rule, elapsed)
 
     schema = svc.schema
     sealed = [c.name for c in schema.sealed]

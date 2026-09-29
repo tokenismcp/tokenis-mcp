@@ -104,7 +104,7 @@ def test_admin_dashboard_requires_the_token_and_hides_values():
 
     data = client.get("/admin/api/summary", headers={"Authorization": f"Bearer {ADMIN}"}).json()
     assert data["records"] == service.record_count and data["trace_entries"] == 1
-    assert data["tools"]["aggregate"]["ok"] == 1
+    assert data["stats"]["tools"]["aggregate"]["ok"] == 1
     assert data["recent"][0]["principal"] == "alice"
     assert "4250000" not in json.dumps(data) and "value_summary" not in json.dumps(data)
 
