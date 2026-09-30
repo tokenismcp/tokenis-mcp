@@ -50,10 +50,22 @@ spec:
             - name: TOKENIS_STATE_URL
               valueFrom:
                 secretKeyRef: {name: {{ .Values.stateDatabase.existingSecret | quote }}, key: {{ .Values.stateDatabase.key | quote }}}
-            {{- if .Values.admin.enabled }}
+            {{- if and .Values.admin.enabled .Values.admin.existingSecret }}
             - name: TOKENIS_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef: {name: {{ .Values.admin.existingSecret | quote }}, key: {{ .Values.admin.key | quote }}}
+            {{- end }}
+            {{- if and .Values.admin.enabled .Values.admin.oidc.enabled }}
+            {{- with .Values.admin.oidc.clientSecret.existingSecret }}
+            - name: TOKENIS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ . | quote }}, key: {{ $.Values.admin.oidc.clientSecret.key | quote }}}
+            {{- end }}
+            {{- with .Values.admin.oidc.sessionSecret.existingSecret }}
+            - name: TOKENIS_CONSOLE_SESSION_SECRET
+              valueFrom:
+                secretKeyRef: {name: {{ . | quote }}, key: {{ $.Values.admin.oidc.sessionSecret.key | quote }}}
+            {{- end }}
             {{- end }}
             {{- if .Values.metrics.tokenSecret }}
             - name: TOKENIS_METRICS_TOKEN

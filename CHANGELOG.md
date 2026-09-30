@@ -55,6 +55,12 @@ the end records how the crypto layer got here.
   and its SBOM and provenance are attested in the registry.
 
 ### Added (admin console)
+- **Single sign-on and roles:** people sign in to the console with the
+  organisation's identity provider (OpenID Connect, PKCE) and get the role
+  the configuration gives them (viewer, auditor, admin), enforced by the
+  server. Every admin activity entry names the person. Sessions are signed
+  cookies shared by all replicas. The admin token remains as a break-glass
+  credential. Helm: `admin.oidc`.
 - **Cluster-wide, persistent statistics:** every call (tool, principal,
   outcome, rule, time, replica; never an argument or a value) is recorded
   in the shared database (or SQLite for one server), written in the

@@ -211,9 +211,35 @@ Command-line flags `--transport`, `--host` and `--port` override these.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `admin_token_env` | none | Variable holding the admin console password (at least 16 characters). Without it, `/admin` does not exist |
+| `admin_token_env` | none | Variable holding the break-glass admin token (at least 16 characters): full console rights with HTTP Basic or bearer auth, for emergencies and automation |
+| `session_secret_env` | derived from the audit key | Variable holding the key that signs console sessions; every replica must share it |
 | `stats_retention_days` | `90` | How long the per-call statistics behind the admin console are kept (1-3650) |
 | `metrics_token_env` | none | Variable holding a bearer token required on `/metrics`. Without it, `/metrics` is open (scrape it from inside your network) and denials are not broken down by rule |
+
+The console exists when `admin_token_env` or `[ops.oidc]` is set.
+
+`[ops.oidc]`: single sign-on for the console with your identity provider
+(Okta, Microsoft Entra ID, Google Workspace, Keycloak, Auth0, Dex, ...)
+using OpenID Connect with PKCE. Register a web application whose redirect URI
+is `<public_url>/admin/auth/callback`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `issuer` | required | The provider's issuer URL (`https://`; `http://` only for localhost) |
+| `client_id` | required | The registered client |
+| `client_secret_env` | none | Variable holding the client secret (confidential clients) |
+| `redirect_url` | `<public_url>/admin/auth/callback` | Must match the registration |
+| `scopes` | `["openid", "email", "profile"]` | Must include `openid` |
+| `identity_claim` | `"email"` | Who the person is (an unverified e-mail address is refused) |
+| `roles_claim` | none | A claim listing groups or roles, e.g. `groups` |
+| `admins`, `auditors`, `viewers` | `[]` | Identities, or `"group:NAME"` for a value of `roles_claim`. People who match no list cannot sign in |
+| `session_hours` | `8` | Session length (0.25-24) |
+
+| Role | Can |
+|---|---|
+| `viewer` | Overview statistics, replicas, policy |
+| `auditor` | Also users, the audit trail, exports, the admin activity log |
+| `admin` | Also issue and revoke API keys |
 
 Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`
 (ready once the ledger is sealed and, with the postgres backend, the

@@ -1,5 +1,15 @@
 # Every optional feature on (used by CI to render and validate the chart).
-admin: {enabled: true}
+admin:
+  enabled: true
+  oidc:
+    enabled: true
+    issuer: https://login.example.com
+    clientId: tokenis-console
+    clientSecret: {existingSecret: tokenis-oidc}
+    rolesClaim: groups
+    admins: ["group:tokenis-admins"]
+    auditors: ["group:security"]
+    viewers: ["group:analysts"]
 keystore: {existingSecret: tokenis-keystore}
 ledger: {existingClaim: tokenis-ledger}
 ingress:

@@ -38,7 +38,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* The full tokenis.toml: the user's config plus the sections the chart owns. */}}
 {{- define "tokenis.toml" -}}
 {{- $cfg := .Values.config -}}
-{{- range $section := list "[server]" "[state]" "[ops]" -}}
+{{- range $section := list "[server]" "[state]" "[ops]" "[ops." -}}
 {{- if regexMatch (printf "(?m)^\\s*\\%s" $section) $cfg -}}
 {{- fail (printf "config must not contain %s: the chart renders it from values (server.*, stateDatabase, admin, metrics)" $section) -}}
 {{- end -}}
@@ -65,10 +65,32 @@ backend = "postgres"
 url_env = "TOKENIS_STATE_URL"
 
 [ops]
-{{- if .Values.admin.enabled }}
+{{- if and .Values.admin.enabled .Values.admin.existingSecret }}
 admin_token_env = "TOKENIS_ADMIN_TOKEN"
 {{- end }}
 {{- if .Values.metrics.tokenSecret }}
 metrics_token_env = "TOKENIS_METRICS_TOKEN"
+{{- end }}
+{{- with .Values.admin.oidc }}
+{{- if and $.Values.admin.enabled .enabled }}
+{{- if .sessionSecret.existingSecret }}
+session_secret_env = "TOKENIS_CONSOLE_SESSION_SECRET"
+{{- end }}
+
+[ops.oidc]
+issuer = {{ required "admin.oidc.issuer is required" .issuer | quote }}
+client_id = {{ required "admin.oidc.clientId is required" .clientId | quote }}
+{{- if .clientSecret.existingSecret }}
+client_secret_env = "TOKENIS_OIDC_CLIENT_SECRET"
+{{- end }}
+identity_claim = {{ .identityClaim | quote }}
+{{- with .rolesClaim }}
+roles_claim = {{ . | quote }}
+{{- end }}
+admins = {{ .admins | toJson }}
+auditors = {{ .auditors | toJson }}
+viewers = {{ .viewers | toJson }}
+session_hours = {{ .sessionHours }}
+{{- end }}
 {{- end }}
 {{- end -}}

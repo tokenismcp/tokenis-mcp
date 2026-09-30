@@ -96,10 +96,28 @@ ledger:
   existingClaim: ""
 
 admin:
-  # Read-only dashboard at /admin; the token from this Secret is its password.
+  # The admin console at /admin.
   enabled: false
+  # Break-glass admin token (full rights; also for automation). Optional
+  # once single sign-on is on: leave existingSecret empty to disable it.
   existingSecret: tokenis-admin
   key: token
+  # Single sign-on with your identity provider (OpenID Connect). Register a
+  # web client whose redirect URI is <server.publicUrl>/admin/auth/callback.
+  oidc:
+    enabled: false
+    issuer: ""                 # e.g. https://login.microsoftonline.com/<tenant>/v2.0
+    clientId: ""
+    clientSecret: {existingSecret: "", key: client-secret}
+    identityClaim: email
+    rolesClaim: ""             # e.g. groups or roles, to grant roles by group
+    admins: []                 # identities, or "group:NAME"
+    auditors: []
+    viewers: []
+    sessionHours: 8
+    # Signs console sessions (shared by all replicas). Not needed when
+    # [keys] is configured: the audit key is used.
+    sessionSecret: {existingSecret: "", key: secret}
 
 metrics:
   # /metrics shares the MCP port, so an Ingress that routes "/" exposes it.

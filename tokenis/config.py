@@ -21,6 +21,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from urllib.parse import urlsplit
 
 from tokenis.gateway.schema import (
     AdmissionSettings,
@@ -137,6 +138,12 @@ class OpsSettings:
     metrics_token_env: Optional[str] = None
     #: How long per-call statistics (the admin console's data) are kept.
     stats_retention_days: int = 90
+    #: Console single sign-on ([ops.oidc]); the client secret, if any, is
+    #: read from ``oidc_client_secret_env`` when serving.
+    oidc: Optional[Any] = None
+    oidc_client_secret_env: Optional[str] = None
+    #: Signs console sessions; defaults to a key derived from the audit key.
+    session_secret_env: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +178,45 @@ def _table(raw: Any, where: str, allowed: Tuple[str, ...]) -> Dict[str, Any]:
     if unknown:
         raise ConfigError(f"[{where}]: unknown key(s) {', '.join(unknown)}")
     return dict(raw)
+
+
+def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettings:
+    """[ops.oidc]: single sign-on for the admin console."""
+    from dataclasses import replace
+
+    from tokenis.console_auth import OidcSettings, parse_members
+
+    o = _table(raw, "ops.oidc", ("issuer", "client_id", "client_secret_env", "redirect_url", "scopes",
+                                 "identity_claim", "roles_claim", "admins", "auditors", "viewers",
+                                 "session_hours"))
+    for key in ("issuer", "client_id"):
+        if not isinstance(o.get(key), str) or not o[key]:
+            raise ConfigError(f"[ops.oidc] {key} is required")
+    public = (server.public_url or f"http://{server.host}:{server.port}").rstrip("/")
+    try:
+        settings = OidcSettings(
+            issuer=o["issuer"], client_id=o["client_id"],
+            redirect_url=str(o.get("redirect_url") or public + "/admin/auth/callback"),
+            scopes=tuple(o.get("scopes", ("openid", "email", "profile"))),
+            identity_claim=str(o.get("identity_claim", "email")),
+            roles_claim=o.get("roles_claim"),
+            admins=parse_members(o.get("admins"), "[ops.oidc] admins"),
+            auditors=parse_members(o.get("auditors"), "[ops.oidc] auditors"),
+            viewers=parse_members(o.get("viewers"), "[ops.oidc] viewers"),
+            session_hours=float(o.get("session_hours", 8)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(str(exc)) from None
+    if "openid" not in settings.scopes:
+        raise ConfigError("[ops.oidc] scopes must include openid")
+    if not (settings.admins or settings.auditors or settings.viewers):
+        raise ConfigError("[ops.oidc] lists nobody: set admins, auditors and/or viewers")
+    if not 0.25 <= settings.session_hours <= 24:
+        raise ConfigError("[ops.oidc] session_hours must be between 0.25 and 24")
+    if not settings.issuer.startswith("https://") and urlsplit(settings.issuer).hostname not in (
+            "localhost", "127.0.0.1", "::1"):
+        raise ConfigError("[ops.oidc] issuer must be https:// (plain http only for localhost)")
+    return replace(ops, oidc=settings, oidc_client_secret_env=o.get("client_secret_env"))
 
 
 def _path(base: Path, value: Any, where: str) -> Path:
@@ -327,11 +373,14 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         raise ConfigError("[server] transport must be stdio or http")
     if server.log_format not in ("text", "json"):
         raise ConfigError("[server] log_format must be text or json")
-    ops = _build(OpsSettings, "[ops]", **_table(top.get("ops"), "ops",
-                                                ("admin_token_env", "metrics_token_env",
-                                                 "stats_retention_days")))
+    ops_raw = _table(top.get("ops"), "ops", ("admin_token_env", "metrics_token_env",
+                                              "stats_retention_days", "oidc", "session_secret_env"))
+    oidc_raw = ops_raw.pop("oidc", None)
+    ops = _build(OpsSettings, "[ops]", **ops_raw)
     if not isinstance(ops.stats_retention_days, int) or not 1 <= ops.stats_retention_days <= 3650:
         raise ConfigError("[ops] stats_retention_days must be 1 to 3650")
+    if oidc_raw is not None:
+        ops = _parse_oidc(oidc_raw, ops, server)
 
     auth_raw = _table(top.get("auth"), "auth", ("mode", "api_keys_file", "jwt"))
     jwt = None
@@ -675,6 +724,23 @@ def open_shared_state(config: TokenisConfig, environ: Optional[Mapping[str, str]
         return PostgresState(url, config.settings.tenant)
     except Exception as exc:  # noqa: BLE001 -- driver errors vary; report them as config errors
         raise ConfigError(_redact(f"cannot open the postgres state: {exc}", url)) from None
+
+
+def console_session_key(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> Optional[bytes]:
+    """The key that signs admin-console sessions -- the same on every replica:
+    ``[ops] session_secret_env`` if set, else derived from the audit key."""
+    import hashlib
+
+    env = os.environ if environ is None else environ
+    if config.ops.session_secret_env:
+        material = read_secret(config.ops.session_secret_env, env)
+    elif config.keys is not None:
+        material = load_secrets(config, env).audit_key
+    elif config.audit_key_env:
+        material = read_secret(config.audit_key_env, env)
+    else:
+        return None
+    return hashlib.sha256(b"tokenis console sessions v1\x00" + material).digest()
 
 
 def open_call_log(config: TokenisConfig, environ: Optional[Mapping[str, str]] = None) -> Any:

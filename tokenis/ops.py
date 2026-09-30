@@ -316,6 +316,9 @@ def install_routes(
     key_store: Any = None,
     admin_hosts: Optional[List[str]] = None,
     call_log: Any = None,
+    oidc: Any = None,
+    session_key: Optional[bytes] = None,
+    secure_cookies: bool = False,
 ) -> None:
     """``admin_hosts``: Host header values the admin console answers to
     (DNS-rebinding protection for the one browser-facing page; probes and
@@ -364,8 +367,28 @@ def install_routes(
         body = await anyio.to_thread.run_sync(metrics.render, service, bool(metrics_token))
         return PlainTextResponse(body, media_type="text/plain; version=0.0.4", headers=no_store)
 
-    if not admin_token:
+    if not admin_token and oidc is None:
         return
+
+    from starlette.responses import RedirectResponse
+
+    from tokenis.console_auth import (
+        FLOW_COOKIE,
+        SESSION_COOKIE,
+        ConsoleAuthError,
+        SessionSigner,
+        at_least,
+        cookie_header,
+        expired_cookie,
+        new_flow,
+        read_cookie,
+    )
+
+    sessions = SessionSigner(session_key, "session") if oidc is not None and session_key else None
+    flows = SessionSigner(session_key, "flow") if oidc is not None and session_key else None
+    if oidc is not None and sessions is None:
+        raise ValueError("single sign-on needs a session key")
+    session_ttl = int(oidc.settings.session_hours * 3600) if oidc is not None else 0
 
     def _host_ok(request: Request) -> bool:
         return not admin_hosts or request.headers.get("host", "") in admin_hosts
@@ -374,23 +397,42 @@ def install_routes(
         return PlainTextResponse("admin token required\n", status_code=401,
                                  headers={"WWW-Authenticate": 'Basic realm="tokenis admin"', **no_store})
 
-    def _guard(request: Request, write: bool = False) -> Optional[Response]:
-        """None if the request may proceed, else the response to send."""
+    def _who(request: Request) -> Optional[Dict[str, str]]:
+        """Who is calling: a console session (single sign-on), or the admin
+        token (break-glass and automation; full rights)."""
+        header = request.headers.get("authorization", "")
+        if admin_token and header and _authorised(header, admin_token):
+            return {"identity": "admin token", "role": "admin", "method": "token"}
+        if sessions is not None:
+            payload = sessions.verify(read_cookie(request.headers.get("cookie", ""), SESSION_COOKIE))
+            if payload and payload.get("role") in ("viewer", "auditor", "admin"):
+                return {"identity": str(payload["sub"]), "role": str(payload["role"]), "method": "sso"}
+        return None
+
+    def _guard(request: Request, need: str = "viewer", write: bool = False) -> Tuple[Optional[Dict[str, str]], Optional[Response]]:
+        """(who, None) if the request may proceed, else (None, response)."""
         if not _host_ok(request):
-            return PlainTextResponse("misdirected request\n", status_code=421)
-        if not _authorised(request.headers.get("authorization", ""), admin_token):
-            return _challenge()
+            return None, PlainTextResponse("misdirected request\n", status_code=421)
+        who = _who(request)
+        if who is None:
+            if oidc is not None:
+                return None, JSONResponse({"error": "sign in required", "login": "admin/auth/login"},
+                                          status_code=401, headers=no_store)
+            return None, _challenge()
+        if not at_least(who["role"], need):
+            return None, JSONResponse({"error": f"this needs the {need} role; you are {who['role']}"},
+                                      status_code=403, headers=no_store)
         if write:
-            # CSRF: browsers send Basic credentials to any page that submits
-            # here. A JSON body plus a custom header force a CORS preflight,
-            # which this server never approves, and the Origin must be ours.
+            # CSRF: a JSON body plus a custom header force a CORS preflight,
+            # which this server never approves, and the Origin must be ours
+            # (the session cookie is also SameSite=Lax).
             origin = request.headers.get("origin")
             host = request.headers.get("host", "")
             if (not request.headers.get("content-type", "").startswith("application/json")
                     or request.headers.get("x-tokenis-console") != "1"
                     or (origin is not None and origin.split("://", 1)[-1] != host)):
-                return JSONResponse({"error": "rejected: not sent by the console"}, status_code=403)
-        return None
+                return None, JSONResponse({"error": "rejected: not sent by the console"}, status_code=403)
+        return who, None
 
     def _source(request: Request) -> str:
         client = request.client.host if request.client else "?"
@@ -398,15 +440,18 @@ def install_routes(
         agent = request.headers.get("user-agent", "")[:300]
         return f"{client}" + (f" (via {forwarded[:60]})" if forwarded else "") + (f"; {agent}" if agent else "")
 
-    def _audit(action: str, target: str, detail: str, request: Request) -> None:
+    def _audit(who: Dict[str, str], action: str, target: str, detail: str, request: Request) -> None:
+        actor = f"{who['identity']} ({who['role']})"
         if call_log is not None:
-            call_log.admin_event("admin console", action, target, detail, _source(request))
-        log.info("admin %s %s %s", action, target, detail)
+            call_log.admin_event(actor, action, target, detail, _source(request))
+        log.info("console %s by %s: %s %s", action, actor, target, detail)
 
     @server.custom_route("/admin/api/summary", methods=["GET"], include_in_schema=False)
     async def admin_summary(request: Request) -> Response:
-        if (denied := _guard(request)) is not None:
+        who, denied = _guard(request)
+        if denied is not None:
             return denied
+        assert who is not None  # noqa: S101 -- _guard returned a caller
         try:
             recent = max(1, min(500, int(request.query_params.get("recent", "100"))))
         except ValueError:
@@ -414,6 +459,11 @@ def install_routes(
         range_key = request.query_params.get("range", "24h")
         data = await anyio.to_thread.run_sync(
             lambda: summary(service, metrics, key_store, recent, call_log, range_key))
+        if not at_least(who["role"], "auditor"):
+            # Viewers see statistics, not who asked what.
+            data.pop("recent", None)
+            data.pop("api_keys", None)
+        data["me"] = {**who, "sso": oidc is not None}
         return JSONResponse(data, headers=no_store)
 
     def _principals(range_key: str) -> Dict[str, Any]:
@@ -432,22 +482,26 @@ def install_routes(
 
     @server.custom_route("/admin/api/principals", methods=["GET"], include_in_schema=False)
     async def admin_principals(request: Request) -> Response:
-        if (denied := _guard(request)) is not None:
+        _, denied = _guard(request, "auditor")
+        if denied is not None:
             return denied
         data = await anyio.to_thread.run_sync(_principals, request.query_params.get("range", "24h"))
         return JSONResponse(data, headers=no_store)
 
     @server.custom_route("/admin/api/activity", methods=["GET"], include_in_schema=False)
     async def admin_activity(request: Request) -> Response:
-        if (denied := _guard(request)) is not None:
+        _, denied = _guard(request, "auditor")
+        if denied is not None:
             return denied
         events = await anyio.to_thread.run_sync(call_log.admin_events) if call_log is not None else []
         return JSONResponse({"events": events}, headers=no_store)
 
     @server.custom_route("/admin/api/keys", methods=["POST"], include_in_schema=False)
     async def admin_create_key(request: Request) -> Response:
-        if (denied := _guard(request, write=True)) is not None:
+        who, denied = _guard(request, "admin", write=True)
+        if denied is not None:
             return denied
+        assert who is not None  # noqa: S101
         if key_store is None:
             return JSONResponse({"error": "this gateway authenticates with JWTs; keys are managed by your "
                                           "identity provider"}, status_code=409)
@@ -457,13 +511,15 @@ def install_routes(
             token, record = await anyio.to_thread.run_sync(key_store.create, principal)
         except ValueError as exc:
             return JSONResponse({"error": str(exc) or "invalid request"}, status_code=400)
-        await anyio.to_thread.run_sync(_audit, "create key", record.key_id, f"principal {principal}", request)
+        await anyio.to_thread.run_sync(_audit, who, "create key", record.key_id, f"principal {principal}", request)
         return JSONResponse({"token": token, "key": record.public_view()}, status_code=201, headers=no_store)
 
     @server.custom_route("/admin/api/keys/{key_id}/revoke", methods=["POST"], include_in_schema=False)
     async def admin_revoke_key(request: Request) -> Response:
-        if (denied := _guard(request, write=True)) is not None:
+        who, denied = _guard(request, "admin", write=True)
+        if denied is not None:
             return denied
+        assert who is not None  # noqa: S101
         if key_store is None:
             return JSONResponse({"error": "no API keys on this gateway"}, status_code=409)
         key_id = request.path_params["key_id"]
@@ -472,7 +528,7 @@ def install_routes(
         revoked = await anyio.to_thread.run_sync(key_store.revoke, key_id)
         if not revoked:
             return JSONResponse({"error": "no active key with that id"}, status_code=404)
-        await anyio.to_thread.run_sync(_audit, "revoke key", key_id, "", request)
+        await anyio.to_thread.run_sync(_audit, who, "revoke key", key_id, "", request)
         return JSONResponse({"revoked": key_id}, headers=no_store)
 
     def _csv(rows: Any, header: List[str]) -> Any:
@@ -502,13 +558,15 @@ def install_routes(
 
         from tokenis.calllog import range_spec
 
-        if (denied := _guard(request)) is not None:
+        who, denied = _guard(request, "auditor")
+        if denied is not None:
             return denied
+        assert who is not None  # noqa: S101
         kind = request.path_params["kind"]
         range_key, length, _ = range_spec(request.query_params.get("range", "24h"))
         if kind == "calls" and call_log is not None:
-            rows: Any = ((_iso(int(ts) / 1000), rep_, tool, who, outcome, rule, dur)
-                         for ts, rep_, tool, who, outcome, rule, dur in call_log.export(range_key))
+            rows: Any = ((_iso(int(ts) / 1000), rep_, tool, principal, outcome, rule, dur)
+                         for ts, rep_, tool, principal, outcome, rule, dur in call_log.export(range_key))
             header = ["time_utc", "replica", "tool", "principal", "outcome", "rule", "duration_ms"]
         elif kind == "audit":
             since = time.time() - length
@@ -518,35 +576,127 @@ def install_routes(
             header = ["index", "time_utc", "kind", "principal", "object", "purpose", "decision", "rule", "digest"]
         else:
             return PlainTextResponse("unknown export\n", status_code=404)
-        await anyio.to_thread.run_sync(_audit, "export", f"{kind}.csv", f"range {range_key}", request)
+        await anyio.to_thread.run_sync(_audit, who, "export", f"{kind}.csv", f"range {range_key}", request)
         name = f"tokenis-{service.settings.tenant}-{kind}-{range_key}-{time.strftime('%Y%m%d-%H%M')}.csv"
         return StreamingResponse(_csv(rows, header), media_type="text/csv; charset=utf-8", headers={
             **no_store, "Content-Disposition": f'attachment; filename="{name}"'})
+
+    def _page(nonce: str, html: str) -> Response:
+        return HTMLResponse(html, headers={
+            **no_store,
+            "Content-Security-Policy": (
+                f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
+                "img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+                "form-action 'self'"),
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        })
+
+    def _message_page(title: str, text: str, status: int = 200, action: Optional[Tuple[str, str]] = None) -> Response:
+        import html as html_lib
+
+        nonce = secrets.token_urlsafe(16)
+        body = message_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        body = body.replace("{{title}}", html_lib.escape(title)).replace("{{text}}", html_lib.escape(text))
+        link = (f'<a class="btn" href="{html_lib.escape(action[0])}">{html_lib.escape(action[1])}</a>'
+                if action else "")
+        response = _page(nonce, body.replace("{{action}}", link))
+        response.status_code = status
+        return response
 
     @server.custom_route("/admin", methods=["GET"], include_in_schema=False)
     async def admin_page(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
-        if not _authorised(request.headers.get("authorization", ""), admin_token):
+        if _who(request) is None:
+            if oidc is not None:
+                return RedirectResponse("/admin/auth/login", status_code=302, headers=no_store)
             return _challenge()
         nonce = secrets.token_urlsafe(16)
-        html = (dashboard_html().replace("{{nonce}}", nonce)
-                .replace("{{icon}}", _icon_uri()))
-        return HTMLResponse(html, headers={
-            **no_store,
-            "Content-Security-Policy": (
-                f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-                "img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"),
-            "X-Content-Type-Options": "nosniff",
-            "Referrer-Policy": "no-referrer",
-        })
+        return _page(nonce, dashboard_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri()))
 
+    if oidc is None:
+        return
+    assert sessions is not None and flows is not None  # noqa: S101 -- checked above
+
+    @server.custom_route("/admin/auth/login", methods=["GET"], include_in_schema=False)
+    async def auth_login(request: Request) -> Response:
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
+        flow = new_flow()
+        try:
+            url = await anyio.to_thread.run_sync(oidc.authorization_url, flow["state"], flow["nonce"],
+                                                 flow["verifier"])
+        except Exception as exc:  # noqa: BLE001 -- show a page, keep details in the log
+            log.warning("single sign-on unavailable: %s: %s", type(exc).__name__, exc)
+            return _message_page("Sign-in is unavailable", "The identity provider could not be reached. "
+                                 "Try again in a moment, or ask your administrator.", 503,
+                                 ("/admin/auth/login", "Try again"))
+        response = RedirectResponse(url, status_code=302, headers=no_store)
+        response.headers.append("set-cookie", cookie_header(FLOW_COOKIE, flows.sign(flow, 600), max_age=600,
+                                                            secure=secure_cookies, path="/admin/auth"))
+        return response
+
+    @server.custom_route("/admin/auth/callback", methods=["GET"], include_in_schema=False)
+    async def auth_callback(request: Request) -> Response:
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
+        retry = ("/admin/auth/login", "Sign in again")
+        flow = flows.verify(read_cookie(request.headers.get("cookie", ""), FLOW_COOKIE))
+        params = request.query_params
+        if params.get("error"):
+            return _message_page("Sign-in was cancelled", "The identity provider did not complete the sign-in.",
+                                 400, retry)
+        if (flow is None or not params.get("code")
+                or not hmac.compare_digest(str(flow.get("state", "")), params.get("state", ""))):
+            return _message_page("Sign-in expired", "This sign-in link is no longer valid. Start again.", 400, retry)
+        try:
+            claims = await anyio.to_thread.run_sync(oidc.exchange, params["code"], flow["verifier"], flow["nonce"])
+        except ConsoleAuthError as exc:
+            log.warning("single sign-on failed: %s", exc)
+            return _message_page("Sign-in failed", str(exc), 400, retry)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("single sign-on failed: %s: %s", type(exc).__name__, exc)
+            return _message_page("Sign-in failed", "The identity provider could not be reached.", 503, retry)
+        role, identity = oidc.settings.role_for(claims)
+        if role is None:
+            who = {"identity": identity or "(unknown)", "role": "none"}
+            await anyio.to_thread.run_sync(_audit, who, "sign-in refused", identity or "-", "no role", request)
+            return _message_page("No access to this console",
+                                 f"You signed in as {identity or 'an unknown account'}, which has no role on this "
+                                 "gateway. Ask an administrator to add you.", 403)
+        session = {"sub": identity, "role": role, "sid": secrets.token_urlsafe(12), "iat": int(time.time())}
+        response = RedirectResponse("/admin", status_code=302, headers=no_store)
+        response.headers.append("set-cookie", cookie_header(SESSION_COOKIE, sessions.sign(session, session_ttl),
+                                                            max_age=session_ttl, secure=secure_cookies))
+        response.headers.append("set-cookie", expired_cookie(FLOW_COOKIE, secure=secure_cookies, path="/admin/auth"))
+        await anyio.to_thread.run_sync(_audit, {"identity": identity, "role": role}, "sign in", identity, "", request)
+        return response
+
+    @server.custom_route("/admin/auth/logout", methods=["POST"], include_in_schema=False)
+    async def auth_logout(request: Request) -> Response:
+        who, denied = _guard(request, "viewer", write=True)
+        if denied is not None:
+            return denied
+        assert who is not None  # noqa: S101
+        response = JSONResponse({"signed_out": True}, headers=no_store)
+        response.headers.append("set-cookie", expired_cookie(SESSION_COOKIE, secure=secure_cookies))
+        if who["method"] == "sso":
+            await anyio.to_thread.run_sync(_audit, who, "sign out", who["identity"], "", request)
+        return response
 
 def _icon_uri() -> str:
     from importlib import resources
 
     png = resources.files("tokenis").joinpath("assets/icon-64.png").read_bytes()
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+def message_html() -> str:
+    """A small branded page for sign-in outcomes (tokenis/assets/message.html)."""
+    from importlib import resources
+
+    return resources.files("tokenis").joinpath("assets/message.html").read_text(encoding="utf-8")
 
 
 def dashboard_html() -> str:

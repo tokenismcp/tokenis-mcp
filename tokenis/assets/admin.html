@@ -465,7 +465,19 @@ dialog.modal[open] { animation: pop .16s ease-out; }
 }
 .toast svg { width: 16px; height: 16px; flex: none; }
 .toast.ok svg { color: var(--ok); } .toast.bad svg { color: var(--bad); }
+[hidden] { display: none !important; }
+.nowrap { white-space: nowrap; }
 .deny { color: var(--bad); font-weight: 600; }
+.me { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 9px 10px; box-shadow: var(--shadow); }
+.me .avatar { width: 30px; height: 30px; border-radius: 9px; font-size: 11.5px; }
+.me .me-text { min-width: 0; flex: 1; }
+.me .me-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me .me-role { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.role { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); }
+.role.viewer { background: var(--surface-3); color: var(--text-2); }
+.role.auditor { background: rgba(110, 140, 220, .14); color: #5b7bd8; }
+.locked { padding: 26px 18px; text-align: center; color: var(--muted); display: grid; gap: 6px; justify-items: center; }
+.locked svg { width: 22px; height: 22px; color: var(--faint); }
 td time, td .who { white-space: nowrap; }
 .scope { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
 .users-mini .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 18px; border-top: 1px solid var(--border); }
@@ -508,6 +520,7 @@ td time, td .who { white-space: nowrap; }
     <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1-3.9 4-6 7.5-6s6.5 2.1 7.5 6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/><path d="M10 16.5 5.5 12 10 7.5"/><path d="M5.5 12h10"/></symbol>
     <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5V9h4.5"/><path d="M12 8v4.3l2.8 1.7"/></symbol>
   </defs>
 </svg>
@@ -531,6 +544,11 @@ td time, td .who { white-space: nowrap; }
       <a href="#policy" data-page="policy"><svg><use href="#i-shield"/></svg>Policy &amp; schema</a>
     </nav>
     <div class="sidebar-foot">
+      <div class="me" id="me" hidden>
+        <span id="me-avatar"></span>
+        <div class="me-text"><div class="me-name" id="me-name"></div><div class="me-role" id="me-role"></div></div>
+        <button class="icon-btn" id="signout" title="Sign out" aria-label="Sign out"><svg><use href="#i-logout"/></svg></button>
+      </div>
       <div class="tenant-card">
         <div class="label">Tenant</div>
         <div class="value"><span id="tenant" class="skeleton">tenant</span></div>
@@ -696,7 +714,7 @@ td time, td .who { white-space: nowrap; }
           <div class="card-body flush"><div class="table-wrap"><table id="keys"></table></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h2>Admin activity</h2><div class="sub">Keys issued and revoked, and exports, from this console</div></div></div>
+          <div class="card-head"><div><h2>Admin activity</h2><div class="sub">Sign-ins, keys issued and revoked, and exports — who, when and from where</div></div></div>
           <div class="card-body flush"><div class="table-wrap"><table id="admin-log"></table></div></div>
         </div>
         <div class="card">
@@ -879,7 +897,13 @@ td time, td .who { white-space: nowrap; }
   /* ---------------------------------------------------------- api */
   async function api(path) {
     const r = await fetch(path, { credentials: "same-origin", cache: "no-store" });
-    if (r.status === 401) throw new Error("Your session expired. Reload the page to sign in again.");
+    if (r.status === 401) {
+      let body = {};
+      try { body = await r.json(); } catch { /* token mode: plain text */ }
+      if (body.login) { location.href = body.login; return new Promise(() => {}); }
+      throw new Error("Your session expired. Reload the page to sign in again.");
+    }
+    if (r.status === 403) { const e = new Error("forbidden"); e.forbidden = true; throw e; }
     if (!r.ok) throw new Error("The gateway answered HTTP " + r.status + ".");
     return r.json();
   }
@@ -1042,6 +1066,36 @@ td time, td .who { white-space: nowrap; }
       text: (change > 0 ? "▲ " : "▼ ") + Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0) + (asPoints ? " pt" : "%") });
   }
 
+  /* ------------------------------------------------------ roles */
+  const RANK = { viewer: 0, auditor: 1, admin: 2 };
+  const can = (need) => !!(data && data.me && RANK[data.me.role] >= RANK[need]);
+  const NEEDS = { users: "auditor", audit: "auditor", access: "auditor" };
+  function locked(need, what) {
+    return h("div", { class: "locked" }, icon("i-lock"), h("b", { text: what + " needs the " + need + " role" }),
+      h("span", { text: "Ask an administrator if you need access." }));
+  }
+  function renderMe(d) {
+    const me = d.me;
+    if (!me) return;
+    $("me").hidden = false;
+    $("me-avatar").replaceChildren(avatar(me.identity));
+    $("me-name").textContent = me.identity;
+    $("me-name").title = me.identity;
+    $("me-role").replaceChildren(h("span", { class: "role " + me.role, text: me.role }),
+      h("span", { text: me.method === "sso" ? "single sign-on" : "admin token" }));
+    $("signout").hidden = me.method !== "sso";
+    document.querySelectorAll(".nav a").forEach(a => {
+      const need = NEEDS[a.dataset.page];
+      a.hidden = !!need && !can(need);
+    });
+    document.querySelectorAll('.link[href="#audit"], .link[href="#users"]').forEach(a => { a.hidden = !can("auditor"); });
+    if (NEEDS[page] && !can(NEEDS[page])) location.hash = "#overview";
+  }
+  $("signout").addEventListener("click", async () => {
+    try { await post("admin/auth/logout", {}); } catch { /* the cookie is cleared server-side */ }
+    location.href = "admin";
+  });
+
   /* ------------------------------------------------------ render */
   let data = null, users = null, activity = null, filter = "all";
 
@@ -1126,6 +1180,9 @@ td time, td .who { white-space: nowrap; }
         return [h("span", { class: "mono", text: t.tool }), nf.format(t.total), nf.format(t.ok), nf.format(t.denied), bar];
       }), empty("No tool calls in this period", "Calls appear here as soon as a client queries the gateway.", "i-activity"));
 
+    if (!can("auditor")) {
+      $("activity").replaceChildren(locked("auditor", "The audit trail"));
+    } else {
     const recent = (d.recent || []).slice(0, 6);
     $("activity").replaceChildren(...(recent.length ? recent.map(e => {
       const ok = e.decision === "permit";
@@ -1136,6 +1193,7 @@ td time, td .who { white-space: nowrap; }
           h("div", { class: "bottom mono muted", title: e.object, text: e.object })),
         h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time) }));
     }) : [empty("No activity yet", "Answers and refusals will be listed here.", "i-audit")]));
+    }
 
     $("replicas-sub").textContent = `Gateway processes that served calls · ${rt}`;
     const reps = st.replicas || [];
@@ -1157,6 +1215,7 @@ td time, td .who { white-space: nowrap; }
   function renderTopUsers() {
     const box = $("topusers");
     $("topusers-sub").textContent = `Most active principals · ${RANGE_TEXT[range]}`;
+    if (!can("auditor")) { box.replaceChildren(locked("auditor", "Per-user activity")); return; }
     if (!users) { box.replaceChildren(h("div", { class: "empty" }, h("span", { class: "skeleton", text: "loading users" }))); return; }
     const top = users.principals.filter(u => u.calls > 0).slice(0, 5);
     box.replaceChildren(...(top.length ? top.map(u => {
@@ -1224,7 +1283,8 @@ td time, td .who { white-space: nowrap; }
 
   let revokeTarget = null;
   function renderAccess(d) {
-    const keys = d.api_keys;
+    if (!can("auditor")) return;  // the page is not offered to viewers
+    const keys = d.api_keys || (d.key_management ? [] : null);
     const managed = !!d.key_management;
     const active = (keys || []).filter(k => !k.revoked);
     const principals = new Set(active.map(k => k.principal));
@@ -1235,8 +1295,12 @@ td time, td .who { white-space: nowrap; }
       kpi("i-users", "Principals", managed ? nf.format(principals.size) : "—", "With at least one active key"),
       kpi("i-shield", "Authentication", managed ? "API keys" : "JWT", managed ? "Stored as SHA-256 hashes" : "Managed by your identity provider"));
     $("nav-keys").textContent = managed ? String(active.length) : "";
+    const admin = can("admin");
+    $("new-key").hidden = !admin;
     $("new-key").disabled = !managed;
     $("new-key").title = managed ? "" : "Keys are managed by your identity provider";
+    $("keys-sub").textContent = admin ? "Bearer credentials accepted by every replica"
+      : "Bearer credentials accepted by every replica · issuing and revoking keys needs the admin role";
     if (!managed) {
       $("keys").replaceChildren(h("tbody", {}, h("tr", {}, h("td", {}, empty("API keys are not in use", "This gateway authenticates callers with JWTs from your identity provider.", "i-key")))));
       return;
@@ -1245,7 +1309,7 @@ td time, td .who { white-space: nowrap; }
     table($("keys"), [{ label: "Key ID" }, { label: "Principal" }, { label: "Created" }, { label: "Status" }, { label: "", cls: "r" }],
       sorted.map(k => {
         let action = h("span");
-        if (!k.revoked) {
+        if (!k.revoked && admin) {
           action = h("button", { class: "btn sm subtle-danger" }, icon("i-ban"), "Revoke");
           action.addEventListener("click", () => {
             revokeTarget = k;
@@ -1269,13 +1333,19 @@ td time, td .who { white-space: nowrap; }
 
   function renderActivity() {
     if (!activity) return;
-    const ACTION = { "create key": ["Key created", "tone-ok"], "revoke key": ["Key revoked", "tone-bad"], "export": ["Export", "tone-accent"] };
-    table($("admin-log"), [{ label: "Time" }, { label: "Action" }, { label: "Target" }, { label: "Detail", cls: "hide-sm" }, { label: "From", cls: "hide-sm" }],
+    const ACTION = {
+      "create key": ["Key created", "tone-ok"], "revoke key": ["Key revoked", "tone-bad"], "export": ["Export", "tone-accent"],
+      "sign in": ["Signed in", "tone-accent"], "sign out": ["Signed out", "tone-accent"], "sign-in refused": ["Sign-in refused", "tone-bad"],
+    };
+    table($("admin-log"), [{ label: "Time" }, { label: "By" }, { label: "Action" }, { label: "Target", cls: "hide-sm" }, { label: "Detail", cls: "hide-sm" }, { label: "From", cls: "hide-sm" }],
       activity.events.map(e => {
         const [label, tone] = ACTION[e.action] || [e.action, "tone-accent"];
+        const m = /^(.*) \((\w+)\)$/.exec(e.actor || "");
+        const by = m ? h("div", { class: "who" }, avatar(m[1]), h("span", { class: "name", title: e.actor, text: m[1] }), h("span", { class: "role " + m[2], text: m[2] }))
+          : h("span", { text: e.actor || "—" });
         return [h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time), class: "muted" }),
-          pill(label, tone), h("span", { class: "mono", text: e.target }), h("span", { class: "muted", text: e.detail || "—" }),
-          h("span", { class: "muted", title: e.source, text: shortSource(e.source) })];
+          by, pill(label, tone), h("span", { class: "mono", text: e.target }), h("span", { class: "muted", text: e.detail || "—" }),
+          h("span", { class: "muted nowrap", title: e.source, text: shortSource(e.source) })];
       }), empty("No admin activity yet", "Keys issued or revoked here, and exports, are recorded.", "i-history"));
   }
 
@@ -1315,6 +1385,7 @@ td time, td .who { white-space: nowrap; }
 
   function render() {
     if (!data) return;
+    renderMe(data);
     renderShell(data);
     renderOverview(data);
     renderAudit(data);
@@ -1335,8 +1406,8 @@ td time, td .who { white-space: nowrap; }
   }
   async function refreshExtras() {
     try {
-      if (page === "overview" || page === "users") { users = await api(`admin/api/principals?range=${range}`); renderTopUsers(); renderUsers(); }
-      if (page === "access") { activity = await api("admin/api/activity"); renderActivity(); }
+      if ((page === "overview" || page === "users") && can("auditor")) { users = await api(`admin/api/principals?range=${range}`); renderTopUsers(); renderUsers(); }
+      if (page === "access" && can("auditor")) { activity = await api("admin/api/activity"); renderActivity(); }
     } catch (e) { /* the main refresh reports connection problems */ }
   }
   async function refresh() {

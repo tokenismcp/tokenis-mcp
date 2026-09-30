@@ -189,6 +189,27 @@ def cmd_serve(args: argparse.Namespace) -> None:
             allowed_origins=[f"{urlparse(public_url).scheme}://{h}" for h in allowed],
         )
     metrics_token = ops_token(config.ops.metrics_token_env, "metrics_token_env")
+    oidc_client, session_key = None, None
+    if config.ops.oidc is not None:
+        from dataclasses import replace as dc_replace
+
+        from tokenis.config import console_session_key
+        from tokenis.console_auth import OidcClient
+
+        try:
+            secret = None
+            if config.ops.oidc_client_secret_env:  # an IdP secret is an opaque string
+                secret = os.environ.get(config.ops.oidc_client_secret_env) or None
+                if secret is None:
+                    raise ConfigError(f"environment variable {config.ops.oidc_client_secret_env} is not set "
+                                      "(the OIDC client secret)")
+            session_key = console_session_key(config)
+        except ConfigError as exc:
+            _die(str(exc))
+        if session_key is None:
+            _die("[ops.oidc] needs a key to sign console sessions: configure [keys], "
+                 "[state] audit_key_env or [ops] session_secret_env")
+        oidc_client = OidcClient(dc_replace(config.ops.oidc, client_secret=secret))
     install_routes(
         server, service, metrics,
         admin_token=ops_token(config.ops.admin_token_env, "admin_token_env"),
@@ -196,6 +217,9 @@ def cmd_serve(args: argparse.Namespace) -> None:
         key_store=key_store,
         admin_hosts=allowed if security is not None else None,
         call_log=call_log,
+        oidc=oidc_client,
+        session_key=session_key,
+        secure_cookies=public_url.startswith("https://"),
     )
     if security is not None and metrics_token is None:
         log.warning("/metrics is open on %s:%d; per-rule denial counts are withheld. Set [ops] "

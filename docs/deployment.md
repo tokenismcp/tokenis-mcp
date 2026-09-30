@@ -163,8 +163,12 @@ different pods was refused.
 | `GET /metrics` | Prometheus metrics. Set `[ops] metrics_token_env` whenever callers can reach the port: only then are denials broken down by rule (an open breakdown would tell a caller why they were refused) |
 | `GET /admin` | Read-only admin console (`[ops] admin_token_env`) |
 
-**Admin console.** Sign in with HTTP Basic auth, using any user name and
-the admin token as the password. Every number comes from the database, so
+**Admin console.** People sign in with your identity provider
+([`[ops.oidc]`](configuration.md)), and each gets the role the configuration
+gives them: viewer, auditor or admin. The admin activity log names the person
+behind every sign-in, key issued or revoked, and export. The break-glass admin
+token (HTTP Basic, any user name) still works for emergencies and
+automation, and is logged as "admin token". Every number comes from the database, so
 every replica shows the same cluster-wide figures, over the last hour, 24
 hours, 7 days or 30 days, and nothing resets when a process restarts.
 
