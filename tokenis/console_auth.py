@@ -110,6 +110,8 @@ class OidcSettings:
     auditors: Tuple[str, ...] = ()
     viewers: Tuple[str, ...] = ()
     session_hours: float = 8.0
+    #: Shown on the sign-in button ("Continue with ...").
+    display_name: str = ""
 
     def role_for(self, claims: Dict[str, Any]) -> Tuple[Optional[str], str]:
         """(role or None, identity) for verified ID-token claims."""

@@ -188,7 +188,7 @@ def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettin
 
     o = _table(raw, "ops.oidc", ("issuer", "client_id", "client_secret_env", "redirect_url", "scopes",
                                  "identity_claim", "roles_claim", "admins", "auditors", "viewers",
-                                 "session_hours"))
+                                 "session_hours", "display_name"))
     for key in ("issuer", "client_id"):
         if not isinstance(o.get(key), str) or not o[key]:
             raise ConfigError(f"[ops.oidc] {key} is required")
@@ -204,6 +204,7 @@ def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettin
             auditors=parse_members(o.get("auditors"), "[ops.oidc] auditors"),
             viewers=parse_members(o.get("viewers"), "[ops.oidc] viewers"),
             session_hours=float(o.get("session_hours", 8)),
+            display_name=str(o.get("display_name", "")),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError(str(exc)) from None

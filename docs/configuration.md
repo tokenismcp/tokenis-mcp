@@ -234,6 +234,7 @@ is `<public_url>/admin/auth/callback`.
 | `roles_claim` | none | A claim listing groups or roles, e.g. `groups` |
 | `admins`, `auditors`, `viewers` | `[]` | Identities, or `"group:NAME"` for a value of `roles_claim`. People who match no list cannot sign in |
 | `session_hours` | `8` | Session length (0.25-24) |
+| `display_name` | `"single sign-on"` | Shown on the console's sign-in button: "Continue with ..." |
 
 | Role | Can |
 |---|---|

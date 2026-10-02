@@ -7,27 +7,72 @@
 <title>{{title}} · Tokenis Console</title>
 <link rel="icon" href="{{icon}}">
 <style nonce="{{nonce}}">
-:root { color-scheme: light; --bg: #f6f5f2; --surface: #fff; --border: #e6e2da; --text: #17191c; --muted: #6a707a; --accent-fill: #d9a765; }
-@media (prefers-color-scheme: dark) { :root { color-scheme: dark; --bg: #0b0c0e; --surface: #121417; --border: #22262c; --text: #eceef1; --muted: #8a929e; --accent-fill: #d8a864; } }
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2; --surface: #ffffff; --surface-2: #faf9f6; --border: #e6e2da; --border-strong: #d7d1c6;
+  --text: #17191c; --text-2: #3b3f46; --muted: #6a707a; --faint: #9aa0a9;
+  --accent: #a8712c; --accent-fill: #d9a765; --accent-soft: rgba(185, 128, 55, .11); --accent-ring: rgba(185, 128, 55, .35);
+  --glow: rgba(217, 167, 101, .16);
+  --shadow: 0 1px 2px rgba(24, 20, 12, .04), 0 24px 48px -24px rgba(24, 20, 12, .22);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0b0c0e; --surface: #121417; --surface-2: #15181b; --border: #22262c; --border-strong: #2e333a;
+    --text: #eceef1; --text-2: #c7ccd3; --muted: #8a929e; --faint: #5d646e;
+    --accent: #e3b778; --accent-fill: #d8a864; --accent-soft: rgba(227, 183, 120, .1); --accent-ring: rgba(227, 183, 120, .38);
+    --glow: rgba(216, 168, 100, .10);
+    --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 24px 60px -24px rgba(0, 0, 0, .8);
+  }
+}
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--text);
-  font: 14px/1.55 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-.card { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px 28px 24px;
-  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .25); }
-.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; font-weight: 650; }
-.brand img { width: 28px; height: 28px; }
-h1 { font-size: 18px; margin: 0 0 6px; letter-spacing: -.01em; }
+html, body { height: 100%; }
+body {
+  margin: 0; display: grid; place-items: center; padding: 32px 16px;
+  background: radial-gradient(1200px 600px at 50% -10%, var(--glow), transparent 60%), var(--bg);
+  color: var(--text);
+  font: 14px/1.55 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01"; -webkit-font-smoothing: antialiased;
+}
+.shell { width: min(400px, 100%); display: grid; gap: 18px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 30px 28px 26px; box-shadow: var(--shadow); }
+.brand { display: flex; align-items: center; gap: 11px; margin-bottom: 26px; }
+.brand img { width: 34px; height: 34px; }
+.brand b { display: block; font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
+.brand span { display: block; font-size: 12px; color: var(--muted); margin-top: -1px; }
+h1 { font-size: 21px; font-weight: 650; letter-spacing: -.02em; margin: 0 0 6px; }
 p { margin: 0; color: var(--muted); }
-.btn { display: inline-flex; align-items: center; margin-top: 20px; height: 36px; padding: 0 14px; border-radius: 9px; background: var(--accent-fill);
-  color: #1b1308; font-weight: 600; text-decoration: none; }
+.tenant { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; padding: 3px 10px 3px 8px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+.tenant::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fill); }
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; height: 44px; margin-top: 24px;
+  border-radius: 11px; background: var(--accent-fill); color: #1b1308; font-weight: 620; font-size: 14px; text-decoration: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 6px 16px -8px var(--accent-ring); transition: filter .12s, transform .06s;
+}
+.btn:hover { filter: brightness(1.05); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 3px; }
+.btn svg { width: 17px; height: 17px; }
+.note { margin-top: 16px; font-size: 12.5px; color: var(--muted); text-align: center; }
+.foot { display: flex; justify-content: center; gap: 16px; font-size: 12px; color: var(--faint); }
+.foot span { display: inline-flex; align-items: center; gap: 6px; }
+.foot svg { width: 13px; height: 13px; }
 </style>
 </head>
 <body>
-  <main class="card">
-    <div class="brand"><img src="{{icon}}" alt="">Tokenis Console</div>
-    <h1>{{title}}</h1>
-    <p>{{text}}</p>
-    {{action}}
-  </main>
+  <div class="shell">
+    <main class="card">
+      <div class="brand"><img src="{{icon}}" alt=""><div><b>Tokenis</b><span>Gateway console</span></div></div>
+      <h1>{{title}}</h1>
+      <p>{{text}}</p>
+      {{extra}}
+      {{action}}
+    </main>
+    <div class="foot">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg>Single sign-on</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>Every sign-in is recorded</span>
+    </div>
+  </div>
 </body>
 </html>

@@ -592,15 +592,26 @@ def install_routes(
             "Referrer-Policy": "no-referrer",
         })
 
-    def _message_page(title: str, text: str, status: int = 200, action: Optional[Tuple[str, str]] = None) -> Response:
+    def _message_page(title: str, text: str, status: int = 200, action: Optional[Tuple[str, str]] = None,
+                      note: str = "") -> Response:
         import html as html_lib
 
         nonce = secrets.token_urlsafe(16)
         body = message_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        tenant = html_lib.escape(service.settings.tenant)
+        # Fill the caller-influenced slots last, escaped, so nothing in them is
+        # read as a template marker.
+        link = ""
+        if action:
+            link = (f'<a class="btn" href="{html_lib.escape(action[0])}"><svg viewBox="0 0 24 24" fill="none" '
+                    'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
+                    '<path d="M10 7.5 14.5 12 10 16.5"/><path d="M14.5 12H4.5"/><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/></svg>'
+                    f'{html_lib.escape(action[1])}</a>')
+            if note:
+                link += f'<div class="note">{html_lib.escape(note)}</div>'
+        body = body.replace("{{extra}}", f'<div class="tenant">Tenant · {tenant}</div>').replace("{{action}}", link)
         body = body.replace("{{title}}", html_lib.escape(title)).replace("{{text}}", html_lib.escape(text))
-        link = (f'<a class="btn" href="{html_lib.escape(action[0])}">{html_lib.escape(action[1])}</a>'
-                if action else "")
-        response = _page(nonce, body.replace("{{action}}", link))
+        response = _page(nonce, body)
         response.status_code = status
         return response
 
@@ -619,8 +630,21 @@ def install_routes(
         return
     assert sessions is not None and flows is not None  # noqa: S101 -- checked above
 
+    provider = oidc.settings.display_name or "single sign-on"
+
     @server.custom_route("/admin/auth/login", methods=["GET"], include_in_schema=False)
     async def auth_login(request: Request) -> Response:
+        """The console's own sign-in page; the button starts the flow."""
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
+        if _who(request) is not None:
+            return RedirectResponse("/admin", status_code=302, headers=no_store)
+        return _message_page("Sign in to the console", "Use your organisation account. Your role decides what you "
+                             "can see and do here.", 200, ("/admin/auth/start", f"Continue with {provider}"),
+                             note="You will continue on your organisation's sign-in page.")
+
+    @server.custom_route("/admin/auth/start", methods=["GET"], include_in_schema=False)
+    async def auth_start(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
         flow = new_flow()
@@ -631,7 +655,7 @@ def install_routes(
             log.warning("single sign-on unavailable: %s: %s", type(exc).__name__, exc)
             return _message_page("Sign-in is unavailable", "The identity provider could not be reached. "
                                  "Try again in a moment, or ask your administrator.", 503,
-                                 ("/admin/auth/login", "Try again"))
+                                 ("/admin/auth/start", "Try again"))
         response = RedirectResponse(url, status_code=302, headers=no_store)
         response.headers.append("set-cookie", cookie_header(FLOW_COOKIE, flows.sign(flow, 600), max_age=600,
                                                             secure=secure_cookies, path="/admin/auth"))
