@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Tokenis Ask</title>
+<link rel="icon" href="{{icon}}">
+<style nonce="{{nonce}}">
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2; --surface: #ffffff; --surface-2: #faf9f6; --surface-3: #f1efea;
+  --border: #e6e2da; --border-strong: #d7d1c6;
+  --text: #17191c; --text-2: #3b3f46; --muted: #6a707a; --faint: #9aa0a9;
+  --accent: #a8712c; --accent-strong: #8a5a1e; --accent-fill: #d9a765;
+  --accent-soft: rgba(185, 128, 55, .11); --accent-ring: rgba(185, 128, 55, .35);
+  --ok: #16875b; --ok-soft: rgba(22, 135, 91, .1);
+  --bad: #cc3b2f; --bad-soft: rgba(204, 59, 47, .09);
+  --warn: #b7791f; --warn-soft: rgba(183, 121, 31, .12);
+  --glow: rgba(217, 167, 101, .16);
+  --shadow: 0 1px 2px rgba(24, 20, 12, .04), 0 1px 1px rgba(24, 20, 12, .03);
+  --shadow-lg: 0 12px 32px -8px rgba(24, 20, 12, .18), 0 2px 6px rgba(24, 20, 12, .06);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0c0e; --surface: #121417; --surface-2: #15181b; --surface-3: #1b1f23;
+  --border: #22262c; --border-strong: #2e333a;
+  --text: #eceef1; --text-2: #c7ccd3; --muted: #8a929e; --faint: #5d646e;
+  --accent: #e3b778; --accent-strong: #f2cc94; --accent-fill: #d8a864;
+  --accent-soft: rgba(227, 183, 120, .1); --accent-ring: rgba(227, 183, 120, .38);
+  --ok: #43c08f; --ok-soft: rgba(67, 192, 143, .12);
+  --bad: #f2766a; --bad-soft: rgba(242, 118, 106, .12);
+  --warn: #e9b04f; --warn-soft: rgba(233, 176, 79, .13);
+  --glow: rgba(216, 168, 100, .10);
+  --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-lg: 0 16px 40px -10px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0b0c0e; --surface: #121417; --surface-2: #15181b; --surface-3: #1b1f23;
+    --border: #22262c; --border-strong: #2e333a;
+    --text: #eceef1; --text-2: #c7ccd3; --muted: #8a929e; --faint: #5d646e;
+    --accent: #e3b778; --accent-strong: #f2cc94; --accent-fill: #d8a864;
+    --accent-soft: rgba(227, 183, 120, .1); --accent-ring: rgba(227, 183, 120, .38);
+    --ok: #43c08f; --ok-soft: rgba(67, 192, 143, .12);
+    --bad: #f2766a; --bad-soft: rgba(242, 118, 106, .12);
+    --warn: #e9b04f; --warn-soft: rgba(233, 176, 79, .13);
+    --glow: rgba(216, 168, 100, .10);
+    --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-lg: 0 16px 40px -10px rgba(0, 0, 0, .7), 0 2px 8px rgba(0, 0, 0, .4);
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.6 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo",
+        "Noto Sans KR", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+[hidden] { display: none !important; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; border-radius: 6px; }
+svg { display: block; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ frame */
+.page { min-height: 100%; display: flex; flex-direction: column;
+  background: radial-gradient(1100px 520px at 50% -12%, var(--glow), transparent 62%), var(--bg); background-attachment: fixed; }
+.top {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
+  padding: 12px 20px; padding-top: max(12px, env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid transparent; transition: border-color .2s;
+}
+.top.scrolled { border-bottom-color: var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; min-width: 0; }
+.brand img { width: 28px; height: 28px; flex: none; }
+.brand b { font-size: 15px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+.brand b span { color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fill); }
+.spacer { flex: 1; }
+.tbtn { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 11px; border-radius: 9px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 550;
+  text-decoration: none; box-shadow: var(--shadow); transition: background .12s, border-color .12s; white-space: nowrap; }
+.tbtn:hover { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.tbtn svg { width: 16px; height: 16px; color: var(--muted); }
+.tbtn.icon { width: 34px; padding: 0; justify-content: center; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); padding: 2px; box-shadow: var(--shadow); }
+.seg button { border: 0; background: transparent; height: 28px; padding: 0 9px; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--text); }
+.me { position: relative; }
+.avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--accent-soft);
+  color: var(--accent-strong); font-weight: 650; font-size: 13.5px; display: grid; place-items: center; padding: 0; }
+.menu { position: absolute; right: 0; top: 42px; min-width: 240px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; }
+.menu .who { padding: 9px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.menu .who b { display: block; font-size: 13.5px; font-weight: 600; word-break: break-all; }
+.menu .who span { font-size: 12px; color: var(--muted); }
+.menu a, .menu button { display: flex; width: 100%; align-items: center; gap: 9px; padding: 8px 10px; border: 0; background: none;
+  border-radius: 8px; font-size: 13.5px; color: var(--text-2); text-decoration: none; text-align: left; }
+.menu a:hover, .menu button:hover { background: var(--surface-3); color: var(--text); }
+.menu svg { width: 16px; height: 16px; color: var(--muted); }
+
+main { flex: 1; width: min(780px, 100%); margin: 0 auto; padding: 8px 20px 24px; display: flex; flex-direction: column; }
+
+/* ------------------------------------------------------------ empty state */
+.hero { padding: 7vh 0 8px; text-align: center; }
+.hero .mark { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 16px; background: var(--surface);
+  border: 1px solid var(--border); display: grid; place-items: center; box-shadow: var(--shadow-lg); }
+.hero .mark img { width: 34px; height: 34px; }
+.hero h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.25; font-weight: 680; letter-spacing: -.025em; }
+.hero p { margin: 0 auto; max-width: 540px; color: var(--muted); font-size: 15px; }
+.trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+.trust span { display: inline-flex; align-items: center; gap: 6px; }
+.trust svg { width: 15px; height: 15px; color: var(--accent); }
+.suggest { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 30px 0 14px; }
+.card-q { display: flex; align-items: flex-start; gap: 11px; text-align: left; padding: 14px 15px; border-radius: 13px;
+  border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); color: var(--text-2);
+  font-size: 14px; line-height: 1.45; transition: border-color .12s, transform .08s, box-shadow .12s; }
+.card-q:hover { border-color: var(--accent-ring); color: var(--text); box-shadow: var(--shadow-lg); }
+.card-q:active { transform: translateY(1px); }
+.card-q svg { width: 18px; height: 18px; color: var(--accent); flex: none; margin-top: 1px; }
+.about { border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow); }
+.about summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 13px 15px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.about summary::-webkit-details-marker { display: none; }
+.about summary svg { width: 17px; height: 17px; color: var(--muted); }
+.about summary .chev { margin-left: auto; transition: transform .15s; }
+.about[open] summary .chev { transform: rotate(180deg); }
+.about .body { padding: 2px 15px 15px; display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.about h3 { margin: 0 0 7px; font-size: 12px; font-weight: 650; color: var(--muted); letter-spacing: .02em; }
+.about ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.about li { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); }
+.about li small { color: var(--muted); }
+.about .note { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 11px; }
+
+/* ------------------------------------------------------------- messages */
+.thread { display: flex; flex-direction: column; gap: 22px; padding: 18px 0 8px; }
+.msg-user { align-self: flex-end; max-width: 84%; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent-ring) 45%, transparent);
+  padding: 10px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; color: var(--text); }
+.msg-bot { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; }
+.msg-bot .face { width: 30px; height: 30px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border);
+  display: grid; place-items: center; box-shadow: var(--shadow); }
+.msg-bot .face img { width: 19px; height: 19px; }
+.msg-bot .col { min-width: 0; display: grid; gap: 10px; }
+.status { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--muted); min-height: 30px; }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fill); animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .15s; } .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
+.elapsed { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 12.5px; }
+
+.steps { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.steps summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 9px 12px; font-size: 13px; color: var(--text-2); }
+.steps summary::-webkit-details-marker { display: none; }
+.steps summary svg { width: 15px; height: 15px; color: var(--muted); }
+.steps summary .chev { margin-left: auto; transition: transform .15s; }
+.steps[open] summary .chev { transform: rotate(180deg); }
+.steps ol { margin: 0; padding: 4px 12px 10px; list-style: none; display: grid; gap: 2px; border-top: 1px solid var(--border); }
+.step { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; align-items: start; padding: 7px 0; font-size: 13px; }
+.step + .step { border-top: 1px dashed var(--border); }
+.step .ic { width: 18px; height: 18px; margin-top: 1px; }
+.step .ic.ok { color: var(--ok); } .step .ic.denied { color: var(--bad); } .step .ic.invalid, .step .ic.unavailable { color: var(--warn); }
+.step .ic.running { color: var(--accent); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.step .what { color: var(--text-2); }
+.step .tag { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.tag.ok { background: var(--ok-soft); color: var(--ok); } .tag.denied { background: var(--bad-soft); color: var(--bad); }
+.tag.invalid, .tag.unavailable { background: var(--warn-soft); color: var(--warn); } .tag.running { background: var(--accent-soft); color: var(--accent-strong); }
+.step details.raw { grid-column: 2 / -1; }
+.step details.raw summary { padding: 2px 0; font-size: 12px; color: var(--muted); }
+.step pre { margin: 4px 0 0; padding: 9px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  font: 12px/1.5 var(--mono); max-height: 220px; overflow: auto; white-space: pre-wrap; }
+
+.answer { font-size: 15px; color: var(--text); }
+.answer > :first-child { margin-top: 0; } .answer > :last-child { margin-bottom: 0; }
+.answer p { margin: 0 0 10px; }
+.answer h1, .answer h2, .answer h3, .answer h4 { font-size: 15.5px; margin: 14px 0 6px; font-weight: 650; }
+.answer ul, .answer ol { margin: 0 0 10px; padding-left: 22px; }
+.answer li { margin: 2px 0; }
+.answer strong { font-weight: 650; }
+.answer code { font: 13px var(--mono); background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+.answer pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; overflow: auto; font: 12.5px/1.5 var(--mono); }
+.answer .tbl { overflow-x: auto; margin: 4px 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.answer table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.answer th, .answer td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.answer th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+.answer tr:last-child td { border-bottom: 0; }
+.answer td.n, .answer th.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+.callout { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: 11px 13px; border-radius: 11px; font-size: 13.5px; line-height: 1.55; }
+.callout svg { width: 18px; height: 18px; margin-top: 1px; }
+.callout.info { background: var(--accent-soft); color: var(--text-2); } .callout.info svg { color: var(--accent); }
+.callout.warn { background: var(--warn-soft); color: var(--text-2); } .callout.warn svg { color: var(--warn); }
+.callout.err { background: var(--bad-soft); color: var(--text-2); } .callout.err svg { color: var(--bad); }
+.callout b { color: var(--text); font-weight: 650; }
+.callout ul { margin: 6px 0 0; padding-left: 18px; }
+.tips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; color: var(--text-2); }
+.tip:hover { border-color: var(--accent-ring); color: var(--text); }
+.actions { display: flex; gap: 4px; }
+.act { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: 0; background: none; border-radius: 7px; color: var(--muted); font-size: 12.5px; }
+.act:hover { background: var(--surface-3); color: var(--text); }
+.act svg { width: 15px; height: 15px; }
+
+/* -------------------------------------------------------------- composer */
+.dock { position: sticky; bottom: 0; z-index: 10; padding: 10px 20px max(14px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 70%, transparent); }
+.composer { width: min(780px, 100%); margin: 0 auto; }
+.box { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 16px; border-radius: 16px; background: var(--surface);
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg); transition: border-color .12s, box-shadow .12s; }
+.box:focus-within { border-color: var(--accent-ring); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-lg); }
+.box textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; padding: 8px 0; max-height: 200px; min-height: 24px; line-height: 1.5; font-size: 15px; }
+.box textarea::placeholder { color: var(--faint); }
+.send { width: 38px; height: 38px; border-radius: 11px; border: 0; background: var(--accent-fill); color: #1b1308; display: grid; place-items: center; flex: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 6px 16px -8px var(--accent-ring); transition: filter .12s, opacity .12s; }
+.send:hover { filter: brightness(1.05); }
+.send:disabled { opacity: .45; cursor: default; filter: none; }
+.send svg { width: 18px; height: 18px; }
+.send.stop { background: var(--text); color: var(--bg); }
+.hint { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 6px 0; font-size: 12px; color: var(--faint); }
+.hint .budget { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+.meter { width: 56px; height: 5px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 100%; background: var(--accent-fill); border-radius: 99px; }
+.meter.low i { background: var(--warn); }
+.hint .right { margin-left: auto; }
+kbd { font: 11px var(--mono); padding: 0 4px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); }
+
+.toast { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 9px; font-size: 13px; box-shadow: var(--shadow-lg); z-index: 50; }
+
+@media (max-width: 640px) {
+  .top { padding: 10px 14px; gap: 8px; }
+  .top .chip, .top .label-sm { display: none; }
+  main { padding: 4px 16px 16px; }
+  .hero { padding-top: 4vh; }
+  .hero h1 { font-size: 23px; }
+  .suggest { grid-template-columns: 1fr; }
+  .about .body { grid-template-columns: 1fr; }
+  .msg-user { max-width: 92%; }
+  .msg-bot { grid-template-columns: minmax(0, 1fr); }
+  .msg-bot .face { display: none; }
+  .dock { padding-left: 12px; padding-right: 12px; }
+  .hint .keys { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="top" id="top">
+    <a class="brand" href="/ask" id="home"><img src="{{icon}}" alt=""><b>Tokenis <span>Ask</span></b></a>
+    <span class="chip" id="tenant"></span>
+    <span class="spacer"></span>
+    <button class="tbtn" id="newChat" type="button" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="label-sm" data-t="new_chat"></span>
+    </button>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="ko" aria-pressed="false">한</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+    <button class="tbtn icon" id="theme" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
+    <div class="me">
+      <button class="avatar" id="avatar" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+      <div class="menu" id="menu" role="menu" hidden>
+        <div class="who"><b id="meName"></b><span id="meRole"></span></div>
+        <a href="/admin" id="toConsole" role="menuitem" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          <span data-t="open_console"></span></a>
+        <button type="button" id="signOut" role="menuitem">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16.5 5.5 12 10 7.5"/><path d="M5.5 12H15"/></svg>
+          <span data-t="sign_out"></span></button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="hero">
+      <div class="mark"><img src="{{icon}}" alt=""></div>
+      <h1 data-t="hero_title"></h1>
+      <p id="heroText"></p>
+      <div class="trust">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg><span data-t="trust_private"></span></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4M12 15V8M16 15v-6"/></svg><span data-t="trust_groups"></span></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg><span data-t="trust_audit"></span></span>
+      </div>
+      <div class="suggest" id="suggest"></div>
+      <details class="about" id="about">
+        <summary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+          <span data-t="about_title"></span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <div class="body" id="aboutBody"></div>
+      </details>
+    </section>
+    <section class="thread" id="thread" aria-live="polite"></section>
+  </main>
+
+  <div class="dock">
+    <form class="composer" id="form" autocomplete="off">
+      <div class="box">
+        <label class="sr-only" for="q" data-t="placeholder"></label>
+        <textarea id="q" rows="1" maxlength="2000"></textarea>
+        <button class="send" id="send" type="submit" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5.5 11.5 6.5-6.5 6.5 6.5"/></svg>
+        </button>
+      </div>
+      <div class="hint">
+        <span class="budget" id="budget" hidden><span class="meter" id="meter"><i id="meterFill"></i></span><span id="budgetText"></span></span>
+        <span class="keys" data-t-html="keys"></span>
+        <span class="right" id="model"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script nonce="{{nonce}}">
+"use strict";
+const T = {
+  ko: {
+    new_chat: "새 대화", open_console: "관리 콘솔 열기", sign_out: "로그아웃",
+    hero_title: "무엇이 궁금하세요?",
+    hero_text: "{tenant}의 데이터에 대해 평소 말하듯 물어보세요. 개별 고객이나 직원의 정보는 보이지 않고, {k}건 이상을 묶은 통계로만 답해요.",
+    trust_private: "개인·개별 회사 정보 보호", trust_groups: "{k}건 이상 묶은 통계만", trust_audit: "모든 조회는 감사 기록",
+    about_title: "이 데이터로 물어볼 수 있는 것",
+    about_groups: "이 기준으로 나눠 볼 수 있어요", about_measures: "이 값을 계산할 수 있어요", about_hidden: "보호되는 정보",
+    about_note: "합계·평균·건수를 구할 수 있어요. {k}건보다 적은 그룹이나 개별 회사·사람을 가리키는 질문에는 답하지 않아요. 전체 {records}건.",
+    band: "범위로만", pseudonym: "이름은 가명으로만", values: "{n}개 값",
+    placeholder: "데이터에 대해 물어보세요…",
+    keys: "<kbd>Enter</kbd> 보내기 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈",
+    budget: "오늘 남은 조회 {r} / {b}", budget_total: "남은 조회 {r} / {b}", budget_hour: "이번 시간 남은 조회 {r} / {b}",
+    model: "AI: {m}",
+    reading: "데이터 구성을 확인하는 중…", thinking: "질문을 이해하는 중…", writing: "답변을 정리하는 중…", querying: "조회 중: {what}",
+    steps_summary: "데이터 {n}번 조회", steps_denied: " · {n}번 거절", steps_none: "데이터 조회 없음",
+    st_ok: "완료", st_denied: "보호 정책으로 거절", st_invalid: "해석하지 못함", st_unavailable: "일시적 오류", st_running: "조회 중",
+    show_raw: "원본 결과 보기",
+    denied_title: "일부 조회는 보호 정책에 따라 거절됐어요.",
+    denied_body: "결과가 너무 적은 수의 회사·사람을 가리키거나, 앞선 질문과 합치면 개별 정보가 드러날 수 있을 때 거절돼요. 이렇게 바꿔 보세요:",
+    denied_tips: ["범위를 넓히기 (예: 특정 구 대신 지역 전체)", "여러 그룹을 한 번에 비교하기", "개별 회사 대신 업종·규모 단위로 묻기"],
+    withheld_title: "확인된 숫자로 답하지 못했어요.",
+    err_title: "답변을 받지 못했어요.", retry: "다시 시도",
+    err_busy: "이전 질문을 처리하고 있어요. 끝난 뒤에 다시 물어봐 주세요.",
+    err_rate: "한 시간에 물어볼 수 있는 횟수({n}번)를 넘었어요. 잠시 후 다시 시도해 주세요.",
+    err_model_timeout: "AI 모델의 응답이 너무 늦어요. 잠시 후 다시 시도해 주세요.",
+    err_model_unreachable: "AI 모델에 연결하지 못했어요. 관리자에게 알려주세요.",
+    err_model_busy: "AI 모델이 바빠요. 1분 뒤 다시 시도해 주세요.",
+    err_model_auth: "AI 모델 설정에 문제가 있어요. 관리자에게 알려주세요.",
+    err_model_error: "AI 모델이 답하지 못했어요. 질문을 조금 바꿔서 다시 시도해 주세요.",
+    err_gateway: "게이트웨이를 잠시 사용할 수 없어요. 잠시 후 다시 시도해 주세요.",
+    err_session: "로그인이 만료됐어요. 다시 로그인해 주세요.", err_network: "네트워크 연결을 확인해 주세요.",
+    err_generic: "문제가 생겼어요. 다시 시도해 주세요.",
+    slow: "AI 모델이 생각하는 중이에요. 사내 모델은 1~2분 걸릴 수 있어요.",
+    stopped: "답변을 멈췄어요.", copy: "복사", copied: "복사했어요", stop: "멈추기", send: "보내기",
+    role_user: "질문하기 권한", role_viewer: "보기 권한", role_auditor: "감사 권한", role_admin: "관리자",
+    you: "나", theme: "화면 테마",
+    fn: { sum: "합계", avg: "평균", count: "건수", var: "분산" },
+    by: "{key}별", of: "{fn} · {col}", where: "조건: {f}",
+    tool: { describe_dataset: "데이터 구성 확인", aggregate: "집계", group_by: "그룹별 집계", compare_periods: "두 값 비교",
+            similarity_search: "비슷한 대상 찾기", exists: "해당 조건 존재 여부", disclose_ratio: "비율 공개", disclose_bucket: "구간 공개" },
+  },
+  en: {
+    new_chat: "New chat", open_console: "Open admin console", sign_out: "Sign out",
+    hero_title: "What would you like to know?",
+    hero_text: "Ask about {tenant}'s data in plain words. Individual customers and employees stay private: answers are statistics over groups of {k} or more records.",
+    trust_private: "Individual records stay private", trust_groups: "Groups of {k}+ records only", trust_audit: "Every lookup is audited",
+    about_title: "What you can ask about",
+    about_groups: "Break down by", about_measures: "Calculate", about_hidden: "Protected",
+    about_note: "Totals, averages and counts are available. Questions about groups smaller than {k}, or about a single company or person, are refused. {records} records in all.",
+    band: "as a range", pseudonym: "names as pseudonyms only", values: "{n} values",
+    placeholder: "Ask about your data…",
+    keys: "<kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line",
+    budget: "Lookups left today {r} / {b}", budget_total: "Lookups left {r} / {b}", budget_hour: "Lookups left this hour {r} / {b}",
+    model: "AI: {m}",
+    reading: "Checking the dataset…", thinking: "Understanding your question…", writing: "Writing the answer…", querying: "Looking up: {what}",
+    steps_summary: "{n} data lookups", steps_denied: " · {n} refused", steps_none: "No data lookups",
+    st_ok: "Done", st_denied: "Refused to protect privacy", st_invalid: "Not understood", st_unavailable: "Temporary error", st_running: "Running",
+    show_raw: "Show raw result",
+    denied_title: "Some lookups were refused to protect privacy.",
+    denied_body: "This happens when a result would cover too few companies or people, or would reveal individual records together with earlier questions. Try:",
+    denied_tips: ["A wider scope (a whole region instead of one district)", "Comparing several groups at once", "Industries or size bands instead of one company"],
+    withheld_title: "No answer backed by the data.",
+    err_title: "No answer this time.", retry: "Try again",
+    err_busy: "Your previous question is still running. Ask again when it finishes.",
+    err_rate: "You've reached {n} questions this hour. Try again a little later.",
+    err_model_timeout: "The AI model is taking too long. Try again in a moment.",
+    err_model_unreachable: "The AI model can't be reached. Please tell your administrator.",
+    err_model_busy: "The AI model is busy. Try again in a minute.",
+    err_model_auth: "The AI model is misconfigured. Please tell your administrator.",
+    err_model_error: "The AI model couldn't answer. Try rephrasing the question.",
+    err_gateway: "The gateway is briefly unavailable. Try again in a moment.",
+    err_session: "Your session ended. Please sign in again.", err_network: "Check your network connection.",
+    err_generic: "Something went wrong. Please try again.",
+    slow: "Still working. An on-premises model can take a minute or two.",
+    stopped: "Stopped.", copy: "Copy", copied: "Copied", stop: "Stop", send: "Send",
+    role_user: "Can ask questions", role_viewer: "Viewer", role_auditor: "Auditor", role_admin: "Administrator",
+    you: "You", theme: "Theme",
+    fn: { sum: "Total", avg: "Average", count: "Count", var: "Variance" },
+    by: "by {key}", of: "{fn} of {col}", where: "where {f}",
+    tool: { describe_dataset: "Check the dataset", aggregate: "Aggregate", group_by: "Group totals", compare_periods: "Compare two values",
+            similarity_search: "Find similar", exists: "Check existence", disclose_ratio: "Disclose a ratio", disclose_bucket: "Disclose a range" },
+  },
+};
+
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* private mode */ } },
+  del(k) { try { sessionStorage.removeItem(k); } catch (e) { /* private mode */ } },
+};
+let lang = document.documentElement.lang === "en" ? "en" : "ko";
+let ctx = null;
+let busy = null;           // AbortController while a question runs
+let history = [];          // [{role, content}] sent back for follow-ups
+let turns = [];            // rendered turns, kept for language switches and reloads
+const L = () => T[lang];
+const fmt = (s, v) => String(s).replace(/\{(\w+)\}/g, (_, k) => (v && k in v ? v[k] : ""));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nf = () => new Intl.NumberFormat(lang === "ko" ? "ko-KR" : "en-US");
+
+/* ------------------------------------------------------------ theme */
+(function theme() {
+  let saved = null;
+  try { saved = localStorage.getItem("tokenis-theme"); } catch (e) { /* ignore */ }
+  if (saved) document.documentElement.dataset.theme = saved;
+  $("theme").addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = dark ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("tokenis-theme", next); } catch (e) { /* ignore */ }
+  });
+})();
+
+/* ----------------------------------------------------------- labels */
+function colLabel(name) {
+  if (!ctx) return name;
+  const c = ctx.catalog.columns.find((x) => x.name === name);
+  return c ? c.label : name;
+}
+function filtersText(f) {
+  if (!f || typeof f !== "object") return "";
+  const parts = Object.entries(f).filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => `${colLabel(k)} = ${/^[0-9a-f]{32}$/.test(String(v)) ? "•••" : v}`);
+  return parts.join(", ");
+}
+function describeStep(name, args) {
+  const t = L();
+  const a = args && typeof args === "object" ? args : {};
+  const fn = t.fn[a.function] || a.function || "";
+  let s;
+  if (name === "aggregate") {
+    s = a.function === "count" || !a.column ? (t.fn.count) : fmt(t.of, { fn, col: colLabel(a.column) });
+  } else if (name === "group_by") {
+    const col = a.column ? colLabel(a.column) : "";
+    const what = a.function === "count" || !a.column ? t.fn.count : fmt(t.of, { fn: t.fn[a.function || "sum"], col });
+    s = lang === "ko" ? `${fmt(t.by, { key: colLabel(a.key) })} ${what}` : `${what} ${fmt(t.by, { key: colLabel(a.key) })}`;
+  } else if (name === "compare_periods") {
+    s = `${t.tool.compare_periods}: ${colLabel(a.column_a)} ↔ ${colLabel(a.column_b)}`;
+  } else {
+    s = t.tool[name] || name;
+  }
+  const f = filtersText(a.filters);
+  return f ? `${s} (${fmt(t.where, { f })})` : s;
+}
+
+/* -------------------------------------------------------- markdown */
+function inline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+}
+function markdown(src) {
+  const lines = esc(src || "").replace(/\r/g, "").split("\n");
+  const out = [];
+  let i = 0;
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const numeric = (c) => /^[-+]?[\d,.]+\s*(%|[A-Za-z가-힣]{0,6})?$/.test(c);
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^```/.test(l)) {
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out.push(`<pre>${buf.join("\n")}</pre>`);
+      continue;
+    }
+    if (isRow(l) && i + 1 < lines.length && /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[i + 1])) {
+      const head = cells(l);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && isRow(lines[i])) rows.push(cells(lines[i++]));
+      const numCol = head.map((_, c) => rows.length > 0 && rows.every((r) => !r[c] || numeric(r[c])));
+      out.push(`<div class="tbl"><table><thead><tr>${head.map((h, c) => `<th${numCol[c] ? ' class="n"' : ""}>${inline(h)}</th>`).join("")}</tr></thead><tbody>${
+        rows.map((r) => `<tr>${head.map((_, c) => `<td${numCol[c] ? ' class="n"' : ""}>${inline(r[c] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+    const h = /^(#{1,4})\s+(.*)$/.exec(l);
+    if (h) { out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`); i++; continue; }
+    if (/^\s*([-*•]|\d+[.)])\s+/.test(l)) {
+      const ordered = /^\s*\d+[.)]\s+/.test(l);
+      const items = [];
+      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, ""));
+        i++;
+      }
+      out.push(`<${ordered ? "ol" : "ul"}>${items.map((x) => `<li>${inline(x)}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
+      continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^```|^#{1,4}\s|^\s*([-*•]|\d+[.)])\s+/.test(lines[i]) && !isRow(lines[i])) para.push(lines[i++]);
+    if (para.length) out.push(`<p>${inline(para.join("<br>"))}</p>`);
+    else i++;
+  }
+  return out.join("");
+}
+
+/* ------------------------------------------------------------ icons */
+const ICON = {
+  ok: '<svg class="ic ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
+  denied: '<svg class="ic denied" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></svg>',
+  invalid: '<svg class="ic invalid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>',
+  running: '<svg class="ic running" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6z"/><path d="M12 9v4M12 16h.01"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.3 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  db: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.5"/><path d="M4.5 12v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V12"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-3M12 15V8M16 15v-5"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5.5 11.5 6.5-6.5 6.5 6.5"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
+};
+
+/* ----------------------------------------------------- static texts */
+function applyTexts() {
+  const t = L();
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = t[el.dataset.t] || ""; });
+  document.querySelectorAll("[data-t-html]").forEach((el) => { el.innerHTML = t[el.dataset.tHtml] || ""; });
+  document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  $("q").placeholder = t.placeholder;
+  $("theme").setAttribute("aria-label", t.theme);
+  $("theme").title = t.theme;
+  $("newChat").title = t.new_chat;
+  if (!ctx) return;
+  const k = nf().format(ctx.catalog.k);
+  $("tenant").textContent = ctx.tenant;
+  $("heroText").textContent = fmt(t.hero_text, { tenant: ctx.tenant, k });
+  document.querySelectorAll(".trust [data-t]").forEach((el) => { el.textContent = fmt(t[el.dataset.t], { k }); });
+  $("meName").textContent = ctx.me.identity;
+  $("meRole").textContent = t["role_" + ctx.me.role] || ctx.me.role;
+  $("avatar").textContent = (ctx.me.identity || "?").trim().charAt(0).toUpperCase();
+  $("avatar").setAttribute("aria-label", ctx.me.identity);
+  $("toConsole").hidden = !ctx.me.console;
+  $("signOut").hidden = ctx.me.method !== "sso";
+  $("model").textContent = ctx.model ? fmt(t.model, { m: ctx.model }) : "";
+  renderSuggestions();
+  renderAbout();
+  renderBudget(ctx.budget);
+  renderThread();
+}
+function renderSuggestions() {
+  const box = $("suggest");
+  box.textContent = "";
+  for (const q of ctx.catalog.suggestions.slice(0, 6)) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "card-q";
+    b.innerHTML = ICON.spark + `<span>${esc(q)}</span>`;
+    b.addEventListener("click", () => ask(q));
+    box.appendChild(b);
+  }
+  box.hidden = !box.children.length;
+}
+function renderAbout() {
+  const t = L();
+  const cols = ctx.catalog.columns;
+  const chip = (c, extra) => `<li>${esc(c.label)}${extra ? ` <small>· ${esc(extra)}</small>` : ""}</li>`;
+  const groups = cols.filter((c) => c.kind === "group").map((c) => chip(c, c.values ? fmt(t.values, { n: c.values }) : "")).join("");
+  const measures = cols.filter((c) => c.kind === "measure").map((c) => chip(c, [c.unit, c.band ? t.band : ""].filter(Boolean).join(", "))).join("");
+  const hidden = cols.filter((c) => c.kind === "pseudonym").map((c) => chip(c, t.pseudonym)).join("");
+  $("aboutBody").innerHTML =
+    `<div><h3>${esc(t.about_groups)}</h3><ul>${groups}</ul></div>` +
+    `<div><h3>${esc(t.about_measures)}</h3><ul>${measures}</ul></div>` +
+    (hidden ? `<div><h3>${esc(t.about_hidden)}</h3><ul>${hidden}</ul></div>` : "") +
+    `<div class="note">${esc(fmt(t.about_note, { k: nf().format(ctx.catalog.k), records: nf().format(ctx.catalog.records) }))}</div>`;
+}
+function renderBudget(b) {
+  if (!b || typeof b.remaining !== "number") { $("budget").hidden = true; return; }
+  const t = L();
+  const key = b.window === "day" ? "budget" : b.window === "hour" ? "budget_hour" : "budget_total";
+  $("budgetText").textContent = fmt(t[key], { r: nf().format(b.remaining), b: nf().format(b.budget) });
+  const share = b.budget ? Math.max(0, Math.min(1, b.remaining / b.budget)) : 0;
+  $("meterFill").style.width = (share * 100).toFixed(1) + "%";
+  $("meter").classList.toggle("low", share < 0.15);
+  $("budget").hidden = false;
+}
+
+/* ----------------------------------------------------------- thread */
+function renderThread() {
+  const box = $("thread");
+  box.textContent = "";
+  for (const turn of turns) box.appendChild(renderTurn(turn));
+  $("hero").hidden = turns.length > 0;
+  $("newChat").hidden = turns.length === 0;
+}
+function renderTurn(turn) {
+  const t = L();
+  const wrap = document.createDocumentFragment();
+  const u = document.createElement("div");
+  u.className = "msg-user";
+  u.textContent = turn.question;
+  wrap.appendChild(u);
+  const bot = document.createElement("div");
+  bot.className = "msg-bot";
+  bot.innerHTML = `<div class="face"><img src="${document.querySelector("link[rel=icon]").href}" alt=""></div><div class="col"></div>`;
+  const col = bot.querySelector(".col");
+  turn.el = col;
+  fillTurn(turn);
+  wrap.appendChild(bot);
+  return wrap;
+}
+function fillTurn(turn) {
+  const t = L();
+  const col = turn.el;
+  if (!col) return;
+  col.textContent = "";
+  if (turn.steps.length) {
+    const denied = turn.steps.filter((s) => s.status === "denied").length;
+    const done = turn.steps.filter((s) => s.status !== "running").length;
+    const d = document.createElement("details");
+    d.className = "steps";
+    if (turn.open) d.open = true;
+    d.addEventListener("toggle", () => { turn.open = d.open; });
+    d.innerHTML = `<summary>${ICON.db}<span>${esc(fmt(t.steps_summary, { n: done || turn.steps.length }) + (denied ? fmt(t.steps_denied, { n: denied }) : ""))}</span>${ICON.chev}</summary>` +
+      `<ol>${turn.steps.map((s) => `<li class="step">${ICON[s.status] || ICON.invalid}<span class="what">${esc(describeStep(s.name, s.args))}</span><span class="tag ${esc(s.status)}">${esc(t["st_" + s.status] || s.status)}</span>${
+        s.result ? `<details class="raw"><summary>${esc(t.show_raw)}</summary><pre>${esc(prettyResult(s.result))}</pre></details>` : ""}</li>`).join("")}</ol>`;
+    col.appendChild(d);
+  }
+  if (turn.answer !== null && turn.answer !== undefined) {
+    if (turn.grounded === false) {
+      col.appendChild(callout("warn", `<b>${esc(t.withheld_title)}</b><div>${esc(turn.answer)}</div>`));
+    } else {
+      const a = document.createElement("div");
+      a.className = "answer";
+      a.innerHTML = markdown(turn.answer);
+      col.appendChild(a);
+    }
+  }
+  if (turn.steps.some((s) => s.status === "denied") && turn.answer !== null && turn.answer !== undefined) {
+    const tips = t.denied_tips.map((x) => `<li>${esc(x)}</li>`).join("");
+    col.appendChild(callout("info", `<b>${esc(t.denied_title)}</b> ${esc(t.denied_body)}<ul>${tips}</ul>`));
+  }
+  if (turn.error) {
+    const c = callout("err", `<b>${esc(t.err_title)}</b> ${esc(errorText(turn.error))}`);
+    if (turn.error !== "busy") {
+      const tips = document.createElement("div");
+      tips.className = "tips";
+      const r = document.createElement("button");
+      r.type = "button";
+      r.className = "tip";
+      r.textContent = t.retry;
+      r.addEventListener("click", () => {
+        if (turn.error === "session") { location.href = "/admin/auth/login?next=/ask"; return; }
+        turns = turns.filter((x) => x !== turn);
+        renderThread();
+        ask(turn.question);
+      });
+      tips.appendChild(r);
+      c.querySelector("div").appendChild(tips);
+    }
+    col.appendChild(c);
+  }
+  if (turn.stopped) col.appendChild(callout("info", esc(t.stopped)));
+  if (turn.running) {
+    const st = document.createElement("div");
+    st.className = "status";
+    st.innerHTML = `<span class="dots"><i></i><i></i><i></i></span><span class="phase"></span><span class="elapsed"></span>`;
+    st.querySelector(".phase").textContent = phaseText(turn);
+    col.appendChild(st);
+    turn.statusEl = st;
+  } else if (turn.answer && turn.grounded !== false) {
+    const acts = document.createElement("div");
+    acts.className = "actions";
+    const c = document.createElement("button");
+    c.type = "button";
+    c.className = "act";
+    c.innerHTML = ICON.copy + `<span>${esc(t.copy)}</span>`;
+    c.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(turn.answer); toast(t.copied); } catch (e) { /* ignore */ }
+    });
+    acts.appendChild(c);
+    col.appendChild(acts);
+  }
+}
+function prettyResult(text) {
+  try { return JSON.stringify(JSON.parse(text), null, 2); } catch (e) { return text; }
+}
+function phaseText(turn) {
+  const t = L();
+  const running = turn.steps.find((s) => s.status === "running");
+  if (running) return fmt(t.querying, { what: describeStep(running.name, running.args) });
+  return t[turn.phase] || t.thinking;
+}
+function callout(kind, html) {
+  const c = document.createElement("div");
+  c.className = "callout " + kind;
+  c.innerHTML = (kind === "info" ? ICON.info : ICON.warn) + `<div>${html}</div>`;
+  return c;
+}
+function errorText(code) {
+  const t = L();
+  if (code === "rate") return fmt(t.err_rate, { n: ctx ? ctx.limits.per_hour : "" });
+  return t["err_" + code] || t.err_generic;
+}
+let toastTimer = null;
+function toast(text) {
+  let el = document.querySelector(".toast");
+  if (!el) { el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  el.textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.remove(), 1600);
+}
+
+/* ------------------------------------------------------------- asking */
+function save() {
+  store.set("tokenis-ask", JSON.stringify({ history, turns: turns.filter((x) => !x.running).map((x) => ({
+    question: x.question, steps: x.steps, answer: x.answer, grounded: x.grounded, error: x.error, stopped: x.stopped })) }));
+}
+function setBusy(on) {
+  const send = $("send");
+  send.classList.toggle("stop", on);
+  send.innerHTML = on ? ICON.stop : ICON.send;
+  send.setAttribute("aria-label", on ? L().stop : L().send);
+  send.disabled = !on && !$("q").value.trim();
+}
+function scrollDown(force) {
+  const near = window.innerHeight + window.scrollY >= document.body.scrollHeight - 220;
+  if (force || near) window.scrollTo({ top: document.body.scrollHeight, behavior: force ? "smooth" : "auto" });
+}
+let tick = null;
+async function ask(question) {
+  question = question.trim();
+  if (!question || busy) return;
+  const turn = { question, steps: [], answer: null, grounded: true, error: null, running: true, phase: "reading", started: Date.now() };
+  turns.push(turn);
+  renderThread();
+  $("q").value = "";
+  autosize();
+  scrollDown(true);
+  busy = new AbortController();
+  setBusy(true);
+  tick = setInterval(() => {
+    const el = turn.statusEl && turn.statusEl.querySelector(".elapsed");
+    const secs = Math.round((Date.now() - turn.started) / 1000);
+    if (el) el.textContent = secs >= 20 ? `${secs}s · ${L().slow}` : secs + "s";
+  }, 1000);
+  try {
+    const res = await fetch("/ask/api/chat", {
+      method: "POST", signal: busy.signal, credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Tokenis-Console": "1" },
+      body: JSON.stringify({ question, history, lang }),
+    });
+    if (res.status === 401) throw Object.assign(new Error("session"), { code: "session" });
+    if (!res.ok || !res.body) throw Object.assign(new Error("http"), { code: res.status === 400 ? "model_error" : "generic" });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let cut;
+      while ((cut = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, cut);
+        buf = buf.slice(cut + 2);
+        const data = chunk.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+        if (data) onEvent(turn, JSON.parse(data));
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") turn.stopped = true;
+    else turn.error = e.code || (e instanceof TypeError ? "network" : "generic");
+  } finally {
+    clearInterval(tick);
+    turn.running = false;
+    busy = null;
+    if (turn.answer === null && !turn.error && !turn.stopped) turn.error = "generic";
+    fillTurn(turn);
+    setBusy(false);
+    save();
+    $("q").focus();
+  }
+}
+function onEvent(turn, ev) {
+  if (ev.type === "status") turn.phase = ev.phase;
+  else if (ev.type === "tool") {
+    const s = turn.steps.find((x) => x.id === ev.id);
+    if (s) Object.assign(s, { status: ev.status, result: ev.result || null });
+    else turn.steps.push({ id: ev.id, name: ev.name, args: ev.args, status: ev.status, result: ev.result || null });
+  } else if (ev.type === "answer") {
+    turn.answer = ev.text || "";
+    turn.grounded = ev.grounded !== false;
+    if (turn.grounded && turn.answer) {
+      history.push({ role: "user", content: turn.question }, { role: "assistant", content: turn.answer });
+      history = history.slice(-12);
+    }
+  } else if (ev.type === "error") turn.error = ev.code || "generic";
+  else if (ev.type === "done") { if (ev.budget) { ctx.budget = ev.budget; renderBudget(ev.budget); } }
+  fillTurn(turn);
+  scrollDown(false);
+}
+
+/* ------------------------------------------------------------ wiring */
+function autosize() {
+  const q = $("q");
+  q.style.height = "auto";
+  q.style.height = Math.min(200, q.scrollHeight) + "px";
+  $("send").disabled = !busy && !q.value.trim();
+}
+$("q").addEventListener("input", autosize);
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) ask($("q").value); }
+});
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (busy) busy.abort(); else ask($("q").value);
+});
+$("newChat").addEventListener("click", () => {
+  if (busy) busy.abort();
+  turns = []; history = [];
+  store.del("tokenis-ask");
+  renderThread();
+  $("q").focus();
+});
+document.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => {
+  lang = b.dataset.lang;
+  document.cookie = `tokenis_lang=${lang}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  applyTexts();
+}));
+$("avatar").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = $("menu").hidden;
+  $("menu").hidden = !open;
+  $("avatar").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (e) => {
+  if (!$("menu").hidden && !$("menu").contains(e.target)) { $("menu").hidden = true; $("avatar").setAttribute("aria-expanded", "false"); }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("menu").hidden = true; });
+$("signOut").addEventListener("click", async () => {
+  try {
+    await fetch("/admin/auth/logout", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-Tokenis-Console": "1" }, body: "{}" });
+  } catch (e) { /* signed out locally anyway */ }
+  store.del("tokenis-ask");
+  location.href = "/admin/auth/login?next=/ask";
+});
+addEventListener("scroll", () => $("top").classList.toggle("scrolled", scrollY > 4), { passive: true });
+
+(async function boot() {
+  applyTexts();
+  try {
+    const saved = JSON.parse(store.get("tokenis-ask") || "null");
+    if (saved && Array.isArray(saved.turns)) { turns = saved.turns; history = saved.history || []; }
+  } catch (e) { /* start fresh */ }
+  try {
+    const res = await fetch("/ask/api/context", { credentials: "same-origin" });
+    if (res.status === 401) { location.href = "/admin/auth/login?next=/ask"; return; }
+    ctx = await res.json();
+  } catch (e) {
+    $("heroText").textContent = L().err_network;
+    return;
+  }
+  applyTexts();
+  autosize();
+  $("q").focus();
+})();
+</script>
+</body>
+</html>

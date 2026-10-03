@@ -232,13 +232,14 @@ is `<public_url>/admin/auth/callback`.
 | `scopes` | `["openid", "email", "profile"]` | Must include `openid` |
 | `identity_claim` | `"email"` | Who the person is (an unverified e-mail address is refused) |
 | `roles_claim` | none | A claim listing groups or roles, e.g. `groups` |
-| `admins`, `auditors`, `viewers` | `[]` | Identities, or `"group:NAME"` for a value of `roles_claim`. People who match no list cannot sign in |
+| `admins`, `auditors`, `viewers`, `users` | `[]` | Identities, `"group:NAME"` for a value of `roles_claim`, or `"@example.com"` for every verified address in a domain. People who match no list cannot sign in |
 | `session_hours` | `8` | Session length (0.25-24) |
-| `display_name` | `"single sign-on"` | Shown on the console's sign-in button: "Continue with ..." |
+| `display_name` | `"SSO"` | Shown on the sign-in button: "Continue with ..." |
 
 | Role | Can |
 |---|---|
-| `viewer` | Overview statistics, replicas, policy |
+| `user` | Ask questions on `/ask` (see [`[ask]`](#ask)); no console |
+| `viewer` | Also overview statistics, replicas, policy, the AI-app connection guide |
 | `auditor` | Also users, the audit trail, exports, the admin activity log |
 | `admin` | Also issue and revoke API keys |
 
@@ -246,6 +247,34 @@ Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`
 (ready once the ledger is sealed and, with the postgres backend, the
 database answers and the shared history is intact). See
 [deployment.md](deployment.md#operating-it).
+
+The console and the sign-in pages are in English and Korean: the browser's
+language decides, and the switch in the top bar remembers a choice (the
+`tokenis_lang` cookie). Sessions are valid for the console and for Ask.
+
+## `[ask]`
+
+Tokenis Ask: a chat screen on `/ask` where signed-in people ask questions in
+plain language and an LLM answers them with the gateway's tools, under each
+person's own identity and budget. Needs `transport = "http"` and
+`[ops.oidc]` (or `admin_token_env`). Guide: [ask.md](ask.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `"openai"` | `"anthropic"` (Messages API) or `"openai"` (any OpenAI-compatible Chat Completions API: OpenAI, Azure OpenAI, vLLM, LiteLLM, Ollama, SARA) |
+| `model` | required | Model name, e.g. `"claude-opus-5-5"` |
+| `base_url` | the provider's public API | e.g. `"http://127.0.0.1:11434/v1"`; an API key is never sent over plain http to another host |
+| `api_key_env` | none | Variable holding the model API key |
+| `tool_protocol` | `"auto"` | `"native"` (function calling), `"json"` (tools described in the prompt, for models without function calling) or `"auto"` (native, falling back to json) |
+| `reasoning_effort` | none | OpenAI-compatible only; `"none"` turns off long hidden reasoning of local reasoning models |
+| `max_turns` | `8` | Model turns per question (1-20) |
+| `timeout_seconds` | `120` | Per model call (5-600) |
+| `questions_per_hour` | `60` | Per person, per replica; also one question at a time |
+| `temperature`, `max_tokens` | `0.2`, `1500` | Sampling |
+| `language` | `"ko"` | The screen's language when the browser does not ask for one: `"ko"` or `"en"` |
+| `display_name` | the model name | Shown under the question box, e.g. `"Claude"` |
+| `suggestions` | generated from the schema | Up to 12 example questions on the empty screen |
+| `[ask.labels]` | column descriptions | Display names, e.g. `industry = "업종"`: on screen, in the console's column list, and in the model's answers |
 
 ## `[auth]` (required for HTTP)
 

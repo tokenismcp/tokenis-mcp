@@ -210,6 +210,19 @@ def cmd_serve(args: argparse.Namespace) -> None:
             _die("[ops.oidc] needs a key to sign console sessions: configure [keys], "
                  "[state] audit_key_env or [ops] session_secret_env")
         oidc_client = OidcClient(dc_replace(config.ops.oidc, client_secret=secret))
+    ask_engine = None
+    if config.ask is not None:
+        from tokenis.ask import AskEngine
+
+        ask_key = None
+        if config.ask.api_key_env:
+            ask_key = os.environ.get(config.ask.api_key_env) or None
+            if ask_key is None:
+                _die(f"[ask] environment variable {config.ask.api_key_env} is not set (the model's API key)")
+        try:
+            ask_engine = AskEngine(service, config.ask, ask_key, metrics=metrics, call_log=call_log)
+        except ValueError as exc:
+            _die(str(exc))
     install_routes(
         server, service, metrics,
         admin_token=ops_token(config.ops.admin_token_env, "admin_token_env"),
@@ -220,6 +233,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         oidc=oidc_client,
         session_key=session_key,
         secure_cookies=public_url.startswith("https://"),
+        ask=ask_engine,
     )
     if security is not None and metrics_token is None:
         log.warning("/metrics is open on %s:%d; per-rule denial counts are withheld. Set [ops] "

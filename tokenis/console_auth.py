@@ -1,18 +1,22 @@
 # Copyright 2026 4Chains Inc.
 # SPDX-License-Identifier: Apache-2.0
-"""Single sign-on for the admin console: OpenID Connect (authorization code
-flow with PKCE) against the organisation's identity provider -- Okta, Entra
-ID, Google Workspace, Keycloak, Auth0, Dex, ... -- and three roles:
+"""Single sign-on for the admin console and Tokenis Ask: OpenID Connect
+(authorization code flow with PKCE) against the organisation's identity
+provider -- Okta, Entra ID, Google Workspace, Keycloak, Auth0, Dex, ... --
+and four roles:
 
+- ``user``: asks questions on the Ask screen (no console);
 - ``viewer``: overview statistics, replicas and the policy in force;
 - ``auditor``: also per-user activity, the audit trail, exports and the
   admin activity log;
 - ``admin``: also issues and revokes API keys.
 
-Roles come from the configuration: each role lists identities (the
-``identity_claim``, e.g. an e-mail address) and/or group values (entries of
-``roles_claim`` in the ID token, e.g. an IdP group). Anyone who signs in but
-matches no list is refused.
+Every role also has the rights of the roles before it. Roles come from the
+configuration: each role lists identities (the ``identity_claim``, e.g. an
+e-mail address), group values (``group:NAME``: entries of ``roles_claim`` in
+the ID token, e.g. an IdP group) and/or e-mail domains (``@example.com``:
+any verified address there). Anyone who signs in but matches no list is
+refused.
 
 Sessions are stateless, HMAC-signed cookies (HttpOnly, SameSite=Lax, Secure
 on https), valid on every replica because all replicas share the signing
@@ -34,7 +38,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-ROLES = ("viewer", "auditor", "admin")
+ROLES = ("user", "viewer", "auditor", "admin")
 RANK = {role: i for i, role in enumerate(ROLES)}
 SESSION_COOKIE = "tokenis_console"
 FLOW_COOKIE = "tokenis_oidc"
@@ -109,6 +113,8 @@ class OidcSettings:
     admins: Tuple[str, ...] = ()
     auditors: Tuple[str, ...] = ()
     viewers: Tuple[str, ...] = ()
+    #: Ask only (no console).
+    users: Tuple[str, ...] = ()
     session_hours: float = 8.0
     #: Shown on the sign-in button ("Continue with ...").
     display_name: str = ""
@@ -125,7 +131,11 @@ class OidcSettings:
             raw = claims.get(self.roles_claim)
             groups = [raw] if isinstance(raw, str) else [str(g) for g in raw or [] if isinstance(g, str)]
         subjects = {identity.lower()} | {f"group:{g}" for g in groups}
-        for role, members in (("admin", self.admins), ("auditor", self.auditors), ("viewer", self.viewers)):
+        if (self.identity_claim == "email" and claims.get("email_verified") is True
+                and identity.count("@") == 1):
+            subjects.add("@" + identity.split("@")[1].lower())
+        for role, members in (("admin", self.admins), ("auditor", self.auditors), ("viewer", self.viewers),
+                              ("user", self.users)):
             if subjects & {m.lower() if not m.startswith("group:") else m for m in members}:
                 return role, identity
         return None, identity
@@ -222,7 +232,7 @@ def parse_members(value: Any, where: str) -> Tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) and v for v in value):
-        raise ValueError(f"{where} must be a list of identities or \"group:NAME\" entries")
+        raise ValueError(f"{where} must be a list of identities, \"group:NAME\" or \"@domain\" entries")
     return tuple(value)
 
 

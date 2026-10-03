@@ -129,7 +129,7 @@ def sign_in(client, idp, user=None):
 def test_unauthenticated_visitors_are_sent_to_sign_in(tmp_path, idp):
     client, _ = console(tmp_path, idp)
     page = client.get("/admin")
-    assert page.status_code == 302 and page.headers["location"] == "/admin/auth/login"
+    assert page.status_code == 302 and page.headers["location"] == "/admin/auth/login?next=/admin"
     api = client.get("/admin/api/summary")
     assert api.status_code == 401 and api.json()["login"] == "admin/auth/login"
 
@@ -137,7 +137,7 @@ def test_unauthenticated_visitors_are_sent_to_sign_in(tmp_path, idp):
 def test_the_sign_in_page_is_the_consoles_own(tmp_path, idp):
     client, _ = console(tmp_path, idp, display_name="Acme <SSO>")
     page = client.get("/admin/auth/login")
-    assert page.status_code == 200 and 'href="/admin/auth/start"' in page.text
+    assert page.status_code == 200 and 'href="/admin/auth/start?next=/admin"' in page.text
     assert "Continue with Acme &lt;SSO&gt;" in page.text and "<SSO>" not in page.text  # escaped
     assert "nonce-" in page.headers["content-security-policy"]
     sign_in(client, idp)
@@ -150,7 +150,7 @@ def test_admin_signs_in_and_is_named_in_the_activity_log(tmp_path, idp):
     done = sign_in(client, idp)
     assert done.status_code == 302 and done.headers["location"] == "/admin"
     cookie = next(c for c in done.headers.get_list("set-cookie") if c.startswith(SESSION_COOKIE))
-    assert "HttpOnly" in cookie and "SameSite=Lax" in cookie and "Path=/admin" in cookie
+    assert "HttpOnly" in cookie and "SameSite=Lax" in cookie and "Path=/;" in cookie
     assert client.get("/admin").status_code == 200
     me = client.get("/admin/api/summary").json()["me"]
     assert me == {"identity": "alice@acme.example", "role": "admin", "method": "sso", "sso": True}

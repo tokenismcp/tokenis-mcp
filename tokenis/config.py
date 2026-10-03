@@ -164,6 +164,8 @@ class TokenisConfig:
     state_backend: str = "file"
     state_url_env: str = "TOKENIS_STATE_URL"
     ops: OpsSettings = field(default_factory=OpsSettings)
+    #: Tokenis Ask ([ask]): questions in plain language on /ask.
+    ask: Optional[Any] = None
 
 
 # -- TOML parsing -----------------------------------------------------------------
@@ -188,7 +190,7 @@ def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettin
 
     o = _table(raw, "ops.oidc", ("issuer", "client_id", "client_secret_env", "redirect_url", "scopes",
                                  "identity_claim", "roles_claim", "admins", "auditors", "viewers",
-                                 "session_hours", "display_name"))
+                                 "users", "session_hours", "display_name"))
     for key in ("issuer", "client_id"):
         if not isinstance(o.get(key), str) or not o[key]:
             raise ConfigError(f"[ops.oidc] {key} is required")
@@ -203,6 +205,7 @@ def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettin
             admins=parse_members(o.get("admins"), "[ops.oidc] admins"),
             auditors=parse_members(o.get("auditors"), "[ops.oidc] auditors"),
             viewers=parse_members(o.get("viewers"), "[ops.oidc] viewers"),
+            users=parse_members(o.get("users"), "[ops.oidc] users"),
             session_hours=float(o.get("session_hours", 8)),
             display_name=str(o.get("display_name", "")),
         )
@@ -210,14 +213,43 @@ def _parse_oidc(raw: Any, ops: OpsSettings, server: ServerSettings) -> OpsSettin
         raise ConfigError(str(exc)) from None
     if "openid" not in settings.scopes:
         raise ConfigError("[ops.oidc] scopes must include openid")
-    if not (settings.admins or settings.auditors or settings.viewers):
-        raise ConfigError("[ops.oidc] lists nobody: set admins, auditors and/or viewers")
+    if not (settings.admins or settings.auditors or settings.viewers or settings.users):
+        raise ConfigError("[ops.oidc] lists nobody: set admins, auditors, viewers and/or users")
     if not 0.25 <= settings.session_hours <= 24:
         raise ConfigError("[ops.oidc] session_hours must be between 0.25 and 24")
     if not settings.issuer.startswith("https://") and urlsplit(settings.issuer).hostname not in (
             "localhost", "127.0.0.1", "::1"):
         raise ConfigError("[ops.oidc] issuer must be https:// (plain http only for localhost)")
     return replace(ops, oidc=settings, oidc_client_secret_env=o.get("client_secret_env"))
+
+
+_ASK_KEYS = ("provider", "model", "base_url", "api_key_env", "tool_protocol", "max_turns", "timeout_seconds",
+             "questions_per_hour", "temperature", "max_tokens", "suggestions", "labels", "language",
+             "display_name", "reasoning_effort")
+
+
+def _parse_ask(raw: Any, schema: Schema, server: ServerSettings, ops: OpsSettings) -> Any:
+    """[ask]: Tokenis Ask (see tokenis.ask)."""
+    from tokenis.ask import AskSettings
+
+    a = _table(raw, "ask", _ASK_KEYS)
+    if "suggestions" in a:
+        if not isinstance(a["suggestions"], list):
+            raise ConfigError("[ask] suggestions must be a list of strings")
+        a["suggestions"] = tuple(a["suggestions"])
+    labels = a.get("labels", {})
+    if not isinstance(labels, dict):
+        raise ConfigError("[ask] labels must be a table: column = \"display name\"")
+    names = {c.name for c in schema.columns}
+    unknown = sorted(set(labels) - names)
+    if unknown:
+        raise ConfigError(f"[ask] labels: unknown column(s) {', '.join(unknown)}")
+    settings = _build(AskSettings, "[ask]", **a)
+    if server.transport != "http":
+        raise ConfigError("[ask] needs [server] transport = \"http\"")
+    if ops.oidc is None and not ops.admin_token_env:
+        raise ConfigError("[ask] needs sign-in: configure [ops.oidc] (or [ops] admin_token_env)")
+    return settings
 
 
 def _path(base: Path, value: Any, where: str) -> Path:
@@ -241,7 +273,7 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     top = _table(
         dict(raw), "top level",
         ("tenant", "data", "columns", "admission", "decryption", "disclosure", "reveal",
-         "state", "server", "auth", "keys", "ledger", "ops"),
+         "state", "server", "auth", "keys", "ledger", "ops", "ask"),
     )
     tenant = _table(top.get("tenant"), "tenant", ("name", "epoch", "tokenizer_key_env"))
     data = _table(
@@ -413,6 +445,8 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
             "the http transport requires authentication: set [auth] mode to api_keys or jwt"
         )
 
+    ask = _parse_ask(top.get("ask"), schema, server, ops) if top.get("ask") is not None else None
+
     return TokenisConfig(
         schema=schema,
         settings=settings,
@@ -428,6 +462,7 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
         state_backend=state_backend,
         state_url_env=str(state.get("url_env", "TOKENIS_STATE_URL")),
         ops=ops,
+        ask=ask,
     )
 
 

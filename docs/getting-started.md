@@ -111,6 +111,7 @@ the extension's settings instead.
 
 - [tools.md](tools.md): what each tool answers, and why some questions are
   refused.
+- [ask.md](ask.md): a question screen for everyone, with single sign-on.
 - [llm-integration.md](llm-integration.md): call the tools from the
   Anthropic API, OpenAI-compatible APIs or local models, without an MCP client.
 - [deployment.md](deployment.md): run it as a shared, authenticated HTTP

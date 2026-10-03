@@ -134,14 +134,20 @@ class TokenisToolkit:
         principal: str,
         taint: int = 0,
         max_concurrency: int = 16,
+        metrics: Any = None,
+        call_log: Any = None,
     ) -> None:
         self.principal = principal
         self.taint = 1 if taint else 0
+        # metrics / call_log: count these calls with the gateway's own
+        # (tokenis.ops.Metrics, tokenis.calllog.CallLog), as the MCP endpoint does.
         self.server = create_server(
             service,
             principal_resolver=fixed_principal(principal),
             taint_resolver=lambda _ctx: self.taint,
             max_concurrency=max_concurrency,
+            metrics=metrics,
+            call_log=call_log,
         )
         self._definitions: Optional[List[ToolDefinition]] = None
 

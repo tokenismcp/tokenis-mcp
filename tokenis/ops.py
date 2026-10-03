@@ -11,9 +11,12 @@ Endpoints (next to ``/mcp`` on the same port):
 - ``GET /metrics`` -- Prometheus text format. Open by default (scrape it
   from inside the cluster); set ``[ops] metrics_token_env`` to require a
   bearer token.
-- ``GET /admin`` and ``GET /admin/api/summary`` -- the dashboard, enabled
-  only when ``[ops] admin_token_env`` names a set variable. HTTP Basic
-  (any user name, the token as password) or ``Authorization: Bearer``.
+- ``GET /admin`` and ``/admin/api/...`` -- the admin console, enabled when
+  ``[ops] admin_token_env`` names a set variable (HTTP Basic with any user
+  name and the token as password, or ``Authorization: Bearer``) or
+  ``[ops.oidc]`` configures single sign-on (``/admin/auth/...``).
+- ``GET /ask`` and ``/ask/api/...`` -- Tokenis Ask (``[ask]``, see
+  :mod:`tokenis.ask`), for everyone who may sign in.
 
 Nothing here reveals a sealed value: metrics count calls and outcomes, and
 the dashboard lists audit entries without their disclosed values.
@@ -319,6 +322,7 @@ def install_routes(
     oidc: Any = None,
     session_key: Optional[bytes] = None,
     secure_cookies: bool = False,
+    ask: Any = None,
 ) -> None:
     """``admin_hosts``: Host header values the admin console answers to
     (DNS-rebinding protection for the one browser-facing page; probes and
@@ -374,6 +378,7 @@ def install_routes(
 
     from tokenis.console_auth import (
         FLOW_COOKIE,
+        ROLES,
         SESSION_COOKIE,
         ConsoleAuthError,
         SessionSigner,
@@ -405,7 +410,7 @@ def install_routes(
             return {"identity": "admin token", "role": "admin", "method": "token"}
         if sessions is not None:
             payload = sessions.verify(read_cookie(request.headers.get("cookie", ""), SESSION_COOKIE))
-            if payload and payload.get("role") in ("viewer", "auditor", "admin"):
+            if payload and payload.get("role") in ROLES:
                 return {"identity": str(payload["sub"]), "role": str(payload["role"]), "method": "sso"}
         return None
 
@@ -464,6 +469,8 @@ def install_routes(
             data.pop("recent", None)
             data.pop("api_keys", None)
         data["me"] = {**who, "sso": oidc is not None}
+        data["ask"] = ask is not None
+        data["labels"] = dict(ask.settings.labels) if ask is not None else {}
         return JSONResponse(data, headers=no_store)
 
     def _principals(range_key: str) -> Dict[str, Any]:
@@ -592,70 +599,116 @@ def install_routes(
             "Referrer-Policy": "no-referrer",
         })
 
-    def _message_page(title: str, text: str, status: int = 200, action: Optional[Tuple[str, str]] = None,
-                      note: str = "") -> Response:
+    def _lang(request: Request) -> str:
+        """ko or en: the person's choice (cookie), else the browser's."""
+        chosen = read_cookie(request.headers.get("cookie", ""), "tokenis_lang")
+        if chosen in ("ko", "en"):
+            return chosen
+        for part in request.headers.get("accept-language", "").split(","):
+            tag = part.split(";")[0].strip().lower()
+            if tag.startswith("ko"):
+                return "ko"
+            if tag.startswith("en"):
+                return "en"
+        return ask.settings.language if ask is not None else "en"
+
+    def _message_page(request: Request, key: str, status: int = 200, action: Optional[Tuple[str, str]] = None,
+                      **fmt: str) -> Response:
         import html as html_lib
 
+        lang = _lang(request)
+        text = MESSAGES[lang]
+        title, body_text = text[key]
         nonce = secrets.token_urlsafe(16)
         body = message_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        for slot in ("subtitle", "foot_sso", "foot_audit"):
+            body = body.replace("{{" + slot + "}}", html_lib.escape(text[slot]))
+        body = body.replace("{{lang}}", lang)
         tenant = html_lib.escape(service.settings.tenant)
         # Fill the caller-influenced slots last, escaped, so nothing in them is
         # read as a template marker.
         link = ""
         if action:
+            label = text[action[1]].format(**fmt) if action[1] in text else action[1]
             link = (f'<a class="btn" href="{html_lib.escape(action[0])}"><svg viewBox="0 0 24 24" fill="none" '
                     'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
                     '<path d="M10 7.5 14.5 12 10 16.5"/><path d="M14.5 12H4.5"/><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/></svg>'
-                    f'{html_lib.escape(action[1])}</a>')
-            if note:
-                link += f'<div class="note">{html_lib.escape(note)}</div>'
-        body = body.replace("{{extra}}", f'<div class="tenant">Tenant · {tenant}</div>').replace("{{action}}", link)
-        body = body.replace("{{title}}", html_lib.escape(title)).replace("{{text}}", html_lib.escape(text))
+                    f'{html_lib.escape(label)}</a>')
+            if key in ("sign_in", "sign_in_ask"):
+                link += f'<div class="note">{html_lib.escape(text["sign_in_note"])}</div>'
+        body = body.replace("{{extra}}", f'<div class="tenant">{html_lib.escape(text["tenant"])} · {tenant}</div>')
+        body = body.replace("{{action}}", link)
+        body = body.replace("{{title}}", html_lib.escape(title.format(**fmt)))
+        body = body.replace("{{text}}", html_lib.escape(body_text.format(**fmt)))
         response = _page(nonce, body)
         response.status_code = status
         return response
+
+    def _sign_in_redirect(next_path: str) -> Response:
+        return RedirectResponse(f"/admin/auth/login?next={next_path}", status_code=302, headers=no_store)
 
     @server.custom_route("/admin", methods=["GET"], include_in_schema=False)
     async def admin_page(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
-        if _who(request) is None:
+        who = _who(request)
+        if who is None:
             if oidc is not None:
-                return RedirectResponse("/admin/auth/login", status_code=302, headers=no_store)
+                return _sign_in_redirect("/admin")
             return _challenge()
+        if not at_least(who["role"], "viewer"):
+            if ask is not None:
+                return RedirectResponse("/ask", status_code=302, headers=no_store)
+            return _message_page(request, "no_console", 403, identity=who["identity"])
         nonce = secrets.token_urlsafe(16)
-        return _page(nonce, dashboard_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri()))
+        html = dashboard_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        return _page(nonce, html.replace("{{lang}}", _lang(request)))
+
+    @server.custom_route("/", methods=["GET"], include_in_schema=False)
+    async def root(request: Request) -> Response:
+        if not _host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
+        return RedirectResponse("/ask" if ask is not None else "/admin", status_code=302, headers=no_store)
+
+    if ask is not None:
+        _install_ask(server, ask, service, guard=_guard, who_of=_who, page=_page, host_ok=_host_ok,
+                     sign_in=_sign_in_redirect if oidc is not None else None, challenge=_challenge,
+                     lang_of=_lang, no_store=no_store)
 
     if oidc is None:
         return
     assert sessions is not None and flows is not None  # noqa: S101 -- checked above
 
-    provider = oidc.settings.display_name or "single sign-on"
+    provider = oidc.settings.display_name or "SSO"
+
+    def _next(value: Optional[str]) -> str:
+        return value if value in ("/admin", "/ask") else "/admin"
 
     @server.custom_route("/admin/auth/login", methods=["GET"], include_in_schema=False)
     async def auth_login(request: Request) -> Response:
-        """The console's own sign-in page; the button starts the flow."""
+        """The sign-in page; the button starts the flow."""
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
-        if _who(request) is not None:
-            return RedirectResponse("/admin", status_code=302, headers=no_store)
-        return _message_page("Sign in to the console", "Use your organisation account. Your role decides what you "
-                             "can see and do here.", 200, ("/admin/auth/start", f"Continue with {provider}"),
-                             note="You will continue on your organisation's sign-in page.")
+        target = _next(request.query_params.get("next"))
+        who = _who(request)
+        if who is not None:
+            return RedirectResponse(target if at_least(who["role"], "viewer") or ask is None else "/ask",
+                                    status_code=302, headers=no_store)
+        return _message_page(request, "sign_in_ask" if target == "/ask" else "sign_in", 200,
+                             (f"/admin/auth/start?next={target}", "continue_with"), provider=provider)
 
     @server.custom_route("/admin/auth/start", methods=["GET"], include_in_schema=False)
     async def auth_start(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
         flow = new_flow()
+        flow["next"] = _next(request.query_params.get("next"))
         try:
             url = await anyio.to_thread.run_sync(oidc.authorization_url, flow["state"], flow["nonce"],
                                                  flow["verifier"])
         except Exception as exc:  # noqa: BLE001 -- show a page, keep details in the log
             log.warning("single sign-on unavailable: %s: %s", type(exc).__name__, exc)
-            return _message_page("Sign-in is unavailable", "The identity provider could not be reached. "
-                                 "Try again in a moment, or ask your administrator.", 503,
-                                 ("/admin/auth/start", "Try again"))
+            return _message_page(request, "unavailable", 503, (f"/admin/auth/start?next={flow['next']}", "try_again"))
         response = RedirectResponse(url, status_code=302, headers=no_store)
         response.headers.append("set-cookie", cookie_header(FLOW_COOKIE, flows.sign(flow, 600), max_age=600,
                                                             secure=secure_cookies, path="/admin/auth"))
@@ -665,49 +718,201 @@ def install_routes(
     async def auth_callback(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
-        retry = ("/admin/auth/login", "Sign in again")
         flow = flows.verify(read_cookie(request.headers.get("cookie", ""), FLOW_COOKIE))
+        target = _next(str(flow.get("next"))) if flow else "/admin"
+        retry = (f"/admin/auth/login?next={target}", "sign_in_again")
         params = request.query_params
         if params.get("error"):
-            return _message_page("Sign-in was cancelled", "The identity provider did not complete the sign-in.",
-                                 400, retry)
+            return _message_page(request, "cancelled", 400, retry)
         if (flow is None or not params.get("code")
                 or not hmac.compare_digest(str(flow.get("state", "")), params.get("state", ""))):
-            return _message_page("Sign-in expired", "This sign-in link is no longer valid. Start again.", 400, retry)
+            return _message_page(request, "expired", 400, retry)
         try:
             claims = await anyio.to_thread.run_sync(oidc.exchange, params["code"], flow["verifier"], flow["nonce"])
         except ConsoleAuthError as exc:
             log.warning("single sign-on failed: %s", exc)
-            return _message_page("Sign-in failed", str(exc), 400, retry)
+            lang = _lang(request)
+            return _message_page(request, "failed", 400, retry,
+                                 reason=str(exc) if lang == "en" else MESSAGES[lang]["verify_failed"])
         except Exception as exc:  # noqa: BLE001
             log.warning("single sign-on failed: %s: %s", type(exc).__name__, exc)
-            return _message_page("Sign-in failed", "The identity provider could not be reached.", 503, retry)
+            return _message_page(request, "failed", 503, retry, reason=MESSAGES[_lang(request)]["idp_down"])
         role, identity = oidc.settings.role_for(claims)
         if role is None:
             who = {"identity": identity or "(unknown)", "role": "none"}
             await anyio.to_thread.run_sync(_audit, who, "sign-in refused", identity or "-", "no role", request)
-            return _message_page("No access to this console",
-                                 f"You signed in as {identity or 'an unknown account'}, which has no role on this "
-                                 "gateway. Ask an administrator to add you.", 403)
+            return _message_page(request, "no_role", 403, identity=identity or "?")
+        if role == "user" and ask is None:
+            await anyio.to_thread.run_sync(_audit, {"identity": identity, "role": role}, "sign-in refused",
+                                           identity, "Ask is not enabled", request)
+            return _message_page(request, "no_console", 403, identity=identity)
+        if not at_least(role, "viewer"):
+            target = "/ask"
         session = {"sub": identity, "role": role, "sid": secrets.token_urlsafe(12), "iat": int(time.time())}
-        response = RedirectResponse("/admin", status_code=302, headers=no_store)
+        response = RedirectResponse(target, status_code=302, headers=no_store)
         response.headers.append("set-cookie", cookie_header(SESSION_COOKIE, sessions.sign(session, session_ttl),
-                                                            max_age=session_ttl, secure=secure_cookies))
+                                                            max_age=session_ttl, secure=secure_cookies, path="/"))
         response.headers.append("set-cookie", expired_cookie(FLOW_COOKIE, secure=secure_cookies, path="/admin/auth"))
         await anyio.to_thread.run_sync(_audit, {"identity": identity, "role": role}, "sign in", identity, "", request)
         return response
 
     @server.custom_route("/admin/auth/logout", methods=["POST"], include_in_schema=False)
     async def auth_logout(request: Request) -> Response:
-        who, denied = _guard(request, "viewer", write=True)
+        who, denied = _guard(request, "user", write=True)
         if denied is not None:
             return denied
         assert who is not None  # noqa: S101
         response = JSONResponse({"signed_out": True}, headers=no_store)
-        response.headers.append("set-cookie", expired_cookie(SESSION_COOKIE, secure=secure_cookies))
+        response.headers.append("set-cookie", expired_cookie(SESSION_COOKIE, secure=secure_cookies, path="/"))
+        # Sessions from before Ask were scoped to /admin.
+        response.headers.append("set-cookie", expired_cookie(SESSION_COOKIE, secure=secure_cookies, path="/admin"))
         if who["method"] == "sso":
             await anyio.to_thread.run_sync(_audit, who, "sign out", who["identity"], "", request)
         return response
+
+
+def _principal_for(who: Dict[str, str]) -> str:
+    """The admission principal for a signed-in person: their identity (so
+    Ask shares the budget of the API keys issued to the same identity)."""
+    import re
+
+    if who.get("method") == "token":
+        return "console:admin-token"
+    principal = re.sub(r"[^A-Za-z0-9._@:+-]", "_", who["identity"])[:128]
+    return principal or "console:unknown"
+
+
+def _install_ask(server: Any, ask: Any, service: Any, *, guard: Any, who_of: Any, page: Any, host_ok: Any,
+                 sign_in: Any, challenge: Any, lang_of: Any, no_store: Dict[str, str]) -> None:
+    """/ask, /ask/api/context and /ask/api/chat (tokenis.ask)."""
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
+
+    from tokenis.ask import MAX_QUESTION_CHARS, ask_page_html, clean_history
+    from tokenis.console_auth import at_least
+
+    @server.custom_route("/ask", methods=["GET"], include_in_schema=False)
+    async def ask_page(request: Request) -> Response:
+        if not host_ok(request):
+            return PlainTextResponse("misdirected request\n", status_code=421)
+        if who_of(request) is None:
+            return sign_in("/ask") if sign_in is not None else challenge()
+        nonce = secrets.token_urlsafe(16)
+        html = ask_page_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        return page(nonce, html.replace("{{lang}}", lang_of(request)))
+
+    @server.custom_route("/ask/api/context", methods=["GET"], include_in_schema=False)
+    async def ask_context(request: Request) -> Response:
+        import anyio
+
+        who, denied = guard(request, "user")
+        if denied is not None:
+            return denied
+        principal = _principal_for(who)
+        catalog = await anyio.to_thread.run_sync(ask.catalog)
+        return JSONResponse({
+            "me": {"identity": who["identity"], "role": who["role"], "method": who["method"],
+                   "console": at_least(who["role"], "viewer")},
+            "tenant": service.settings.tenant,
+            "model": ask.settings.display_name or ask.settings.model,
+            "language": ask.settings.language,
+            "limits": {"question_chars": MAX_QUESTION_CHARS, "per_hour": ask.settings.questions_per_hour},
+            "catalog": catalog,
+            "budget": await ask.budget(principal),
+        }, headers=no_store)
+
+    @server.custom_route("/ask/api/chat", methods=["POST"], include_in_schema=False)
+    async def ask_chat(request: Request) -> Response:
+        who, denied = guard(request, "user", write=True)
+        if denied is not None:
+            return denied
+        if int(request.headers.get("content-length") or 0) > 256 * 1024:
+            return JSONResponse({"error": "request too large"}, status_code=413)
+        try:
+            body = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid request"}, status_code=400)
+        question = str(body.get("question", "")).strip()
+        if not question or len(question) > MAX_QUESTION_CHARS:
+            return JSONResponse({"error": f"ask a question of 1 to {MAX_QUESTION_CHARS} characters"},
+                                status_code=400)
+        history = clean_history(body.get("history"))
+        lang = "en" if body.get("lang") == "en" else "ko"
+        principal = _principal_for(who)
+
+        async def events() -> Any:
+            # Acquired inside the stream, so a client that leaves before it
+            # starts never holds the slot.
+            why = ask.limiter.acquire(principal)
+            if why is not None:
+                yield _sse({"type": "error", "code": why, "message": why})
+                return
+            try:
+                async for event in ask.run(principal, question, history, lang):
+                    yield _sse(event)
+            except Exception:
+                log.exception("ask failed")
+                yield _sse({"type": "error", "code": "internal", "message": "Something went wrong."})
+                yield _sse({"type": "done", "steps": 0, "budget": None})
+            finally:
+                ask.limiter.release(principal)
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={**no_store, "X-Accel-Buffering": "no"})
+
+
+def _sse(event: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+#: Sign-in and error pages, per language: key -> (title, text), plus labels.
+MESSAGES: Dict[str, Dict[str, Any]] = {
+    "en": {
+        "subtitle": "Disclosure-boundary gateway", "foot_sso": "Single sign-on",
+        "foot_audit": "Every sign-in is recorded", "tenant": "Tenant",
+        "sign_in": ("Sign in to the console", ("Use your organisation account. Your role decides what you can "
+                                              "see and do here.")),
+        "sign_in_ask": ("Sign in to Tokenis Ask", ("Use your organisation account to ask questions about your "
+                                                   "organisation's data. Individual records stay protected.")),
+        "sign_in_note": "You will continue on your organisation's sign-in page.",
+        "continue_with": "Continue with {provider}", "try_again": "Try again", "sign_in_again": "Sign in again",
+        "unavailable": ("Sign-in is unavailable", ("The identity provider could not be reached. Try again in a "
+                                                  "moment, or ask your administrator.")),
+        "cancelled": ("Sign-in was cancelled", "The identity provider did not complete the sign-in."),
+        "expired": ("Sign-in expired", "This sign-in link is no longer valid. Start again."),
+        "failed": ("Sign-in failed", "{reason}"),
+        "idp_down": "The identity provider could not be reached.",
+        "verify_failed": "The identity provider's answer could not be verified. Sign in again.",
+        "no_role": ("No access yet", ("You signed in as {identity}, which has no access to this gateway. Ask an "
+                                     "administrator to add you.")),
+        "no_console": ("No access to the console", ("You signed in as {identity}. Your role does not include the "
+                                                   "admin console.")),
+    },
+    "ko": {
+        "subtitle": "데이터 보호 게이트웨이", "foot_sso": "회사 계정 로그인(SSO)",
+        "foot_audit": "모든 로그인은 기록됩니다", "tenant": "테넌트",
+        "sign_in": ("관리 콘솔 로그인", ("회사 계정으로 로그인하세요. 역할에 따라 볼 수 있는 내용과 할 수 있는 일이 "
+                                       "정해집니다.")),
+        "sign_in_ask": ("Tokenis Ask 로그인", ("회사 계정으로 로그인하면 우리 회사 데이터에 대해 바로 질문할 수 "
+                                              "있어요. 개별 고객·직원 정보는 보호됩니다.")),
+        "sign_in_note": "회사 로그인 페이지로 이동한 뒤 다시 돌아옵니다.",
+        "continue_with": "{provider} 계정으로 계속", "try_again": "다시 시도", "sign_in_again": "다시 로그인",
+        "unavailable": ("지금은 로그인할 수 없어요", ("회사 로그인 서비스에 연결하지 못했습니다. 잠시 후 다시 "
+                                                    "시도하거나 관리자에게 문의하세요.")),
+        "cancelled": ("로그인이 취소되었어요", "회사 로그인 페이지에서 로그인이 완료되지 않았습니다."),
+        "expired": ("로그인 시간이 지났어요", ("이 로그인 링크는 더 이상 유효하지 않습니다. 처음부터 다시 "
+                                               "시작하세요.")),
+        "failed": ("로그인하지 못했어요", "{reason}"),
+        "idp_down": "회사 로그인 서비스에 연결하지 못했습니다.",
+        "verify_failed": "회사 로그인 서비스의 응답을 확인하지 못했습니다. 다시 로그인해 주세요.",
+        "no_role": ("아직 권한이 없어요", ("{identity} 계정으로 로그인했지만 이 게이트웨이를 쓸 권한이 없습니다. "
+                                         "관리자에게 추가를 요청하세요.")),
+        "no_console": ("관리 콘솔 권한이 없어요", ("{identity} 계정으로 로그인했습니다. 이 계정의 역할로는 관리 "
+                                                 "콘솔을 열 수 없습니다.")),
+    },
+}
 
 def _icon_uri() -> str:
     from importlib import resources

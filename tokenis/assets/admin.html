@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -96,7 +96,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
+  word-break: keep-all;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -491,6 +492,24 @@ td time, td .who { white-space: nowrap; }
 .users-mini .item:first-child { border-top: 0; }
 .users-mini .num { font-weight: 600; }
 .range-mobile { display: none; }
+.lang-switch button { padding: 4px 10px; }
+@media (max-width: 640px) { .topbar .crumb { display: none; } .lang-switch button { padding: 4px 8px; } }
+.steps-list { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
+.steps-list li { counter-increment: step; display: grid; grid-template-columns: 28px 1fr; column-gap: 12px; row-gap: 2px; }
+.steps-list li::before { content: counter(step); grid-row: span 2; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-strong); font-weight: 650; font-size: 13px; }
+.steps-list b { font-weight: 620; }
+.steps-list span { color: var(--muted); font-size: 13px; }
+.app-tabs { flex-wrap: wrap; justify-self: start; }
+.where { font-size: 13px; color: var(--muted); }
+.where code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; color: var(--text-2); }
+.cmd.block { align-items: flex-start; }
+.cmd.block code { white-space: pre; overflow-x: auto; display: block; max-height: 320px; }
+.cmd.block code:not(.shell)::before { content: none; }
+.token-connect { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; display: grid; gap: 10px; }
+.token-connect summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--text-2); }
+.token-connect[open] summary { margin-bottom: 8px; }
+.rule-plain { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
 @media (max-width: 860px) { .range { display: none; } .range-mobile { display: inline-flex; justify-self: start; } }
 </style>
 </head>
@@ -529,6 +548,8 @@ td time, td .who { white-space: nowrap; }
     <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1-3.9 4-6 7.5-6s6.5 2.1 7.5 6"/></symbol>
     <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3"/><path d="M10 16.5 5.5 12 10 7.5"/><path d="M5.5 12h10"/></symbol>
     <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5V9h4.5"/><path d="M12 8v4.3l2.8 1.7"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.1A8 8 0 1 1 20 12z"/><path d="M8.5 10.5h7M8.5 13.5h4.5"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4"/><path d="M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16v5"/></symbol>
   </defs>
 </svg>
 
@@ -538,17 +559,20 @@ td time, td .who { white-space: nowrap; }
       <img src="{{icon}}" alt="">
       <div>
         <div class="brand-name">Tokenis</div>
-        <div class="brand-sub">Gateway console</div>
+        <div class="brand-sub" data-i18n="brand_sub">Gateway console</div>
       </div>
     </div>
     <nav class="nav" aria-label="Sections">
-      <div class="nav-label">Monitor</div>
-      <a href="#overview" data-page="overview"><svg><use href="#i-overview"/></svg>Overview</a>
-      <a href="#users" data-page="users"><svg><use href="#i-users"/></svg>Users<span class="count" id="nav-users"></span></a>
-      <a href="#audit" data-page="audit"><svg><use href="#i-audit"/></svg>Audit trail<span class="count" id="nav-audit"></span></a>
-      <div class="nav-label">Manage</div>
-      <a href="#access" data-page="access"><svg><use href="#i-key"/></svg>Access<span class="count" id="nav-keys"></span></a>
-      <a href="#policy" data-page="policy"><svg><use href="#i-shield"/></svg>Policy &amp; schema</a>
+      <div class="nav-label" data-i18n="nav_monitor">Monitor</div>
+      <a href="#overview" data-page="overview"><svg><use href="#i-overview"/></svg><span data-i18n="p_overview">Overview</span></a>
+      <a href="#users" data-page="users"><svg><use href="#i-users"/></svg><span data-i18n="p_users">Users</span><span class="count" id="nav-users"></span></a>
+      <a href="#audit" data-page="audit"><svg><use href="#i-audit"/></svg><span data-i18n="p_audit">Audit trail</span><span class="count" id="nav-audit"></span></a>
+      <div class="nav-label" data-i18n="nav_manage">Manage</div>
+      <a href="#access" data-page="access"><svg><use href="#i-key"/></svg><span data-i18n="p_access">Access</span><span class="count" id="nav-keys"></span></a>
+      <a href="#policy" data-page="policy"><svg><use href="#i-shield"/></svg><span data-i18n="p_policy">Policy &amp; schema</span></a>
+      <a href="#connect" data-page="connect"><svg><use href="#i-plug"/></svg><span data-i18n="p_connect">Connect AI apps</span></a>
+      <div class="nav-label" id="nav-ask-label" data-i18n="nav_people" hidden>For everyone</div>
+      <a href="ask" id="nav-ask" hidden><svg><use href="#i-chat"/></svg><span data-i18n="nav_ask">Ask the data</span><span class="count">↗</span></a>
     </nav>
     <div class="sidebar-foot">
       <div class="me" id="me" hidden>
@@ -557,7 +581,7 @@ td time, td .who { white-space: nowrap; }
         <button class="icon-btn" id="signout" title="Sign out" aria-label="Sign out"><svg><use href="#i-logout"/></svg></button>
       </div>
       <div class="tenant-card">
-        <div class="label">Tenant</div>
+        <div class="label" data-i18n="tenant">Tenant</div>
         <div class="value"><span id="tenant" class="skeleton">tenant</span></div>
         <div class="meta" id="tenant-meta">&nbsp;</div>
       </div>
@@ -574,6 +598,9 @@ td time, td .who { white-space: nowrap; }
         <div class="crumb" id="page-sub">Disclosure activity across the gateway</div>
       </div>
       <div class="spacer"></div>
+      <div class="segmented lang-switch" role="group" aria-label="Language" id="lang">
+        <button data-l="ko" aria-pressed="false">한</button><button data-l="en" aria-pressed="false">EN</button>
+      </div>
       <div class="segmented range" role="group" aria-label="Time range" id="range">
         <button data-r="1h" aria-pressed="false">1h</button>
         <button data-r="24h" aria-pressed="true">24h</button>
@@ -588,7 +615,7 @@ td time, td .who { white-space: nowrap; }
     <div class="content">
       <div class="banner" id="banner" role="alert">
         <svg><use href="#i-alert"/></svg><span id="banner-txt"></span>
-        <button id="retry">Retry</button>
+        <button id="retry" data-i18n="retry">Retry</button>
       </div>
       <div class="segmented range-mobile" role="group" aria-label="Time range" id="range-m">
         <button data-r="1h" aria-pressed="false">1h</button>
@@ -603,7 +630,7 @@ td time, td .who { white-space: nowrap; }
 
         <div class="grid-kpi">
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-lock"/></svg>Records protected</div>
+            <div class="label"><svg><use href="#i-lock"/></svg><span data-i18n="k_records">Records protected</span></div>
             <div class="value" id="k-records"><span class="skeleton">0000</span></div>
             <div class="foot" id="k-records-foot">&nbsp;</div>
           </div>
@@ -614,18 +641,18 @@ td time, td .who { white-space: nowrap; }
             <svg class="spark" id="s-calls" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
           </div>
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-ban"/></svg>Denial rate</div>
+            <div class="label"><svg><use href="#i-ban"/></svg><span data-i18n="k_denied">Denial rate</span></div>
             <div class="value" id="k-denied"><span class="skeleton">00%</span></div>
             <div class="foot" id="k-denied-foot">&nbsp;</div>
             <svg class="spark" id="s-denied" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"></svg>
           </div>
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-gauge"/></svg>Latency p95</div>
+            <div class="label"><svg><use href="#i-gauge"/></svg><span data-i18n="k_latency">Latency p95</span></div>
             <div class="value" id="k-latency"><span class="skeleton">000</span></div>
             <div class="foot" id="k-latency-foot">&nbsp;</div>
           </div>
           <div class="card kpi">
-            <div class="label"><svg><use href="#i-link"/></svg>Audit entries</div>
+            <div class="label"><svg><use href="#i-link"/></svg><span data-i18n="k_trace">Audit entries</span></div>
             <div class="value" id="k-trace"><span class="skeleton">000</span></div>
             <div class="foot" id="k-trace-foot">&nbsp;</div>
           </div>
@@ -634,11 +661,11 @@ td time, td .who { white-space: nowrap; }
         <div class="grid-2">
           <div class="card">
             <div class="card-head">
-              <div><h2>Traffic</h2><div class="sub" id="traffic-sub">Tool calls</div></div>
+              <div><h2 data-i18n="traffic">Traffic</h2><div class="sub" id="traffic-sub">Tool calls</div></div>
               <div class="right">
-                <div class="legend"><span><i class="sw-ok"></i>Answered</span><span><i class="sw-denied"></i>Denied</span><span><i class="sw-other"></i>Other</span></div>
+                <div class="legend"><span><i class="sw-ok"></i><span data-i18n="answered">Answered</span></span><span><i class="sw-denied"></i><span data-i18n="denied">Denied</span></span><span><i class="sw-other"></i><span data-i18n="other">Other</span></span></div>
                 <div class="segmented view-toggle" role="group" aria-label="View">
-                  <button data-v="chart" aria-pressed="true">Chart</button><button data-v="table" aria-pressed="false">Table</button>
+                  <button data-v="chart" aria-pressed="true" data-i18n="chart">Chart</button><button data-v="table" aria-pressed="false" data-i18n="table">Table</button>
                 </div>
               </div>
             </div>
@@ -648,20 +675,20 @@ td time, td .who { white-space: nowrap; }
             </div>
           </div>
           <div class="card">
-            <div class="card-head"><div><h2>Denials by rule</h2><div class="sub" id="rules-sub">Why questions were refused</div></div></div>
+            <div class="card-head"><div><h2 data-i18n="rules_title">Denials by rule</h2><div class="sub" id="rules-sub">Why questions were refused</div></div></div>
             <div class="card-body"><div class="rules" id="rules"></div></div>
           </div>
         </div>
 
         <div class="grid-2e">
           <div class="card">
-            <div class="card-head"><div><h2>Tools</h2><div class="sub" id="tools-sub">Outcomes</div></div></div>
+            <div class="card-head"><div><h2 data-i18n="tools_title">Tools</h2><div class="sub" id="tools-sub">Outcomes</div></div></div>
             <div class="card-body flush"><div class="table-wrap"><table id="tools"></table></div></div>
           </div>
           <div class="card">
             <div class="card-head">
-              <div><h2>Recent activity</h2><div class="sub">Latest entries in the shared audit trail</div></div>
-              <div class="right"><a class="link" href="#audit">View all →</a></div>
+              <div><h2 data-i18n="recent_title">Recent activity</h2><div class="sub" data-i18n="recent_sub">Latest entries in the shared audit trail</div></div>
+              <div class="right"><a class="link" href="#audit" data-i18n="view_all">View all →</a></div>
             </div>
             <div class="card-body flush"><div class="activity" id="activity"></div></div>
           </div>
@@ -670,13 +697,13 @@ td time, td .who { white-space: nowrap; }
         <div class="grid-2e">
           <div class="card">
             <div class="card-head">
-              <div><h2>Top users</h2><div class="sub" id="topusers-sub">Most active principals</div></div>
-              <div class="right"><a class="link" href="#users">All users →</a></div>
+              <div><h2 data-i18n="top_users">Top users</h2><div class="sub" id="topusers-sub">Most active principals</div></div>
+              <div class="right"><a class="link" href="#users" data-i18n="all_users">All users →</a></div>
             </div>
             <div class="card-body flush"><div class="users-mini" id="topusers"></div></div>
           </div>
           <div class="card">
-            <div class="card-head"><div><h2>Replicas</h2><div class="sub" id="replicas-sub">Gateway processes that served calls</div></div></div>
+            <div class="card-head"><div><h2 data-i18n="replicas_title">Replicas</h2><div class="sub" id="replicas-sub">Gateway processes that served calls</div></div></div>
             <div class="card-body flush"><div id="replicas"></div></div>
           </div>
         </div>
@@ -686,33 +713,33 @@ td time, td .who { white-space: nowrap; }
       <section class="page" id="page-users" aria-labelledby="page-title">
         <div class="card">
           <div class="toolbar">
-            <label class="search"><span class="sr-only">Search users</span><svg><use href="#i-search"/></svg>
+            <label class="search"><span class="sr-only" data-i18n="search_users">Search users</span><svg><use href="#i-search"/></svg>
               <input id="uq" type="search" placeholder="Search users…" autocomplete="off"></label>
             <span class="count" id="users-count"></span>
-            <a class="btn sm" id="export-calls" href="#" download><svg><use href="#i-download"/></svg>Export calls (CSV)</a>
+            <a class="btn sm" id="export-calls" href="#" download><svg><use href="#i-download"/></svg><span data-i18n="export_calls">Export calls (CSV)</span></a>
           </div>
           <div class="table-wrap tall"><table id="users"></table></div>
         </div>
-        <p class="note">Budgets are the admitted queries each user has left in the current window, as every replica sees them. Select a user to open their audit trail.</p>
+        <p class="note" data-i18n="users_note">Budgets are the admitted queries each user has left in the current window, as every replica sees them. Select a user to open their audit trail.</p>
       </section>
 
       <!-- ================================================= audit -->
       <section class="page" id="page-audit" aria-labelledby="page-title">
         <div class="card">
           <div class="toolbar">
-            <label class="search"><span class="sr-only">Search</span><svg><use href="#i-search"/></svg>
+            <label class="search"><span class="sr-only" data-i18n="search">Search</span><svg><use href="#i-search"/></svg>
               <input id="q" type="search" placeholder="Search principal, object, purpose, rule…" autocomplete="off"></label>
             <div class="segmented" role="group" aria-label="Filter by decision" id="decision">
-              <button data-f="all" aria-pressed="true">All</button>
-              <button data-f="permit" aria-pressed="false">Answered</button>
-              <button data-f="deny" aria-pressed="false">Denied</button>
+              <button data-f="all" aria-pressed="true" data-i18n="all">All</button>
+              <button data-f="permit" aria-pressed="false" data-i18n="answered">Answered</button>
+              <button data-f="deny" aria-pressed="false" data-i18n="denied">Denied</button>
             </div>
             <span class="count" id="audit-count"></span>
-            <a class="btn sm" id="export-audit" href="#" download><svg><use href="#i-download"/></svg>Export (CSV)</a>
+            <a class="btn sm" id="export-audit" href="#" download><svg><use href="#i-download"/></svg><span data-i18n="export_audit">Export (CSV)</span></a>
           </div>
           <div class="table-wrap tall"><table id="audit"></table></div>
         </div>
-        <p class="note">Entries are hash-chained and HMAC-signed; verify the full chain with <span class="mono">tokenis-mcp audit verify</span>. Disclosed values are never shown or exported here.</p>
+        <p class="note" data-i18n-html="audit_note">Entries are hash-chained and HMAC-signed; verify the full chain with <span class="mono">tokenis-mcp audit verify</span>. Disclosed values are never shown or exported here.</p>
       </section>
 
       <!-- ================================================= access -->
@@ -720,21 +747,21 @@ td time, td .who { white-space: nowrap; }
         <div class="grid-kpi" id="access-kpis"></div>
         <div class="card">
           <div class="card-head">
-            <div><h2>API keys</h2><div class="sub" id="keys-sub">Bearer credentials accepted by every replica</div></div>
-            <div class="right"><button class="btn primary sm" id="new-key"><svg><use href="#i-plus"/></svg>New API key</button></div>
+            <div><h2 data-i18n="api_keys">API keys</h2><div class="sub" id="keys-sub">Bearer credentials accepted by every replica</div></div>
+            <div class="right"><button class="btn primary sm" id="new-key"><svg><use href="#i-plus"/></svg><span data-i18n="new_key">New API key</span></button></div>
           </div>
           <div class="card-body flush"><div class="table-wrap"><table id="keys"></table></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h2>Admin activity</h2><div class="sub">Sign-ins, keys issued and revoked, and exports — who, when and from where</div></div></div>
+          <div class="card-head"><div><h2 data-i18n="admin_activity">Admin activity</h2><div class="sub" data-i18n="admin_activity_sub">Sign-ins, keys issued and revoked, and exports — who, when and from where</div></div></div>
           <div class="card-body flush"><div class="table-wrap"><table id="admin-log"></table></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h2>From the command line</h2><div class="sub">The same operations, for scripts and automation</div></div></div>
+          <div class="card-head"><div><h2 data-i18n="cli_title">From the command line</h2><div class="sub" data-i18n="cli_sub">The same operations, for scripts and automation</div></div></div>
           <div class="card-body stack">
-            <div class="cmd"><code>tokenis-mcp keys create analyst@example.com --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
-            <div class="cmd"><code>tokenis-mcp keys revoke KEY_ID --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
-            <p class="note">Keys are stored only as SHA-256 hashes; a revocation applies on the next request, on every replica. Principals come from credentials, never from tool arguments.</p>
+            <div class="cmd"><code>tokenis-mcp keys create analyst@example.com --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+            <div class="cmd"><code>tokenis-mcp keys revoke KEY_ID --config tokenis.toml</code><button class="copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+            <p class="note" data-i18n="keys_note">Keys are stored only as SHA-256 hashes; a revocation applies on the next request, on every replica. Principals come from credentials, never from tool arguments.</p>
           </div>
         </div>
       </section>
@@ -743,12 +770,36 @@ td time, td .who { white-space: nowrap; }
       <section class="page" id="page-policy" aria-labelledby="page-title">
         <div class="policy-grid" id="policy"></div>
         <div class="card">
-          <div class="card-head"><div><h2>Columns</h2><div class="sub">What the model may see of each attribute</div></div></div>
+          <div class="card-head"><div><h2 data-i18n="columns_title">Columns</h2><div class="sub" data-i18n="columns_sub">What the model may see of each attribute</div></div></div>
           <div class="card-body flush"><div class="table-wrap"><table id="columns"></table></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div><h2>Reveal purposes</h2><div class="sub">Authorise <span class="mono">disclose_ratio</span> and <span class="mono">disclose_bucket</span></div></div></div>
+          <div class="card-head"><div><h2 data-i18n="purposes_title">Reveal purposes</h2><div class="sub" data-i18n-html="purposes_sub">Authorise <span class="mono">disclose_ratio</span> and <span class="mono">disclose_bucket</span></div></div></div>
           <div class="card-body flush" id="purposes"></div>
+        </div>
+      </section>
+
+      <!-- ================================================= connect -->
+      <section class="page" id="page-connect" aria-labelledby="page-title">
+        <div class="card">
+          <div class="card-head">
+            <div><h2 data-i18n="connect_title">Connect an AI app in three steps</h2><div class="sub" data-i18n="connect_sub">Claude, Cursor, VS Code and other MCP apps can ask this gateway directly</div></div>
+          </div>
+          <div class="card-body stack">
+            <ol class="steps-list">
+              <li><b data-i18n="connect_s1">Get an API key</b><span data-i18n="connect_s1d">An administrator issues one per person on the Access page. It is shown once.</span></li>
+              <li><b data-i18n="connect_s2">Pick your app and copy the settings</b><span data-i18n="connect_s2d">Replace YOUR_API_KEY with the key. The gateway address is filled in.</span></li>
+              <li><b data-i18n="connect_s3">Restart the app and ask</b><span data-i18n="connect_s3d">For example: “Which industry grew most this year?” Answers come from protected statistics only.</span></li>
+            </ol>
+            <div class="segmented app-tabs" role="tablist" id="app-tabs"></div>
+            <div class="where" id="app-where"></div>
+            <div class="cmd block"><code id="app-config"></code><button class="copy" id="app-copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+            <p class="note" data-i18n="connect_note">Every person needs their own key: budgets, refusals and the audit trail are kept per key. Never share a key in a chat or a ticket.</p>
+          </div>
+        </div>
+        <div class="card" id="ask-card" hidden>
+          <div class="card-head"><div><h2 data-i18n="ask_card_title">No AI app? Use Ask</h2><div class="sub" data-i18n="ask_card_sub">A chat screen in the browser, with your organisation sign-in: nothing to install</div></div>
+            <div class="right"><a class="btn primary sm" href="ask"><svg><use href="#i-chat"/></svg><span data-i18n="open_ask">Open Ask</span></a></div></div>
         </div>
       </section>
     </div>
@@ -758,44 +809,48 @@ td time, td .who { white-space: nowrap; }
 <dialog class="modal" id="dlg-create" aria-labelledby="dlg-create-title">
   <form method="dialog" id="create-form">
     <div class="modal-head">
-      <h3 id="dlg-create-title">New API key</h3>
-      <p>The key identifies one principal: every budget, audit entry and refusal is attached to it.</p>
+      <h3 id="dlg-create-title" data-i18n="new_key">New API key</h3>
+      <p data-i18n="create_text">The key identifies one principal: every budget, audit entry and refusal is attached to it.</p>
     </div>
     <div class="modal-body">
       <div class="field">
-        <label for="principal">Principal</label>
+        <label for="principal" data-i18n="principal_label">Principal</label>
         <input id="principal" name="principal" required maxlength="128" placeholder="analyst@example.com" autocomplete="off" spellcheck="false">
-        <div class="hint">Letters, digits and <span class="mono">. _ @ : + -</span>; up to 128 characters. Usually the person's e-mail or an agent name.</div>
+        <div class="hint" data-i18n-html="principal_hint">Letters, digits and <span class="mono">. _ @ : + -</span>; up to 128 characters. Usually the person's e-mail or an agent name.</div>
         <div class="error" id="create-error"></div>
       </div>
     </div>
     <div class="modal-foot">
-      <button type="button" class="btn" data-close>Cancel</button>
-      <button type="submit" class="btn primary" id="create-submit"><svg><use href="#i-key"/></svg>Create key</button>
+      <button type="button" class="btn" data-close data-i18n="cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="create-submit"><svg><use href="#i-key"/></svg><span data-i18n="create_key">Create key</span></button>
     </div>
   </form>
 </dialog>
 
 <dialog class="modal" id="dlg-token" aria-labelledby="dlg-token-title">
   <div class="modal-head">
-    <h3 id="dlg-token-title">Key created</h3>
+    <h3 id="dlg-token-title" data-i18n="key_created">Key created</h3>
     <p id="token-for"></p>
   </div>
   <div class="modal-body">
-    <div class="secret"><code id="token-value"></code><button class="copy" id="token-copy"><svg><use href="#i-copy"/></svg>Copy</button></div>
-    <div class="warn-box"><svg><use href="#i-alert"/></svg><span>This is the only time the key is shown. Only its hash is stored, so it cannot be recovered; store it in your secret manager now.</span></div>
+    <div class="secret"><code id="token-value"></code><button class="copy" id="token-copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+    <div class="warn-box"><svg><use href="#i-alert"/></svg><span data-i18n="token_warn">This is the only time the key is shown. Only its hash is stored, so it cannot be recovered; store it in your secret manager now.</span></div>
+    <details class="token-connect"><summary data-i18n="token_connect">Settings for an AI app, with this key</summary>
+      <div class="segmented app-tabs" role="tablist" id="token-tabs"></div>
+      <div class="cmd block"><code id="token-config"></code><button class="copy" id="token-config-copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+    </details>
   </div>
-  <div class="modal-foot"><button class="btn primary" data-close>Done</button></div>
+  <div class="modal-foot"><button class="btn primary" data-close data-i18n="done">Done</button></div>
 </dialog>
 
 <dialog class="modal" id="dlg-revoke" aria-labelledby="dlg-revoke-title">
   <div class="modal-head">
-    <h3 id="dlg-revoke-title">Revoke this key?</h3>
+    <h3 id="dlg-revoke-title" data-i18n="revoke_title">Revoke this key?</h3>
     <p id="revoke-text"></p>
   </div>
   <div class="modal-foot">
-    <button class="btn" data-close>Cancel</button>
-    <button class="btn danger" id="revoke-confirm"><svg><use href="#i-ban"/></svg>Revoke key</button>
+    <button class="btn" data-close data-i18n="cancel">Cancel</button>
+    <button class="btn danger" id="revoke-confirm"><svg><use href="#i-ban"/></svg><span data-i18n="revoke_key">Revoke key</span></button>
   </div>
 </dialog>
 
@@ -805,32 +860,294 @@ td time, td .who { white-space: nowrap; }
 <script nonce="{{nonce}}">
 "use strict";
 (() => {
-  const RULES = {
-    "D1": "Too few (or nearly all) records matched",
-    "D2": "Would isolate records combined with earlier answers",
-    "D3": "Query budget for this window used up",
-    "D4-Btau": "Budget for untrusted contexts used up",
-    "D4-Ctau": "Call cap for untrusted contexts reached",
-    "D4-surface": "Only COUNT is allowed in untrusted contexts",
-    "D4-external-effect": "Tool with external effect refused while tainted",
-    "D5": "Column not in the approved catalogue",
-    "exposure-cap": "Per-record exposure cap reached",
-    "no-subject": "Caller identity missing",
-    "zero-denominator": "Ratio with a zero denominator",
+  /* ------------------------------------------------------ language */
+  const I18N = {
+    en: {
+      console_title: "Tokenis Console", brand_sub: "Gateway console", nav_monitor: "Monitor", nav_manage: "Manage",
+      nav_people: "For everyone", nav_ask: "Ask the data", open_nav: "Open navigation",
+      p_overview: "Overview", p_overview_sub: "Disclosure activity across the gateway",
+      p_users: "Users", p_users_sub: "Activity, refusals and remaining budget per person",
+      p_audit: "Audit trail", p_audit_sub: "Every answer and refusal, hash-chained across replicas",
+      p_access: "Access", p_access_sub: "Who can call the gateway",
+      p_policy: "Policy & schema", p_policy_sub: "The protections in force, in plain words",
+      p_connect: "Connect AI apps", p_connect_sub: "Use the gateway from Claude, Cursor, VS Code and other AI apps",
+      tenant: "Tenant", retry: "Retry",
+      k_records: "Records protected", k_denied: "Denial rate", k_latency: "Latency p95", k_trace: "Audit entries",
+      traffic: "Traffic", answered: "Answered", denied: "Denied", other: "Other", chart: "Chart", table: "Table",
+      rules_title: "Why questions were refused", rules_sub: "Refusals by reason", tools_title: "Tools",
+      recent_title: "Recent activity", recent_sub: "Latest entries in the shared audit trail", view_all: "View all →",
+      top_users: "Top users", all_users: "All users →", replicas_title: "Replicas",
+      search_users: "Search users", search_users_ph: "Search users…", export_calls: "Export calls (CSV)",
+      users_note: "Budget is how many more answers each person can get in the current window, as every replica sees it. Select a person to open their audit trail.",
+      search: "Search", search_audit_ph: "Search person, request, purpose, rule…", all: "All", export_audit: "Export (CSV)",
+      audit_note: "Entries are hash-chained and HMAC-signed; verify the full chain with <span class=\"mono\">tokenis-mcp audit verify</span>. Disclosed values are never shown or exported here.",
+      api_keys: "API keys", new_key: "New API key", admin_activity: "Admin activity",
+      admin_activity_sub: "Sign-ins, keys issued and revoked, and exports — who, when and from where",
+      cli_title: "From the command line", cli_sub: "The same operations, for scripts and automation",
+      copy: "Copy", copied: "Copied",
+      keys_note: "Keys are stored only as SHA-256 hashes; a revocation applies on the next request, on every replica. Who is asking comes from the key, never from what the AI app sends.",
+      columns_title: "Columns", columns_sub: "What an AI app may see of each attribute",
+      purposes_title: "Reveal purposes", purposes_sub: "Authorise <span class=\"mono\">disclose_ratio</span> and <span class=\"mono\">disclose_bucket</span>",
+      connect_title: "Connect an AI app in three steps", connect_sub: "Claude, Cursor, VS Code and other MCP apps can ask this gateway directly",
+      connect_s1: "Get an API key", connect_s1d: "An administrator issues one per person on the Access page. It is shown once.",
+      connect_s2: "Pick your app and copy the settings", connect_s2d: "Replace YOUR_API_KEY with the key. The gateway address is filled in.",
+      connect_s3: "Restart the app and ask", connect_s3d: "For example: “Which industry grew most this year?” Answers come from protected statistics only.",
+      connect_note: "Every person needs their own key: budgets, refusals and the audit trail are kept per key. Never share a key in a chat or a ticket.",
+      ask_card_title: "No AI app? Use Ask", ask_card_sub: "A chat screen in the browser, with your organisation sign-in: nothing to install", open_ask: "Open Ask",
+      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_cursor: "Cursor", app_vscode: "VS Code", app_other: "Other apps",
+      app_other_transport: "Transport: Streamable HTTP (MCP)",
+      where_claude_code: "Run this in a terminal.",
+      where_claude_desktop: "Settings → Developer → Edit Config opens <code>claude_desktop_config.json</code>; merge this in and restart. Needs Node.js (for <code>npx</code>).",
+      where_cursor: "Save as <code>~/.cursor/mcp.json</code> (all projects) or <code>.cursor/mcp.json</code> in a project.",
+      where_vscode: "Save as <code>.vscode/mcp.json</code> in your workspace, then start the server from the MCP view.",
+      where_other: "Any MCP client that supports remote (HTTP) servers with a bearer token.",
+      create_text: "The key belongs to one person or agent: every budget, audit entry and refusal is attached to it.",
+      principal_label: "Person or agent", principal_ph: "analyst@example.com",
+      principal_hint: "Letters, digits and <span class=\"mono\">. _ @ : + -</span>; up to 128 characters. Usually the person's e-mail address.",
+      principal_invalid: "Use 1-128 letters, digits or . _ @ : + -",
+      cancel: "Cancel", create_key: "Create key", key_created: "Key created", done: "Done",
+      token_warn: "This is the only time the key is shown. Only its hash is stored, so it cannot be recovered; store it in your secret manager now.",
+      token_connect: "Settings for an AI app, with this key",
+      token_for: "API key {id} for {who}. Paste it into an AI app as shown below.",
+      key_created_for: "Key created for {who}", key_copied: "Key copied to the clipboard", copy_failed: "Copy failed; select the key and copy it manually",
+      revoke_title: "Revoke this key?", revoke_key: "Revoke key", revoke: "Revoke",
+      revoke_text: "Key {id} for {who} stops working on every replica with the next request. This cannot be undone; issue a new key if needed.",
+      key_revoked: "Key {id} revoked", revoke_failed: "Revoke failed: {e}",
+      rules: {
+        "D1": "Too few (or nearly all) records matched",
+        "D2": "Combined with earlier answers, it would reveal individual records",
+        "D3": "This person's query allowance for the period is used up",
+        "D4-Btau": "Allowance for conversations with untrusted content used up",
+        "D4-Ctau": "Call limit for conversations with untrusted content reached",
+        "D4-surface": "Only counts are allowed while untrusted content is present",
+        "D4-external-effect": "A tool with outside effects was refused while untrusted content is present",
+        "D5": "Column not in the approved list",
+        "exposure-cap": "One record has been included in too many answers",
+        "no-subject": "Caller identity missing",
+        "zero-denominator": "Ratio with a zero denominator",
+      },
+      prot_open: "Open", prot_open_help: "Shown as is; can be used to filter and group",
+      prot_token: "Pseudonym", prot_token_help: "Shown only as a keyed pseudonym, never the real value",
+      prot_sealed: "Sealed", prot_sealed_help: "Encrypted; only totals and averages over groups of at least k records leave",
+      range_1h: "last hour", range_24h: "last 24 hours", range_7d: "last 7 days", range_30d: "last 30 days",
+      never: "never", just_now: "just now", now: "now", m_ago: "{n}m ago", h_ago: "{n}h ago", d_ago: "{n}d ago",
+      dur_min: "{n} min", dur_h: "{n} h", dur_d: "{n} d",
+      session_expired: "Your session expired. Reload the page to sign in again.", http_error: "The gateway answered HTTP {status}.",
+      theme_system: "Theme: system", theme_light: "Theme: light", theme_dark: "Theme: dark",
+      traffic_aria: "Tool calls over time", period: "Period", no_calls: "No calls in this period", no_calls_rows: "Rows appear as calls arrive.",
+      no_change: "no change", new: "new",
+      locked: "{what} needs the {role} role", locked_help: "Ask an administrator if you need access.",
+      role_user: "Ask only", role_viewer: "Viewer", role_auditor: "Auditor", role_admin: "Admin",
+      via_sso: "single sign-on", via_token: "admin token", sign_out: "Sign out",
+      h_ledger: "Ledger", h_ledger_ok: "Sealed & serving", h_ledger_loading: "Loading",
+      h_shared: "Shared state", h_db_ok: "PostgreSQL connected", h_db_down: "Database unreachable",
+      h_state: "State", h_local: "Local file", h_integrity: "History integrity",
+      h_chain_ok: "Hash chain consistent", h_chain_bad: "Diverged — restart needed", h_serving: "Serving this console",
+      all_replicas: "all replicas", this_replica: "this replica",
+      sealed_columns: "{n} sealed columns", tool_calls: "Tool calls", vs_previous: "vs previous {r}", replica_last_hour: "this replica, last hour",
+      n_of_m_refused: "{n} of {m} refused", no_calls_range: "No calls in range",
+      latency_foot: "p50 {p50} ms · {n} calls", latency_title: "Every call is padded to a multiple of {ms} ms", latency_padded: "Padded to {ms} ms quanta",
+      storage_down: "Storage unavailable", signed_chained: "Signed, hash-chained",
+      calls_per: "Tool calls per {step}", refused: "Refused", no_denials: "No refusals", no_denials_text: "Every question in this period was answerable.",
+      outcomes: "Outcomes", tool: "Tool", calls: "Calls", mix: "Mix", mix_title: "{ok} answered · {denied} denied · {other} other",
+      tool_describe_dataset: "Describe the dataset", tool_aggregate: "Total, average or count", tool_group_by: "Totals per group",
+      tool_compare_periods: "Compare two columns", tool_similarity_search: "Find similar records", tool_exists: "Check whether any record matches",
+      tool_disclose_ratio: "Reveal a ratio (audited)", tool_disclose_bucket: "Reveal a range (audited)",
+      no_tool_calls: "No tool calls in this period", no_tool_calls_text: "Calls appear here as soon as an AI app queries the gateway.",
+      no_activity: "No activity yet", no_activity_text: "Answers and refusals will be listed here.",
+      replicas_sub: "Gateway processes that served calls",
+      rep_live: "Served a call in the last 2 minutes", rep_idle: "Quiet for a few minutes", rep_gone: "No calls recently",
+      this_console: "this console", n_calls: "{n} calls",
+      no_replicas: "No replica served calls in this period", no_replicas_text: "Replicas appear once they answer a call.",
+      per_replica: "Per-replica view", per_replica_text: "Cluster statistics need a state backend.",
+      top_users_sub: "Most active people", per_user: "Per-person activity", calls_refused: "calls · {rate}% refused",
+      no_users_active: "Nobody was active in this period", no_users_active_text: "People appear after their first question.",
+      budget_left: "{r} of {b} left · {w}", window_total: "lifetime", window_day: "per day", window_hour: "per hour",
+      n_users: "{n} people", user: "Person", top_refusal: "Most common refusal", budget: "Budget", last_seen: "Last seen",
+      no_match_users: "Nobody matches", no_users: "No users yet", try_search: "Try another search.", no_users_text: "Create an API key on the Access page.",
+      audit_count: "{n} of latest {m} · {total} total", time: "Time", request: "Request", purpose: "Purpose", decision: "Decision", rule: "Reason",
+      no_match_entries: "No matching entries", audit_empty: "The audit trail is empty",
+      no_match_entries_text: "Try a different search or filter; the export covers the whole period.", audit_empty_text: "Entries appear with the first tool call.",
+      active_keys: "Active keys", n_revoked: "{n} revoked", no_api_keys: "Not using API keys", principals: "People",
+      with_active_key: "With at least one active key", authentication: "Authentication", stored_hashed: "Stored as SHA-256 hashes",
+      idp_managed: "Managed by your identity provider", idp_keys: "Keys are managed by your identity provider",
+      keys_sub: "Bearer credentials accepted by every replica", keys_need_admin: "issuing and revoking keys needs the admin role",
+      keys_unused: "API keys are not in use", keys_unused_text: "This gateway authenticates callers with JWTs from your identity provider.",
+      key_id: "Key ID", created: "Created", status: "Status", revoked: "Revoked", active: "Active",
+      no_keys: "No API keys yet", no_keys_text: "Create the first one with “New API key”.", script: "script",
+      a_create: "Key created", a_revoke: "Key revoked", a_export: "Export", a_sign_in: "Signed in", a_sign_out: "Signed out", a_refused: "Sign-in refused",
+      by: "By", action: "Action", target: "Target", detail: "Detail", from: "From",
+      no_admin_activity: "No admin activity yet", no_admin_activity_text: "Keys issued or revoked here, and exports, are recorded.",
+      pol_k: "Smallest group answered (k)", pol_k_help: "No total or average over fewer than {k} records, or over all but fewer than {k}: one person's figure can never be read off.",
+      pol_diff: "Differencing check", pol_cell: "Cell-aware", pol_record: "Record-level",
+      pol_diff_help: "Refuses a question that, together with earlier answers to anyone, would single out a record.",
+      pol_diff_help_cell: "Refuses a question that, together with earlier answers to anyone, would single out a record or a small group.",
+      pol_budget_help: "How many answers each person can get per period (a per-group answer counts once per group).",
+      pol_taint: "Untrusted content", n_answers: "{n} answers",
+      pol_taint_help: "While an AI app's conversation contains untrusted content (web pages, e-mails): at most {cap} calls, counts only.",
+      pol_latency: "Timing protection", pol_latency_help: "Every call takes a multiple of this, so response time reveals nothing about the data.",
+      pol_tenant: "Tenant scope", epoch: "epoch", pol_tenant_help: "Pseudonyms are keyed to the tenant and epoch; bumping the epoch changes every pseudonym.",
+      column: "Column", protection: "Protection", description: "Description", unit: "Unit",
+      no_purposes: "No reveal purposes", no_purposes_text: "The two disclosure tools are not offered to AI apps.",
+      tenant_meta: "Epoch {epoch} · {state} · up {up}", shared_state: "shared state", file_state: "file state",
+      cluster_view: "Cluster view", single_replica: "Single replica",
+      conn_lost: "Connection lost", paused: "Paused", live_updated: "Live · updated {ago}", connecting: "Connecting…",
+      resume: "Resume live updates", pause: "Pause live updates",
+      stats_down: "Statistics are temporarily unavailable ({e})", refresh_failed: "Could not refresh: {e}",
+    },
+    ko: {
+      console_title: "Tokenis 관리 콘솔", brand_sub: "관리 콘솔", nav_monitor: "모니터링", nav_manage: "관리",
+      nav_people: "모든 직원용", nav_ask: "데이터에 질문하기", open_nav: "메뉴 열기",
+      p_overview: "개요", p_overview_sub: "게이트웨이 전체의 데이터 공개 현황",
+      p_users: "사용자", p_users_sub: "사람별 조회·거절 현황과 남은 조회 한도",
+      p_audit: "감사 기록", p_audit_sub: "모든 답변과 거절 기록 (위·변조 방지 체인)",
+      p_access: "접근 관리", p_access_sub: "게이트웨이를 쓸 수 있는 사람과 키",
+      p_policy: "보호 정책", p_policy_sub: "지금 적용 중인 보호 장치를 쉬운 말로",
+      p_connect: "AI 앱 연결", p_connect_sub: "Claude, Cursor, VS Code 같은 AI 앱에서 게이트웨이 쓰기",
+      tenant: "테넌트", retry: "다시 시도",
+      k_records: "보호 중인 레코드", k_denied: "거절 비율", k_latency: "응답 시간 (p95)", k_trace: "감사 기록 수",
+      traffic: "조회량", answered: "답변", denied: "거절", other: "기타", chart: "차트", table: "표",
+      rules_title: "거절된 이유", rules_sub: "이유별 거절 건수", tools_title: "도구별 사용",
+      recent_title: "최근 활동", recent_sub: "공유 감사 기록의 최신 항목", view_all: "전체 보기 →",
+      top_users: "많이 쓴 사람", all_users: "전체 사용자 →", replicas_title: "게이트웨이 서버",
+      search_users: "사용자 검색", search_users_ph: "사용자 검색…", export_calls: "조회 내역 내보내기 (CSV)",
+      users_note: "한도는 이번 기간에 각자 더 받을 수 있는 답변 수입니다(모든 서버 기준). 사람을 선택하면 그 사람의 감사 기록이 열립니다.",
+      search: "검색", search_audit_ph: "사람, 요청, 목적, 이유 검색…", all: "전체", export_audit: "내보내기 (CSV)",
+      audit_note: "모든 항목은 해시 체인으로 연결되고 서명되어 있어 고칠 수 없습니다. 전체 검증: <span class=\"mono\">tokenis-mcp audit verify</span>. 공개된 실제 값은 여기에 표시되거나 내보내지지 않습니다.",
+      api_keys: "API 키", new_key: "새 API 키", admin_activity: "관리 활동 기록",
+      admin_activity_sub: "로그인, 키 발급·폐기, 내보내기 — 누가, 언제, 어디서",
+      cli_title: "명령줄에서", cli_sub: "스크립트·자동화용 같은 작업",
+      copy: "복사", copied: "복사됨",
+      keys_note: "키는 해시로만 저장됩니다. 폐기는 다음 요청부터 모든 서버에 즉시 적용됩니다. 누가 묻는지는 키로 정해지며, AI 앱이 보내는 내용으로 바꿀 수 없습니다.",
+      columns_title: "데이터 항목", columns_sub: "AI 앱이 각 항목을 어디까지 볼 수 있는지",
+      purposes_title: "공개 목적", purposes_sub: "<span class=\"mono\">disclose_ratio</span>·<span class=\"mono\">disclose_bucket</span> 사용을 허용하는 목적",
+      connect_title: "AI 앱을 3단계로 연결하세요", connect_sub: "Claude, Cursor, VS Code 등 MCP를 지원하는 AI 앱이 이 게이트웨이에 바로 질문할 수 있어요",
+      connect_s1: "API 키 받기", connect_s1d: "관리자가 ‘접근 관리’ 화면에서 사람마다 하나씩 발급합니다. 발급할 때 한 번만 보여요.",
+      connect_s2: "쓰는 앱을 고르고 설정 복사하기", connect_s2d: "YOUR_API_KEY 자리에 받은 키를 넣으세요. 게이트웨이 주소는 이미 들어 있어요.",
+      connect_s3: "앱을 다시 시작하고 질문하기", connect_s3d: "예: “올해 가장 많이 성장한 업종은?” 답은 보호된 통계로만 나옵니다.",
+      connect_note: "키는 반드시 사람마다 따로 쓰세요. 한도·거절·감사 기록이 키별로 관리됩니다. 채팅이나 티켓에 키를 붙여넣지 마세요.",
+      ask_card_title: "AI 앱이 없나요? Ask를 쓰세요", ask_card_sub: "설치 없이 브라우저에서, 회사 계정으로 로그인해 바로 질문하는 화면", open_ask: "Ask 열기",
+      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_cursor: "Cursor", app_vscode: "VS Code", app_other: "기타 앱",
+      app_other_transport: "전송 방식: Streamable HTTP (MCP)",
+      where_claude_code: "터미널에서 실행하세요.",
+      where_claude_desktop: "설정 → 개발자 → 구성 편집을 누르면 <code>claude_desktop_config.json</code>이 열립니다. 아래 내용을 합쳐 넣고 앱을 다시 시작하세요. Node.js가 필요합니다(<code>npx</code>).",
+      where_cursor: "<code>~/.cursor/mcp.json</code>(모든 프로젝트) 또는 프로젝트의 <code>.cursor/mcp.json</code>에 저장하세요.",
+      where_vscode: "작업 폴더의 <code>.vscode/mcp.json</code>에 저장한 뒤 MCP 보기에서 서버를 시작하세요.",
+      where_other: "원격(HTTP) MCP 서버와 Bearer 토큰을 지원하는 모든 앱에서 쓸 수 있어요.",
+      create_text: "키는 한 사람(또는 한 에이전트)의 것입니다. 한도·감사 기록·거절이 모두 이 키에 연결됩니다.",
+      principal_label: "사용자 또는 에이전트", principal_ph: "analyst@example.com",
+      principal_hint: "영문, 숫자, <span class=\"mono\">. _ @ : + -</span>만, 128자까지. 보통 그 사람의 이메일 주소를 씁니다.",
+      principal_invalid: "영문, 숫자, . _ @ : + - 로 1~128자를 입력하세요",
+      cancel: "취소", create_key: "키 발급", key_created: "키를 발급했어요", done: "완료",
+      token_warn: "키는 지금 한 번만 보여요. 해시만 저장되어 다시 볼 수 없으니, 지금 비밀번호 관리자에 저장하세요.",
+      token_connect: "이 키로 AI 앱 설정 만들기",
+      token_for: "{who}의 API 키 {id}. 아래처럼 AI 앱에 붙여넣으면 됩니다.",
+      key_created_for: "{who}의 키를 발급했어요", key_copied: "키를 클립보드에 복사했어요", copy_failed: "복사하지 못했어요. 키를 직접 선택해 복사하세요",
+      revoke_title: "이 키를 폐기할까요?", revoke_key: "키 폐기", revoke: "폐기",
+      revoke_text: "{who}의 키 {id}는 다음 요청부터 모든 서버에서 더 이상 쓸 수 없습니다. 되돌릴 수 없으니 필요하면 새 키를 발급하세요.",
+      key_revoked: "키 {id}를 폐기했어요", revoke_failed: "폐기하지 못했어요: {e}",
+      rules: {
+        "D1": "대상이 너무 적음(또는 거의 전부)",
+        "D2": "앞선 답변과 합치면 개별 건이 드러남",
+        "D3": "이번 기간 조회 한도 소진",
+        "D4-Btau": "외부 내용이 섞인 대화의 조회 한도를 다 씀",
+        "D4-Ctau": "외부 내용이 섞인 대화의 호출 횟수 상한 도달",
+        "D4-surface": "외부 내용이 섞인 대화에서는 건수만 허용",
+        "D4-external-effect": "외부 내용이 섞인 대화에서 외부에 영향을 주는 도구 거절",
+        "D5": "승인된 목록에 없는 항목",
+        "exposure-cap": "한 레코드가 너무 많은 답변에 포함됨",
+        "no-subject": "요청한 사람을 알 수 없음",
+        "zero-denominator": "분모가 0인 비율",
+      },
+      prot_open: "공개", prot_open_help: "그대로 보여 주며 조건·그룹 기준으로 쓸 수 있음",
+      prot_token: "가명", prot_token_help: "실제 값 대신 가명으로만 보여 줌",
+      prot_sealed: "암호화", prot_sealed_help: "암호화되어 있고, k건 이상 묶은 합계·평균만 나갈 수 있음",
+      range_1h: "최근 1시간", range_24h: "최근 24시간", range_7d: "최근 7일", range_30d: "최근 30일",
+      never: "없음", just_now: "방금", now: "지금", m_ago: "{n}분 전", h_ago: "{n}시간 전", d_ago: "{n}일 전",
+      dur_min: "{n}분", dur_h: "{n}시간", dur_d: "{n}일",
+      session_expired: "로그인이 만료됐어요. 페이지를 새로고침해 다시 로그인하세요.", http_error: "게이트웨이가 HTTP {status} 오류로 응답했어요.",
+      theme_system: "테마: 시스템 설정", theme_light: "테마: 밝게", theme_dark: "테마: 어둡게",
+      traffic_aria: "시간대별 조회 수", period: "기간", no_calls: "이 기간에 조회가 없어요", no_calls_rows: "조회가 들어오면 여기에 표시돼요.",
+      no_change: "변화 없음", new: "신규",
+      locked: "{what}은(는) {role} 권한이 필요해요", locked_help: "필요하면 관리자에게 권한을 요청하세요.",
+      role_user: "질문만", role_viewer: "보기", role_auditor: "감사", role_admin: "관리자",
+      via_sso: "회사 계정 로그인", via_token: "관리자 토큰", sign_out: "로그아웃",
+      h_ledger: "데이터 원장", h_ledger_ok: "봉인됨 · 서비스 중", h_ledger_loading: "불러오는 중",
+      h_shared: "공유 상태 저장소", h_db_ok: "PostgreSQL 연결됨", h_db_down: "데이터베이스 연결 안 됨",
+      h_state: "상태 저장", h_local: "로컬 파일", h_integrity: "기록 무결성",
+      h_chain_ok: "해시 체인 정상", h_chain_bad: "기록 불일치 — 재시작 필요", h_serving: "이 콘솔을 보여 주는 서버",
+      all_replicas: "모든 서버", this_replica: "이 서버",
+      sealed_columns: "암호화 항목 {n}개", tool_calls: "조회 수", vs_previous: "이전 {r} 대비", replica_last_hour: "이 서버, 최근 1시간",
+      n_of_m_refused: "{m}건 중 {n}건 거절", no_calls_range: "기간 내 조회 없음",
+      latency_foot: "p50 {p50} ms · {n}건", latency_title: "모든 요청은 {ms} ms 단위로 맞춰 응답합니다", latency_padded: "{ms} ms 단위로 맞춤",
+      storage_down: "저장소 사용 불가", signed_chained: "서명·해시 체인",
+      calls_per: "{step}당 조회 수", refused: "거절", no_denials: "거절 없음", no_denials_text: "이 기간의 모든 질문에 답할 수 있었어요.",
+      outcomes: "결과", tool: "도구", calls: "조회", mix: "비율", mix_title: "답변 {ok} · 거절 {denied} · 기타 {other}",
+      tool_describe_dataset: "데이터 구성 확인", tool_aggregate: "합계·평균·건수", tool_group_by: "그룹별 집계",
+      tool_compare_periods: "두 항목 비교", tool_similarity_search: "비슷한 대상 찾기", tool_exists: "조건에 맞는 레코드 존재 여부",
+      tool_disclose_ratio: "비율 공개 (감사 대상)", tool_disclose_bucket: "구간 공개 (감사 대상)",
+      no_tool_calls: "이 기간에 조회가 없어요", no_tool_calls_text: "AI 앱이 게이트웨이에 질문하면 바로 여기에 나타나요.",
+      no_activity: "아직 활동이 없어요", no_activity_text: "답변과 거절이 여기에 표시돼요.",
+      replicas_sub: "조회를 처리한 게이트웨이 서버",
+      rep_live: "최근 2분 안에 조회를 처리함", rep_idle: "몇 분째 조용함", rep_gone: "최근 조회 없음",
+      this_console: "이 콘솔", n_calls: "{n}건",
+      no_replicas: "이 기간에 조회를 처리한 서버가 없어요", no_replicas_text: "서버가 조회에 응답하면 나타나요.",
+      per_replica: "서버별 보기", per_replica_text: "전체 통계는 상태 저장소가 있어야 볼 수 있어요.",
+      top_users_sub: "가장 많이 쓴 사람", per_user: "사람별 활동", calls_refused: "건 · {rate}% 거절",
+      no_users_active: "이 기간에 활동한 사람이 없어요", no_users_active_text: "첫 질문을 하면 나타나요.",
+      budget_left: "{b} 중 {r} 남음 · {w}", window_total: "전체 기간", window_day: "하루 기준", window_hour: "1시간 기준",
+      n_users: "{n}명", user: "사람", top_refusal: "가장 잦은 거절", budget: "조회 한도", last_seen: "마지막 사용",
+      no_match_users: "일치하는 사람이 없어요", no_users: "아직 사용자가 없어요", try_search: "다른 검색어를 써 보세요.", no_users_text: "‘접근 관리’에서 API 키를 발급하세요.",
+      audit_count: "최근 {m}건 중 {n}건 · 전체 {total}건", time: "시각", request: "요청", purpose: "목적", decision: "결과", rule: "이유",
+      no_match_entries: "일치하는 기록이 없어요", audit_empty: "감사 기록이 비어 있어요",
+      no_match_entries_text: "다른 검색어나 필터를 써 보세요. 내보내기에는 기간 전체가 들어가요.", audit_empty_text: "첫 조회가 들어오면 기록돼요.",
+      active_keys: "사용 중인 키", n_revoked: "폐기 {n}개", no_api_keys: "API 키 미사용", principals: "사람 수",
+      with_active_key: "사용 중인 키가 있는 사람", authentication: "인증 방식", stored_hashed: "해시로만 저장",
+      idp_managed: "회사 인증 시스템에서 관리", idp_keys: "키는 회사 인증 시스템에서 관리해요",
+      keys_sub: "모든 서버에서 통하는 접근 키", keys_need_admin: "키 발급·폐기는 관리자 권한이 필요해요",
+      keys_unused: "API 키를 쓰지 않아요", keys_unused_text: "이 게이트웨이는 회사 인증 시스템의 JWT로 사용자를 확인합니다.",
+      key_id: "키 ID", created: "발급", status: "상태", revoked: "폐기됨", active: "사용 중",
+      no_keys: "아직 API 키가 없어요", no_keys_text: "‘새 API 키’로 첫 키를 발급하세요.", script: "스크립트",
+      a_create: "키 발급", a_revoke: "키 폐기", a_export: "내보내기", a_sign_in: "로그인", a_sign_out: "로그아웃", a_refused: "로그인 거부",
+      by: "누가", action: "작업", target: "대상", detail: "내용", from: "접속 위치",
+      no_admin_activity: "아직 관리 활동이 없어요", no_admin_activity_text: "키 발급·폐기와 내보내기가 여기에 기록돼요.",
+      pol_k: "최소 묶음 크기 (k)", pol_k_help: "{k}건보다 적은 대상(또는 {k}건 빼고 전부)에 대한 합계·평균은 답하지 않아 한 사람의 값을 알아낼 수 없어요.",
+      pol_diff: "차이 공격 방지", pol_cell: "소그룹 단위", pol_record: "레코드 단위",
+      pol_diff_help: "누구의 앞선 답변과 합쳐서라도 레코드 하나를 골라낼 수 있는 질문은 거절해요.",
+      pol_diff_help_cell: "누구의 앞선 답변과 합쳐서라도 레코드 하나나 작은 묶음을 골라낼 수 있는 질문은 거절해요.",
+      pol_budget_help: "각자 기간마다 받을 수 있는 답변 수 (그룹별 집계는 그룹마다 하나씩 셉니다).",
+      pol_taint: "외부 내용이 섞인 대화", n_answers: "답변 {n}개",
+      pol_taint_help: "AI 앱의 대화에 웹페이지·메일 같은 외부 내용이 섞여 있으면: 최대 {cap}번, 건수만 허용.",
+      pol_latency: "응답 시간 보호", pol_latency_help: "모든 요청이 이 시간의 배수로 응답해, 응답 속도로 데이터를 짐작할 수 없어요.",
+      pol_tenant: "테넌트 범위", epoch: "에포크", pol_tenant_help: "가명은 테넌트와 에포크에 묶여 있어요. 에포크를 올리면 모든 가명이 바뀝니다.",
+      column: "항목", protection: "보호 방식", description: "설명", unit: "단위",
+      no_purposes: "공개 목적이 없어요", no_purposes_text: "공개용 도구 두 가지는 AI 앱에 제공되지 않아요.",
+      tenant_meta: "에포크 {epoch} · {state} · 가동 {up}", shared_state: "공유 상태", file_state: "파일 상태",
+      cluster_view: "전체 서버 기준", single_replica: "단일 서버",
+      conn_lost: "연결 끊김", paused: "일시정지", live_updated: "실시간 · {ago} 갱신", connecting: "연결 중…",
+      resume: "실시간 갱신 다시 시작", pause: "실시간 갱신 멈추기",
+      stats_down: "통계를 잠시 불러올 수 없어요 ({e})", refresh_failed: "새로고침하지 못했어요: {e}",
+    },
   };
-  const PROT = {
-    open: ["Open", "i-eye", "Released verbatim; filterable"],
-    token: ["Token", "i-hash", "Released only as a keyed pseudonym"],
-    sealed: ["Sealed", "i-lock", "Encrypted; only aggregates over ≥ k records leave"],
-  };
-  const RANGE_TEXT = { "1h": "last hour", "24h": "last 24 hours", "7d": "last 7 days", "30d": "last 30 days" };
+  let lang = (document.documentElement.lang === "ko" || document.documentElement.lang === "en") ? document.documentElement.lang : "en";
+  function t(key, vars) {
+    const table = I18N[lang] || I18N.en;
+    let text = key in table ? table[key] : (key in I18N.en ? I18N.en[key] : key);
+    if (vars) text = String(text).replace(/\{(\w+)\}/g, (_, k) => (k in vars ? vars[k] : ""));
+    return text;
+  }
+  const RULES = new Proxy({}, { get: (_, rule) => (I18N[lang].rules || {})[rule] || (I18N.en.rules || {})[rule] });
+  const PROT = new Proxy({}, { get: (_, p) => ({ open: [t("prot_open"), "i-eye", t("prot_open_help")],
+    token: [t("prot_token"), "i-hash", t("prot_token_help")], sealed: [t("prot_sealed"), "i-lock", t("prot_sealed_help")] })[p] });
+  const RANGES = ["1h", "24h", "7d", "30d"];
+  const RANGE_TEXT = new Proxy({}, { get: (_, r) => (RANGES.includes(r) ? t("range_" + r) : undefined) });
   const PRINCIPAL_RE = /^[A-Za-z0-9._@:+-]{1,128}$/;
 
   const $ = (id) => document.getElementById(id);
   const NS = "http://www.w3.org/2000/svg";
-  const LOCALE = "en-US";
-  const nf = new Intl.NumberFormat(LOCALE);
-  const cf = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
+  let LOCALE = lang === "ko" ? "ko-KR" : "en-US";
+  let nf = new Intl.NumberFormat(LOCALE);
+  let cf = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
 
   function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
@@ -861,19 +1178,19 @@ td time, td .who { white-space: nowrap; }
     set(k, v) { try { localStorage.setItem("tokenis." + k, v); } catch { /* storage unavailable */ } },
   };
 
-  function ago(t) {
-    if (t == null) return "never";
-    const s = Math.max(0, Date.now() / 1000 - t);
-    if (s < 45) return "just now";
-    if (s < 3600) return Math.round(s / 60) + "m ago";
-    if (s < 86400) return Math.round(s / 3600) + "h ago";
-    return Math.round(s / 86400) + "d ago";
+  function ago(when) {
+    if (when == null) return t("never");
+    const s = Math.max(0, Date.now() / 1000 - when);
+    if (s < 45) return t("just_now");
+    if (s < 3600) return t("m_ago", { n: Math.round(s / 60) });
+    if (s < 86400) return t("h_ago", { n: Math.round(s / 3600) });
+    return t("d_ago", { n: Math.round(s / 86400) });
   }
   const stamp = (t) => new Date(t * 1000).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
   function duration(s) {
-    if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min";
-    if (s < 86400) return (s / 3600).toFixed(1) + " h";
-    return (s / 86400).toFixed(1) + " d";
+    if (s < 3600) return t("dur_min", { n: Math.max(1, Math.round(s / 60)) });
+    if (s < 86400) return t("dur_h", { n: (s / 3600).toFixed(1) });
+    return t("dur_d", { n: (s / 86400).toFixed(1) });
   }
   function hue(str) { let x = 0; for (const c of str) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x % 360; }
   function avatar(name) {
@@ -913,10 +1230,10 @@ td time, td .who { white-space: nowrap; }
       let body = {};
       try { body = await r.json(); } catch { /* token mode: plain text */ }
       if (body.login) { location.href = body.login; return new Promise(() => {}); }
-      throw new Error("Your session expired. Reload the page to sign in again.");
+      throw new Error(t("session_expired"));
     }
     if (r.status === 403) { const e = new Error("forbidden"); e.forbidden = true; throw e; }
-    if (!r.ok) throw new Error("The gateway answered HTTP " + r.status + ".");
+    if (!r.ok) throw new Error(t("http_error", { status: r.status }));
     return r.json();
   }
   async function post(path, body) {
@@ -940,7 +1257,7 @@ td time, td .who { white-space: nowrap; }
     else document.documentElement.setAttribute("data-theme", theme);
     const btn = $("theme");
     btn.replaceChildren(icon(THEME_ICON[theme]));
-    btn.title = btn.ariaLabel = "Theme: " + theme;
+    btn.title = btn.ariaLabel = t("theme_" + theme);
   }
   $("theme").addEventListener("click", () => {
     theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
@@ -951,7 +1268,7 @@ td time, td .who { white-space: nowrap; }
 
   /* ------------------------------------------------------- range */
   let range = store.get("range") || "24h";
-  if (!RANGE_TEXT[range]) range = "24h";
+  if (!RANGES.includes(range)) range = "24h";
   function syncRange() {
     document.querySelectorAll("#range button, #range-m button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.r === range)));
     $("export-calls").href = `admin/api/export/calls.csv?range=${range}`;
@@ -963,13 +1280,9 @@ td time, td .who { white-space: nowrap; }
   syncRange();
 
   /* ----------------------------------------------------- routing */
-  const PAGES = {
-    overview: ["Overview", "Disclosure activity across the gateway"],
-    users: ["Users", "Activity, refusals and remaining budget per principal"],
-    audit: ["Audit trail", "Every answer and refusal, hash-chained across replicas"],
-    access: ["Access", "Who can call the gateway"],
-    policy: ["Policy & schema", "Admission controls and column protection in force"],
-  };
+  const PAGE_NAMES = ["overview", "users", "audit", "access", "policy", "connect"];
+  const PAGES = new Proxy({}, { get: (_, p) => (PAGE_NAMES.includes(p) ? [t("p_" + p), t("p_" + p + "_sub")] : undefined),
+    ownKeys: () => PAGE_NAMES, getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) });
   let page = "overview";
   function route() {
     const name = PAGES[(location.hash || "#overview").slice(1)] ? (location.hash || "#overview").slice(1) : "overview";
@@ -981,7 +1294,7 @@ td time, td .who { white-space: nowrap; }
     });
     $("page-title").textContent = PAGES[name][0];
     $("page-sub").textContent = PAGES[name][1];
-    document.title = PAGES[name][0] + " · Tokenis Console";
+    document.title = PAGES[name][0] + " · " + t("console_title");
     $("app").classList.remove("nav-open");
     if (data) refreshExtras();
   }
@@ -1025,7 +1338,7 @@ td time, td .who { white-space: nowrap; }
     const W = Math.max(240, box.clientWidth || 600), H = 200;
     const slot = W / n, gap = Math.min(4, Math.max(1.5, slot * 0.22)), bw = Math.max(1, slot - gap);
     const max = niceMax(Math.max(...timeline.map(b => b.ok + b.denied + b.other), 0));
-    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "Tool calls over time" });
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": t("traffic_aria") });
     for (let i = 1; i <= 4; i++) {
       const y = Math.round(H - (H * i) / 4) + .5;
       svg.append(svgEl("line", { class: "grid-line", x1: 0, x2: W, y1: y, y2: y }));
@@ -1047,25 +1360,25 @@ td time, td .who { white-space: nowrap; }
                      : svgEl("rect", { class: "bar f-" + key, x, y: yy, width: bw, height: hgt }));
       });
       g.addEventListener("mousemove", ev => showTip(ev, bucketLabel(b.t, step), [
-        ["sw-ok", "Answered", nf.format(b.ok)], ["sw-denied", "Denied", nf.format(b.denied)], ["sw-other", "Other", nf.format(b.other)],
+        ["sw-ok", t("answered"), nf.format(b.ok)], ["sw-denied", t("denied"), nf.format(b.denied)], ["sw-other", t("other"), nf.format(b.other)],
       ]));
       g.addEventListener("mouseleave", hideTip);
       svg.append(g);
     });
-    const unit = step >= 3600 ? (step / 3600) + " h" : (step / 60) + " min";
+    const unit = step >= 3600 ? t("dur_h", { n: step / 3600 }) : t("dur_min", { n: step / 60 });
     box.replaceChildren(svg, h("span", { class: "ymax", text: nf.format(max) + " / " + unit }));
     const axis = $("axis");
     axis.replaceChildren();
     if (timeline.length) {
       for (let i = 0; i < 5; i++) {
         const b = timeline[Math.min(timeline.length - 1, Math.round(i * (timeline.length - 1) / 4))];
-        axis.append(h("span", { text: i === 4 ? "now" : bucketLabel(b.t, step) }));
+        axis.append(h("span", { text: i === 4 ? t("now") : bucketLabel(b.t, step) }));
       }
     }
     const busy = timeline.filter(b => b.ok + b.denied + b.other > 0).reverse();
-    table($("traffic-rows"), [{ label: "Period" }, { label: "Answered", cls: "r" }, { label: "Denied", cls: "r" }, { label: "Other", cls: "r" }],
+    table($("traffic-rows"), [{ label: t("period") }, { label: t("answered"), cls: "r" }, { label: t("denied"), cls: "r" }, { label: t("other"), cls: "r" }],
       busy.map(b => [bucketLabel(b.t, step), nf.format(b.ok), nf.format(b.denied), nf.format(b.other)]),
-      empty("No calls in this period", "Rows appear as calls arrive.", "i-activity"));
+      empty(t("no_calls"), t("no_calls_rows"), "i-activity"));
   }
   if (window.ResizeObserver) {
     let last = 0;
@@ -1100,8 +1413,8 @@ td time, td .who { white-space: nowrap; }
       svgEl("polyline", { class: "line", points: line, "stroke-width": "1.6", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
   }
   function delta(cur, prev, upIsGood, asPoints) {
-    if (!prev && !cur) return h("span", { class: "delta flat", text: "no change" });
-    if (!prev) return h("span", { class: "delta flat", text: "new" });
+    if (!prev && !cur) return h("span", { class: "delta flat", text: t("no_change") });
+    if (!prev) return h("span", { class: "delta flat", text: t("new") });
     const change = asPoints ? cur - prev : ((cur - prev) / prev) * 100;
     if (Math.abs(change) < 0.5) return h("span", { class: "delta flat", text: "±0" + (asPoints ? " pt" : "%") });
     const good = (change > 0) === upIsGood;
@@ -1110,12 +1423,12 @@ td time, td .who { white-space: nowrap; }
   }
 
   /* ------------------------------------------------------ roles */
-  const RANK = { viewer: 0, auditor: 1, admin: 2 };
+  const RANK = { user: -1, viewer: 0, auditor: 1, admin: 2 };
   const can = (need) => !!(data && data.me && RANK[data.me.role] >= RANK[need]);
   const NEEDS = { users: "auditor", audit: "auditor", access: "auditor" };
   function locked(need, what) {
-    return h("div", { class: "locked" }, icon("i-lock"), h("b", { text: what + " needs the " + need + " role" }),
-      h("span", { text: "Ask an administrator if you need access." }));
+    return h("div", { class: "locked" }, icon("i-lock"), h("b", { text: t("locked", { what, role: t("role_" + need) }) }),
+      h("span", { text: t("locked_help") }));
   }
   function renderMe(d) {
     const me = d.me;
@@ -1124,14 +1437,17 @@ td time, td .who { white-space: nowrap; }
     $("me-avatar").replaceChildren(avatar(me.identity));
     $("me-name").textContent = me.identity;
     $("me-name").title = me.identity;
-    $("me-role").replaceChildren(h("span", { class: "role " + me.role, text: me.role }),
-      h("span", { text: me.method === "sso" ? "single sign-on" : "admin token" }));
+    $("me-role").replaceChildren(h("span", { class: "role " + me.role, text: t("role_" + me.role) }),
+      h("span", { text: me.method === "sso" ? t("via_sso") : t("via_token") }));
     $("signout").hidden = me.method !== "sso";
+    $("signout").title = $("signout").ariaLabel = t("sign_out");
+    $("nav-ask").hidden = $("nav-ask-label").hidden = $("ask-card").hidden = !d.ask;
     document.querySelectorAll(".nav a").forEach(a => {
       const need = NEEDS[a.dataset.page];
       a.hidden = !!need && !can(need);
     });
     document.querySelectorAll('.link[href="#audit"], .link[href="#users"]').forEach(a => { a.hidden = !can("auditor"); });
+    renderConnect();
     if (NEEDS[page] && !can(NEEDS[page])) location.hash = "#overview";
   }
   $("signout").addEventListener("click", async () => {
@@ -1145,12 +1461,12 @@ td time, td .who { white-space: nowrap; }
   function renderHealth(d) {
     const hc = d.health || {};
     const items = [
-      ["i-lock", "Ledger", hc.ledger === "sealed" ? "Sealed & serving" : "Loading", hc.ledger === "sealed" ? "tone-ok" : "tone-warn"],
+      ["i-lock", t("h_ledger"), hc.ledger === "sealed" ? t("h_ledger_ok") : t("h_ledger_loading"), hc.ledger === "sealed" ? "tone-ok" : "tone-warn"],
       d.state_backend === "postgres"
-        ? ["i-db", "Shared state", hc.database === "ok" ? "PostgreSQL connected" : "Database unreachable", hc.database === "ok" ? "tone-ok" : "tone-bad"]
-        : ["i-db", "State", "Local file", "tone-accent"],
-      ["i-shield", "History integrity", hc.state === "consistent" ? "Hash chain consistent" : "Diverged — restart needed", hc.state === "consistent" ? "tone-ok" : "tone-bad"],
-      ["i-server", "Serving this console", d.replica + " · pid " + d.pid, "tone-accent"],
+        ? ["i-db", t("h_shared"), hc.database === "ok" ? t("h_db_ok") : t("h_db_down"), hc.database === "ok" ? "tone-ok" : "tone-bad"]
+        : ["i-db", t("h_state"), t("h_local"), "tone-accent"],
+      ["i-shield", t("h_integrity"), hc.state === "consistent" ? t("h_chain_ok") : t("h_chain_bad"), hc.state === "consistent" ? "tone-ok" : "tone-bad"],
+      ["i-server", t("h_serving"), d.replica + " · pid " + d.pid, "tone-accent"],
     ];
     $("health").replaceChildren(...items.map(([ic, label, value, tone]) =>
       h("div", {}, h("span", { class: "h-icon " + tone }, icon(ic)), h("div", {}, h("div", { class: "h-label", text: label }), h("div", { class: "h-value", title: value, text: value })))));
@@ -1160,7 +1476,7 @@ td time, td .who { white-space: nowrap; }
     renderHealth(d);
     const st = d.stats || { timeline: [], totals: {}, previous: {}, tools: {}, denials_by_rule: {}, replicas: [], latency: {} };
     const rt = RANGE_TEXT[st.range] || RANGE_TEXT[range];
-    const scope = st.scope === "cluster" ? "all replicas" : "this replica";
+    const scope = st.scope === "cluster" ? t("all_replicas") : t("this_replica");
     const tl = st.timeline || [];
     const totals = tl.map(b => b.ok + b.denied + b.other);
     const sumObj = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
@@ -1169,34 +1485,34 @@ td time, td .who { white-space: nowrap; }
     const prevCalls = sumObj(st.previous), prevDenied = (st.previous || {}).denied || 0;
 
     $("k-records").textContent = nf.format(d.records);
-    $("k-records-foot").replaceChildren(h("span", { text: d.columns.filter(c => c.protection === "sealed").length + " sealed columns" }));
-    $("k-calls-label").textContent = "Tool calls · " + (st.range || range);
+    $("k-records-foot").replaceChildren(h("span", { text: t("sealed_columns", { n: d.columns.filter(c => c.protection === "sealed").length }) }));
+    $("k-calls-label").textContent = t("tool_calls") + " · " + (st.range || range);
     $("k-calls").textContent = cf.format(calls);
-    $("k-calls-foot").replaceChildren(st.scope === "cluster" ? delta(calls, prevCalls, true) : "", h("span", { text: st.scope === "cluster" ? "vs previous " + (st.range || range) : "this replica, last hour" }));
+    $("k-calls-foot").replaceChildren(st.scope === "cluster" ? delta(calls, prevCalls, true) : "", h("span", { text: st.scope === "cluster" ? t("vs_previous", { r: st.range || range }) : t("replica_last_hour") }));
     spark($("s-calls"), totals, "accent");
     const rate = calls ? (100 * denied) / calls : 0;
     const prevRate = prevCalls ? (100 * prevDenied) / prevCalls : 0;
     $("k-denied").replaceChildren(calls ? rate.toFixed(rate < 10 ? 1 : 0) : "—", calls ? h("small", { text: "%" }) : "");
     $("k-denied-foot").replaceChildren(calls && st.scope === "cluster" ? delta(rate, prevRate, false, true) : "",
-      h("span", { text: calls ? nf.format(denied) + " of " + nf.format(calls) + " refused" : "No calls in range" }));
+      h("span", { text: calls ? t("n_of_m_refused", { n: nf.format(denied), m: nf.format(calls) }) : t("no_calls_range") }));
     spark($("s-denied"), tl.map(b => b.denied), "bad");
     const lat = st.latency || {};
     if (lat.p95 != null) {
       const ms = lat.p95;
       $("k-latency").replaceChildren(ms >= 1000 ? (ms / 1000).toFixed(2) : Math.round(ms), h("small", { text: ms >= 1000 ? "s" : "ms" }));
-      $("k-latency-foot").textContent = "p50 " + Math.round(lat.p50) + " ms · " + nf.format(lat.samples) + " calls";
-      $("k-latency-foot").title = "Every call is padded to a multiple of " + d.policy.latency_granularity_ms + " ms";
+      $("k-latency-foot").textContent = t("latency_foot", { p50: Math.round(lat.p50), n: nf.format(lat.samples) });
+      $("k-latency-foot").title = t("latency_title", { ms: d.policy.latency_granularity_ms });
     } else {
       $("k-latency").textContent = "—";
-      $("k-latency-foot").textContent = "Padded to " + d.policy.latency_granularity_ms + " ms quanta";
+      $("k-latency-foot").textContent = t("latency_padded", { ms: d.policy.latency_granularity_ms });
     }
     $("k-trace").textContent = d.trace_entries == null ? "—" : cf.format(d.trace_entries);
-    $("k-trace-foot").textContent = d.trace_error ? "Storage unavailable" : "Signed, hash-chained";
+    $("k-trace-foot").textContent = d.trace_error ? t("storage_down") : t("signed_chained");
 
-    $("traffic-sub").textContent = `Tool calls per ${st.step_seconds >= 3600 ? (st.step_seconds / 3600) + " h" : (st.step_seconds / 60) + " min"} · ${rt} · ${scope}`;
+    $("traffic-sub").textContent = `${t("calls_per", { step: st.step_seconds >= 3600 ? t("dur_h", { n: st.step_seconds / 3600 }) : t("dur_min", { n: (st.step_seconds || 60) / 60 }) })} · ${rt} · ${scope}`;
     traffic(tl.length ? tl : [], st.step_seconds || 60);
 
-    $("rules-sub").textContent = `Why questions were refused · ${rt}`;
+    $("rules-sub").textContent = `${t("rules_sub")} · ${rt}`;
     const rules = Object.entries(st.denials_by_rule || {}).sort((a, b) => b[1] - a[1]);
     const rmax = Math.max(1, ...rules.map(r => r[1]));
     $("rules").replaceChildren(...(rules.length ? rules.map(([rule, n]) => {
@@ -1204,28 +1520,28 @@ td time, td .who { white-space: nowrap; }
       fill.style.width = (100 * n / rmax) + "%";
       return h("div", { class: "rule-row" },
         h("span", { class: "badge rule", text: rule || "—" }),
-        h("span", { class: "desc", title: RULES[rule] || rule, text: RULES[rule] || "Refused" }),
+        h("span", { class: "desc", title: RULES[rule] || rule, text: RULES[rule] || t("refused") }),
         h("span", { class: "n", text: nf.format(n) }),
         h("div", { class: "track" }, fill));
-    }) : [empty("No denials", "Every question in this period was answerable.", "i-check")]));
+    }) : [empty(t("no_denials"), t("no_denials_text"), "i-check")]));
 
-    $("tools-sub").textContent = `Outcomes · ${rt} · ${scope}`;
+    $("tools-sub").textContent = `${t("outcomes")} · ${rt} · ${scope}`;
     const tools = Object.entries(st.tools || {}).map(([tool, o]) => {
       const total = sumObj(o);
       return { tool, total, ok: o.ok || 0, denied: o.denied || 0, bad: total - (o.ok || 0) - (o.denied || 0) };
     }).sort((a, b) => b.total - a.total);
-    table($("tools"), [{ label: "Tool" }, { label: "Calls", cls: "r" }, { label: "Answered", cls: "r hide-sm" }, { label: "Denied", cls: "r hide-sm" }, { label: "Mix" }],
-      tools.map(t => {
-        const bar = h("div", { class: "minibar", title: `${t.ok} answered · ${t.denied} denied · ${t.bad} other` });
-        for (const [v, cls] of [[t.ok, "sw-ok"], [t.denied, "sw-denied"], [t.bad, "sw-other"]]) {
+    table($("tools"), [{ label: t("tool") }, { label: t("calls"), cls: "r" }, { label: t("answered"), cls: "r hide-sm" }, { label: t("denied"), cls: "r hide-sm" }, { label: t("mix") }],
+      tools.map(x => {
+        const bar = h("div", { class: "minibar", title: t("mix_title", { ok: x.ok, denied: x.denied, other: x.bad }) });
+        for (const [v, cls] of [[x.ok, "sw-ok"], [x.denied, "sw-denied"], [x.bad, "sw-other"]]) {
           if (!v) continue;
-          const s = h("span", { class: cls }); s.style.width = (100 * v / t.total) + "%"; bar.append(s);
+          const s = h("span", { class: cls }); s.style.width = (100 * v / x.total) + "%"; bar.append(s);
         }
-        return [h("span", { class: "mono", text: t.tool }), nf.format(t.total), nf.format(t.ok), nf.format(t.denied), bar];
-      }), empty("No tool calls in this period", "Calls appear here as soon as a client queries the gateway.", "i-activity"));
+        return [h("span", { class: "mono", text: x.tool, title: t("tool_" + x.tool) }), nf.format(x.total), nf.format(x.ok), nf.format(x.denied), bar];
+      }), empty(t("no_tool_calls"), t("no_tool_calls_text"), "i-activity"));
 
     if (!can("auditor")) {
-      $("activity").replaceChildren(locked("auditor", "The audit trail"));
+      $("activity").replaceChildren(locked("auditor", t("p_audit")));
     } else {
     const recent = (d.recent || []).slice(0, 6);
     $("activity").replaceChildren(...(recent.length ? recent.map(e => {
@@ -1236,10 +1552,10 @@ td time, td .who { white-space: nowrap; }
           h("div", { class: "top" }, h("span", { text: e.principal }), !ok && e.rule ? h("span", { class: "badge rule", text: e.rule }) : null),
           h("div", { class: "bottom mono muted", title: e.object, text: e.object })),
         h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time) }));
-    }) : [empty("No activity yet", "Answers and refusals will be listed here.", "i-audit")]));
+    }) : [empty(t("no_activity"), t("no_activity_text"), "i-audit")]));
     }
 
-    $("replicas-sub").textContent = `Gateway processes that served calls · ${rt}`;
+    $("replicas-sub").textContent = `${t("replicas_sub")} · ${rt}`;
     const reps = st.replicas || [];
     const now = Date.now() / 1000;
     $("replicas").replaceChildren(...(reps.length ? reps.map(r => {
@@ -1247,26 +1563,26 @@ td time, td .who { white-space: nowrap; }
       const state = age < 120 ? "live" : age < 900 ? "idle" : "gone";
       const mine = r.replica === `${d.replica}:${d.pid}`;
       return h("div", { class: "rep-row" },
-        h("span", { class: "status-dot " + state, title: state === "live" ? "Served a call in the last 2 minutes" : state === "idle" ? "Quiet for a few minutes" : "No calls recently" }),
+        h("span", { class: "status-dot " + state, title: t("rep_" + state) }),
         h("span", { class: "rep-name", title: r.replica, text: r.replica }),
-        mine ? h("span", { class: "tag", text: "this console" }) : h("span"),
-        h("span", { class: "rep-meta", text: `${cf.format(r.calls)} calls · ${ago(r.last_seen)}` }));
-    }) : [empty(st.scope === "cluster" ? "No replica served calls in this period" : "Per-replica view", st.scope === "cluster" ? "Replicas appear once they answer a call." : "Cluster statistics need a state backend.", "i-server")]));
+        mine ? h("span", { class: "tag", text: t("this_console") }) : h("span"),
+        h("span", { class: "rep-meta", text: `${t("n_calls", { n: cf.format(r.calls) })} · ${ago(r.last_seen)}` }));
+    }) : [empty(st.scope === "cluster" ? t("no_replicas") : t("per_replica"), st.scope === "cluster" ? t("no_replicas_text") : t("per_replica_text"), "i-server")]));
 
     renderTopUsers();
   }
 
   function renderTopUsers() {
     const box = $("topusers");
-    $("topusers-sub").textContent = `Most active principals · ${RANGE_TEXT[range]}`;
-    if (!can("auditor")) { box.replaceChildren(locked("auditor", "Per-user activity")); return; }
+    $("topusers-sub").textContent = `${t("top_users_sub")} · ${RANGE_TEXT[range]}`;
+    if (!can("auditor")) { box.replaceChildren(locked("auditor", t("per_user"))); return; }
     if (!users) { box.replaceChildren(h("div", { class: "empty" }, h("span", { class: "skeleton", text: "loading users" }))); return; }
     const top = users.principals.filter(u => u.calls > 0).slice(0, 5);
     box.replaceChildren(...(top.length ? top.map(u => {
       const rate = u.calls ? Math.round(100 * u.denied / u.calls) : 0;
       return h("div", { class: "item" }, who(u.principal),
-        h("span", { class: "muted" }, h("span", { class: "num", text: nf.format(u.calls) }), ` calls · ${rate}% refused`));
-    }) : [empty("No users active in this period", "Principals appear after their first call.", "i-users")]));
+        h("span", { class: "muted" }, h("span", { class: "num", text: nf.format(u.calls) }), " " + t("calls_refused", { rate })));
+    }) : [empty(t("no_users_active"), t("no_users_active_text"), "i-users")]));
   }
 
   function budgetCell(b) {
@@ -1275,18 +1591,18 @@ td time, td .who { white-space: nowrap; }
     const fill = h("span", { class: used >= 1 ? "out" : used >= 0.8 ? "hot" : null });
     fill.style.width = Math.min(100, used * 100) + "%";
     return h("div", { class: "budget" }, h("div", { class: "bar" }, fill),
-      h("span", { class: "label", text: `${nf.format(b.remaining)} of ${nf.format(b.budget)} left · ${b.window === "total" ? "lifetime" : "per " + b.window}` }));
+      h("span", { class: "label", text: t("budget_left", { r: nf.format(b.remaining), b: nf.format(b.budget), w: t("window_" + b.window) }) }));
   }
 
   function renderUsers() {
     if (!users) return;
     const q = $("uq").value.trim().toLowerCase();
     const rows = users.principals.filter(u => !q || u.principal.toLowerCase().includes(q));
-    $("users-count").textContent = `${nf.format(rows.length)} users · ${RANGE_TEXT[range]}`;
+    $("users-count").textContent = `${t("n_users", { n: nf.format(rows.length) })} · ${RANGE_TEXT[range]}`;
     $("nav-users").textContent = users.principals.length ? String(users.principals.length) : "";
     table($("users"), [
-      { label: "User" }, { label: "Calls", cls: "r" }, { label: "Answered", cls: "r hide-sm" }, { label: "Denied", cls: "r" },
-      { label: "Denial rate", cls: "r hide-sm" }, { label: "Top refusal", cls: "hide-sm" }, { label: "Budget" }, { label: "Last seen", cls: "hide-sm" },
+      { label: t("user") }, { label: t("calls"), cls: "r" }, { label: t("answered"), cls: "r hide-sm" }, { label: t("denied"), cls: "r" },
+      { label: t("k_denied"), cls: "r hide-sm" }, { label: t("top_refusal"), cls: "hide-sm" }, { label: t("budget") }, { label: t("last_seen"), cls: "hide-sm" },
     ], rows.map(u => {
       const top = Object.entries(u.rules || {}).sort((a, b) => b[1] - a[1])[0];
       const rate = u.calls ? (100 * u.denied / u.calls) : 0;
@@ -1295,7 +1611,7 @@ td time, td .who { white-space: nowrap; }
         top ? h("span", { class: "badge rule", title: RULES[top[0]] || "", text: `${top[0]} × ${top[1]}` }) : h("span", { class: "muted", text: "—" }),
         budgetCell(u.budget),
         h("span", { class: "muted", title: u.last_seen ? stamp(u.last_seen) : "", "data-ago": u.last_seen ? String(u.last_seen) : null, text: ago(u.last_seen) })];
-    }), empty(q ? "No matching users" : "No users yet", q ? "Try another search." : "Create an API key on the Access page.", "i-users"),
+    }), empty(q ? t("no_match_users") : t("no_users"), q ? t("try_search") : t("no_users_text"), "i-users"),
     (i) => { $("q").value = rows[i].principal; filter = "all"; syncDecision(); location.hash = "#audit"; if (data) renderAudit(data); });
   }
 
@@ -1308,20 +1624,20 @@ td time, td .who { white-space: nowrap; }
     const rows = (d.recent || []).filter(e =>
       (filter === "all" || e.decision === filter) &&
       (!q || [e.principal, e.object, e.purpose, e.rule, e.kind].some(v => (v || "").toLowerCase().includes(q))));
-    $("audit-count").textContent = `${nf.format(rows.length)} of latest ${nf.format((d.recent || []).length)} · ${nf.format(d.trace_entries || 0)} total`;
+    $("audit-count").textContent = t("audit_count", { n: nf.format(rows.length), m: nf.format((d.recent || []).length), total: nf.format(d.trace_entries || 0) });
     table($("audit"), [
-      { label: "#", cls: "r" }, { label: "Time" }, { label: "Principal" }, { label: "Request" },
-      { label: "Purpose", cls: "hide-sm" }, { label: "Decision" }, { label: "Rule" },
+      { label: "#", cls: "r" }, { label: t("time") }, { label: t("principal_label") }, { label: t("request") },
+      { label: t("purpose"), cls: "hide-sm" }, { label: t("decision") }, { label: t("rule") },
     ], rows.map(e => [
       h("span", { class: "mono muted", text: String(e.index) }),
       h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time), class: "muted" }),
       who(e.principal),
       h("div", { class: "obj mono", title: e.object, text: e.object }),
       h("span", { class: "muted", text: e.purpose }),
-      e.decision === "permit" ? pill("Answered", "tone-ok") : pill("Denied", "tone-bad"),
+      e.decision === "permit" ? pill(t("answered"), "tone-ok") : pill(t("denied"), "tone-bad"),
       e.rule ? h("span", { class: "badge rule", title: RULES[e.rule] || "", text: e.rule }) : h("span", { class: "muted", text: "—" }),
-    ]), empty(q || filter !== "all" ? "No matching entries" : "The audit trail is empty",
-      q || filter !== "all" ? "Try a different search or filter; the export covers the whole period." : "Entries appear with the first tool call.", "i-search"));
+    ]), empty(q || filter !== "all" ? t("no_match_entries") : t("audit_empty"),
+      q || filter !== "all" ? t("no_match_entries_text") : t("audit_empty_text"), "i-search"));
     $("nav-audit").textContent = d.trace_entries ? cf.format(d.trace_entries) : "";
   }
 
@@ -1335,62 +1651,61 @@ td time, td .who { white-space: nowrap; }
     const kpi = (ic, label, value, foot) => h("div", { class: "card kpi" },
       h("div", { class: "label" }, icon(ic), label), h("div", { class: "value", text: value }), h("div", { class: "foot", text: foot }));
     $("access-kpis").replaceChildren(
-      kpi("i-key", "Active keys", managed ? nf.format(active.length) : "—", managed ? nf.format((keys || []).length - active.length) + " revoked" : "Not using API keys"),
-      kpi("i-users", "Principals", managed ? nf.format(principals.size) : "—", "With at least one active key"),
-      kpi("i-shield", "Authentication", managed ? "API keys" : "JWT", managed ? "Stored as SHA-256 hashes" : "Managed by your identity provider"));
+      kpi("i-key", t("active_keys"), managed ? nf.format(active.length) : "—", managed ? t("n_revoked", { n: nf.format((keys || []).length - active.length) }) : t("no_api_keys")),
+      kpi("i-users", t("principals"), managed ? nf.format(principals.size) : "—", t("with_active_key")),
+      kpi("i-shield", t("authentication"), managed ? t("api_keys") : "JWT", managed ? t("stored_hashed") : t("idp_managed")));
     $("nav-keys").textContent = managed ? String(active.length) : "";
     const admin = can("admin");
     $("new-key").hidden = !admin;
     $("new-key").disabled = !managed;
-    $("new-key").title = managed ? "" : "Keys are managed by your identity provider";
-    $("keys-sub").textContent = admin ? "Bearer credentials accepted by every replica"
-      : "Bearer credentials accepted by every replica · issuing and revoking keys needs the admin role";
+    $("new-key").title = managed ? "" : t("idp_keys");
+    $("keys-sub").textContent = admin ? t("keys_sub") : t("keys_sub") + " · " + t("keys_need_admin");
     if (!managed) {
-      $("keys").replaceChildren(h("tbody", {}, h("tr", {}, h("td", {}, empty("API keys are not in use", "This gateway authenticates callers with JWTs from your identity provider.", "i-key")))));
+      $("keys").replaceChildren(h("tbody", {}, h("tr", {}, h("td", {}, empty(t("keys_unused"), t("keys_unused_text"), "i-key")))));
       return;
     }
     const sorted = [...keys].sort((a, b) => (a.revoked - b.revoked) || (b.created_at - a.created_at));
-    table($("keys"), [{ label: "Key ID" }, { label: "Principal" }, { label: "Created" }, { label: "Status" }, { label: "", cls: "r" }],
+    table($("keys"), [{ label: t("key_id") }, { label: t("principal_label") }, { label: t("created") }, { label: t("status") }, { label: "", cls: "r" }],
       sorted.map(k => {
         let action = h("span");
         if (!k.revoked && admin) {
-          action = h("button", { class: "btn sm subtle-danger" }, icon("i-ban"), "Revoke");
+          action = h("button", { class: "btn sm subtle-danger" }, icon("i-ban"), t("revoke"));
           action.addEventListener("click", () => {
             revokeTarget = k;
-            $("revoke-text").textContent = `Key ${k.key_id} for ${k.principal} stops working on every replica with the next request. This cannot be undone; issue a new key if needed.`;
+            $("revoke-text").textContent = t("revoke_text", { id: k.key_id, who: k.principal });
             $("dlg-revoke").showModal();
           });
         }
         return [h("span", { class: "mono", text: k.key_id }), who(k.principal),
           h("time", { title: stamp(k.created_at), "data-ago": String(k.created_at), text: ago(k.created_at), class: "muted" }),
-          k.revoked ? pill("Revoked", "tone-bad") : pill("Active", "tone-ok"), action];
-      }), empty("No API keys yet", "Create the first one with “New API key”.", "i-key"));
+          k.revoked ? pill(t("revoked"), "tone-bad") : pill(t("active"), "tone-ok"), action];
+      }), empty(t("no_keys"), t("no_keys_text"), "i-key"));
   }
 
   function shortSource(src) {
     const text = String(src || ""), cut = text.indexOf(";");
     const addr = cut < 0 ? text : text.slice(0, cut), agent = cut < 0 ? "" : text.slice(cut + 1);
     const browser = /Edg\//.test(agent) ? "Edge" : /Chrome\//.test(agent) ? "Chrome" : /Firefox\//.test(agent) ? "Firefox"
-      : /Safari\//.test(agent) ? "Safari" : /curl|python|httpx/i.test(agent) ? "script" : agent.trim().split("/")[0];
+      : /Safari\//.test(agent) ? "Safari" : /curl|python|httpx/i.test(agent) ? t("script") : agent.trim().split("/")[0];
     return addr.trim() + (browser ? " · " + browser : "");
   }
 
   function renderActivity() {
     if (!activity) return;
     const ACTION = {
-      "create key": ["Key created", "tone-ok"], "revoke key": ["Key revoked", "tone-bad"], "export": ["Export", "tone-accent"],
-      "sign in": ["Signed in", "tone-accent"], "sign out": ["Signed out", "tone-accent"], "sign-in refused": ["Sign-in refused", "tone-bad"],
+      "create key": [t("a_create"), "tone-ok"], "revoke key": [t("a_revoke"), "tone-bad"], "export": [t("a_export"), "tone-accent"],
+      "sign in": [t("a_sign_in"), "tone-accent"], "sign out": [t("a_sign_out"), "tone-accent"], "sign-in refused": [t("a_refused"), "tone-bad"],
     };
-    table($("admin-log"), [{ label: "Time" }, { label: "By" }, { label: "Action" }, { label: "Target", cls: "hide-sm" }, { label: "Detail", cls: "hide-sm" }, { label: "From", cls: "hide-sm" }],
+    table($("admin-log"), [{ label: t("time") }, { label: t("by") }, { label: t("action") }, { label: t("target"), cls: "hide-sm" }, { label: t("detail"), cls: "hide-sm" }, { label: t("from"), cls: "hide-sm" }],
       activity.events.map(e => {
         const [label, tone] = ACTION[e.action] || [e.action, "tone-accent"];
         const m = /^(.*) \((\w+)\)$/.exec(e.actor || "");
-        const by = m ? h("div", { class: "who" }, avatar(m[1]), h("span", { class: "name", title: e.actor, text: m[1] }), h("span", { class: "role " + m[2], text: m[2] }))
+        const by = m ? h("div", { class: "who" }, avatar(m[1]), h("span", { class: "name", title: e.actor, text: m[1] }), h("span", { class: "role " + m[2], text: t("role_" + m[2]) }))
           : h("span", { text: e.actor || "—" });
         return [h("time", { title: stamp(e.time), "data-ago": String(e.time), text: ago(e.time), class: "muted" }),
           by, pill(label, tone), h("span", { class: "mono", text: e.target }), h("span", { class: "muted", text: e.detail || "—" }),
           h("span", { class: "muted nowrap", title: e.source, text: shortSource(e.source) })];
-      }), empty("No admin activity yet", "Keys issued or revoked here, and exports, are recorded.", "i-history"));
+      }), empty(t("no_admin_activity"), t("no_admin_activity_text"), "i-history"));
   }
 
   function renderPolicy(d) {
@@ -1398,33 +1713,34 @@ td time, td .who { white-space: nowrap; }
     const card = (ic, label, value, help) => h("div", { class: "card policy" },
       h("div", { class: "p-label" }, icon(ic), label), h("div", { class: "p-value", text: value }), h("div", { class: "p-help", text: help }));
     $("policy").replaceChildren(
-      card("i-users", "Minimum group size (k)", String(p.min_query_set_size), `No aggregate over fewer than ${p.min_query_set_size} records, or over all but fewer than ${p.min_query_set_size}.`),
-      card("i-shield", "Differencing audit", p.cell_aware ? "Cell-aware" : "Record-level", "Refuses any query that, combined with earlier answers to anyone, would isolate a record" + (p.cell_aware ? " or a small group." : ".")),
-      card("i-gauge", "Budget", `${nf.format(p.budget)} / ${p.window === "total" ? "lifetime" : p.window}`, "Admitted queries per principal per window (group_by uses one per group)."),
-      card("i-alert", "Untrusted contexts", `${nf.format(p.taint_budget)} answers`, `While a caller's context holds untrusted content: at most ${p.taint_call_cap} calls, COUNT only.`),
-      card("i-clock", "Latency quantum", `${nf.format(p.latency_granularity_ms)} ms`, "Every call takes a multiple of this, so timing reveals nothing about the path taken."),
-      card("i-tag", "Tenant scope", `${d.tenant} · epoch ${d.epoch}`, "Tokens are keyed to the tenant and epoch; bumping the epoch rotates every token."));
-    table($("columns"), [{ label: "Column" }, { label: "Protection" }, { label: "Description", cls: "hide-sm" }, { label: "Unit", cls: "hide-sm" }],
+      card("i-users", t("pol_k"), String(p.min_query_set_size), t("pol_k_help", { k: p.min_query_set_size })),
+      card("i-shield", t("pol_diff"), p.cell_aware ? t("pol_cell") : t("pol_record"), t(p.cell_aware ? "pol_diff_help_cell" : "pol_diff_help")),
+      card("i-gauge", t("budget"), `${nf.format(p.budget)} / ${t("window_" + p.window)}`, t("pol_budget_help")),
+      card("i-alert", t("pol_taint"), t("n_answers", { n: nf.format(p.taint_budget) }), t("pol_taint_help", { cap: p.taint_call_cap })),
+      card("i-clock", t("pol_latency"), `${nf.format(p.latency_granularity_ms)} ms`, t("pol_latency_help")),
+      card("i-tag", t("pol_tenant"), `${d.tenant} · ${t("epoch")} ${d.epoch}`, t("pol_tenant_help")));
+    table($("columns"), [{ label: t("column") }, { label: t("protection") }, { label: t("description"), cls: "hide-sm" }, { label: t("unit"), cls: "hide-sm" }],
       d.columns.map(c => {
         const [label, ic, help] = PROT[c.protection] || [c.protection, "i-eye", ""];
-        return [h("span", { class: "mono", text: c.name }),
+        const display = (d.labels || {})[c.name];
+        return [display ? h("div", {}, h("div", { text: display }), h("div", { class: "mono muted", text: c.name })) : h("span", { class: "mono", text: c.name }),
           h("span", { class: "prot " + c.protection, title: help }, icon(ic), label),
           h("span", { class: "muted", text: c.description || "—" }),
           h("span", { class: "muted", text: c.unit || "—" })];
       }));
     const purposes = d.purposes || [];
     $("purposes").replaceChildren(purposes.length
-      ? h("div", { class: "table-wrap" }, (() => { const t = h("table"); table(t, [{ label: "Purpose" }, { label: "Description" }], purposes.map(x => [h("span", { class: "mono", text: x.name }), h("span", { class: "muted", text: x.description })])); return t; })())
-      : empty("No reveal purposes", "The two disclosure tools are not offered to models.", "i-lock"));
+      ? h("div", { class: "table-wrap" }, (() => { const tb = h("table"); table(tb, [{ label: t("purpose") }, { label: t("description") }], purposes.map(x => [h("span", { class: "mono", text: x.name }), h("span", { class: "muted", text: x.description })])); return tb; })())
+      : empty(t("no_purposes"), t("no_purposes_text"), "i-lock"));
   }
 
   function renderShell(d) {
-    const t = $("tenant");
-    t.classList.remove("skeleton");
-    t.textContent = d.tenant;
-    $("tenant-meta").textContent = `Epoch ${d.epoch} · ${d.state_backend === "postgres" ? "shared state" : "file state"} · up ${duration(d.uptime_seconds)}`;
+    const tn = $("tenant");
+    tn.classList.remove("skeleton");
+    tn.textContent = d.tenant;
+    $("tenant-meta").textContent = t("tenant_meta", { epoch: d.epoch, state: d.state_backend === "postgres" ? t("shared_state") : t("file_state"), up: duration(d.uptime_seconds) });
     $("version").textContent = "Tokenis v" + d.version;
-    $("scope-note").textContent = d.stats && d.stats.scope === "cluster" ? "Cluster view" : "Single replica";
+    $("scope-note").textContent = d.stats && d.stats.scope === "cluster" ? t("cluster_view") : t("single_replica");
   }
 
   function render() {
@@ -1443,10 +1759,10 @@ td time, td .who { white-space: nowrap; }
     const live = $("live");
     live.classList.toggle("paused", paused);
     live.classList.toggle("error", failing);
-    $("live-txt").textContent = failing ? "Connection lost" : paused ? "Paused" : lastOk ? "Live · updated " + ago(lastOk / 1000).replace("just now", "now") : "Connecting…";
+    $("live-txt").textContent = failing ? t("conn_lost") : paused ? t("paused") : lastOk ? t("live_updated", { ago: ago(lastOk / 1000).replace(t("just_now"), t("now")) }) : t("connecting");
     const btn = $("pause");
     btn.replaceChildren(icon(paused ? "i-play" : "i-pause"));
-    btn.title = btn.ariaLabel = paused ? "Resume live updates" : "Pause live updates";
+    btn.title = btn.ariaLabel = paused ? t("resume") : t("pause");
   }
   async function refreshExtras() {
     try {
@@ -1463,10 +1779,10 @@ td time, td .who { white-space: nowrap; }
       $("banner").classList.remove("show");
       render();
       await refreshExtras();
-      if (data.stats_error) toast("Statistics are temporarily unavailable (" + data.stats_error + ")", "bad");
+      if (data.stats_error) toast(t("stats_down", { e: data.stats_error }), "bad");
     } catch (e) {
       failing = true;
-      $("banner-txt").textContent = "Could not refresh: " + (e.message || e);
+      $("banner-txt").textContent = t("refresh_failed", { e: e.message || e });
       $("banner").classList.add("show");
     } finally {
       inflight = false;
@@ -1500,15 +1816,17 @@ td time, td .who { white-space: nowrap; }
   $("create-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const principal = $("principal").value.trim();
-    if (!PRINCIPAL_RE.test(principal)) { $("create-error").textContent = "Use 1-128 letters, digits or . _ @ : + -"; return; }
+    if (!PRINCIPAL_RE.test(principal)) { $("create-error").textContent = t("principal_invalid"); return; }
     $("create-submit").disabled = true;
     try {
       const res = await post("admin/api/keys", { principal });
       $("dlg-create").close();
-      $("token-for").textContent = `API key ${res.key.key_id} for ${res.key.principal}. Use it as the bearer token of an MCP client.`;
+      $("token-for").textContent = t("token_for", { id: res.key.key_id, who: res.key.principal });
       $("token-value").textContent = res.token;
+      tokenKey = res.token;
+      renderTokenConfig();
       $("dlg-token").showModal();
-      toast("Key created for " + res.key.principal);
+      toast(t("key_created_for", { who: res.key.principal }));
       refresh();
     } catch (e) {
       $("create-error").textContent = e.message;
@@ -1516,10 +1834,10 @@ td time, td .who { white-space: nowrap; }
       $("create-submit").disabled = false;
     }
   });
-  $("dlg-token").addEventListener("close", () => { $("token-value").textContent = ""; });
+  $("dlg-token").addEventListener("close", () => { $("token-value").textContent = ""; $("token-config").textContent = ""; tokenKey = ""; });
   $("token-copy").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText($("token-value").textContent); toast("Key copied to the clipboard"); }
-    catch { toast("Copy failed; select the key and copy it manually", "bad"); }
+    try { await navigator.clipboard.writeText($("token-value").textContent); toast(t("key_copied")); }
+    catch { toast(t("copy_failed"), "bad"); }
   });
   $("revoke-confirm").addEventListener("click", async () => {
     if (!revokeTarget) return;
@@ -1528,10 +1846,10 @@ td time, td .who { white-space: nowrap; }
     try {
       await post(`admin/api/keys/${encodeURIComponent(k.key_id)}/revoke`, {});
       $("dlg-revoke").close();
-      toast(`Key ${k.key_id} revoked`);
+      toast(t("key_revoked", { id: k.key_id }));
       refresh();
     } catch (e) {
-      toast("Revoke failed: " + e.message, "bad");
+      toast(t("revoke_failed", { e: e.message }), "bad");
     } finally {
       $("revoke-confirm").disabled = false;
       revokeTarget = null;
@@ -1540,8 +1858,70 @@ td time, td .who { white-space: nowrap; }
   document.querySelectorAll(".cmd .copy").forEach(b => b.addEventListener("click", async () => {
     const text = b.parentElement.querySelector("code").textContent;
     try { await navigator.clipboard.writeText(text); } catch { return; }
-    b.classList.add("done"); b.lastChild.textContent = "Copied";
-    setTimeout(() => { b.classList.remove("done"); b.lastChild.textContent = "Copy"; }, 1600);
+    const label = b.querySelector("span");
+    b.classList.add("done"); label.textContent = t("copied");
+    setTimeout(() => { b.classList.remove("done"); label.textContent = t("copy"); }, 1600);
+  }));
+
+  /* ------------------------------------------------- connect apps */
+  const gatewayUrl = () => location.origin + "/mcp";
+  const APPS = ["claude_code", "claude_desktop", "cursor", "vscode", "other"];
+  let app = store.get("app") || "claude_code", tokenApp = "claude_code", tokenKey = "";
+  if (!APPS.includes(app)) app = "claude_code";
+  function appConfig(which, key) {
+    const url = gatewayUrl(), k = key || "YOUR_API_KEY";
+    const json = (o) => JSON.stringify(o, null, 2);
+    if (which === "claude_code") return `claude mcp add --transport http tokenis ${url} \\\n  --header "Authorization: Bearer ${k}"`;
+    if (which === "claude_desktop") return json({ mcpServers: { tokenis: { command: "npx", args: ["-y", "mcp-remote", url, "--header", "Authorization:${AUTH_HEADER}"], env: { AUTH_HEADER: "Bearer " + k } } } });
+    if (which === "cursor") return json({ mcpServers: { tokenis: { url, headers: { Authorization: "Bearer " + k } } } });
+    if (which === "vscode") return json({ servers: { tokenis: { type: "http", url, headers: { Authorization: "Bearer " + k } } } });
+    return `URL:     ${url}\nHeader:  Authorization: Bearer ${k}\n${t("app_other_transport")}`;
+  }
+  function tabs(box, current, onPick) {
+    box.replaceChildren(...APPS.map(a => {
+      const b = h("button", { role: "tab", "aria-pressed": String(a === current), "aria-selected": String(a === current), text: t("app_" + a) });
+      b.addEventListener("click", () => onPick(a));
+      return b;
+    }));
+  }
+  function renderConnect() {
+    tabs($("app-tabs"), app, (a) => { app = a; store.set("app", a); renderConnect(); });
+    $("app-where").innerHTML = t("where_" + app);
+    $("app-config").textContent = appConfig(app);
+    $("app-config").classList.toggle("shell", app === "claude_code");
+  }
+  function renderTokenConfig() {
+    tabs($("token-tabs"), tokenApp, (a) => { tokenApp = a; renderTokenConfig(); });
+    $("token-config").textContent = tokenKey ? appConfig(tokenApp, tokenKey) : "";
+    $("token-config").classList.toggle("shell", tokenApp === "claude_code");
+  }
+
+  /* ------------------------------------------------ language switch */
+  function applyLang() {
+    document.documentElement.lang = lang;
+    LOCALE = lang === "ko" ? "ko-KR" : "en-US";
+    nf = new Intl.NumberFormat(LOCALE);
+    cf = new Intl.NumberFormat(LOCALE, { notation: "compact", maximumFractionDigits: 1 });
+    document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-html]").forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+    document.querySelectorAll("#lang button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.l === lang)));
+    $("uq").placeholder = t("search_users_ph");
+    $("q").placeholder = t("search_audit_ph");
+    $("principal").placeholder = t("principal_ph");
+    $("menu").ariaLabel = t("open_nav");
+    applyTheme();
+    route();
+    renderConnect();
+    if (tokenKey) renderTokenConfig();
+    render();
+    if (users) { renderTopUsers(); renderUsers(); }
+    if (activity) renderActivity();
+    setLive();
+  }
+  document.querySelectorAll("#lang button").forEach(b => b.addEventListener("click", () => {
+    lang = b.dataset.l;
+    document.cookie = `tokenis_lang=${lang}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    applyLang();
   }));
   document.addEventListener("keydown", ev => {
     if (ev.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) && !document.querySelector("dialog[open]")) {
@@ -1554,8 +1934,7 @@ td time, td .who { white-space: nowrap; }
     setLive();
   }, 15000);
 
-  route();
-  setLive();
+  applyLang();
   refresh();
   schedule();
 })();

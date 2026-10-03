@@ -90,7 +90,46 @@ roles_claim = {{ . | quote }}
 admins = {{ .admins | toJson }}
 auditors = {{ .auditors | toJson }}
 viewers = {{ .viewers | toJson }}
+users = {{ .users | default list | toJson }}
 session_hours = {{ .sessionHours }}
+{{- with .displayName }}
+display_name = {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.ask }}
+{{- if .enabled }}
+{{- if regexMatch "(?m)^\\s*\\[ask" $cfg }}
+{{- fail "config must not contain [ask]: the chart renders it from values (ask.*)" }}
+{{- end }}
+
+[ask]
+provider = {{ .provider | quote }}
+model = {{ required "ask.model is required" .model | quote }}
+{{- with .baseUrl }}
+base_url = {{ . | quote }}
+{{- end }}
+{{- if .apiKey.existingSecret }}
+api_key_env = "TOKENIS_ASK_API_KEY"
+{{- end }}
+tool_protocol = {{ .toolProtocol | quote }}
+{{- with .reasoningEffort }}
+reasoning_effort = {{ . | quote }}
+{{- end }}
+questions_per_hour = {{ .questionsPerHour }}
+timeout_seconds = {{ .timeoutSeconds }}
+language = {{ .language | quote }}
+{{- with .displayName }}
+display_name = {{ . | quote }}
+{{- end }}
+suggestions = {{ .suggestions | default list | toJson }}
+{{- with .labels }}
+
+[ask.labels]
+{{- range $column, $label := . }}
+{{ $column }} = {{ $label | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}

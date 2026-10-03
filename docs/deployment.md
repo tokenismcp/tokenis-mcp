@@ -161,11 +161,13 @@ different pods was refused.
 | `GET /healthz` | Liveness: the process serves requests |
 | `GET /readyz` | Readiness: ledger sealed; with postgres, database reachable and shared history intact. 503 otherwise, and the check that failed is named |
 | `GET /metrics` | Prometheus metrics. Set `[ops] metrics_token_env` whenever callers can reach the port: only then are denials broken down by rule (an open breakdown would tell a caller why they were refused) |
-| `GET /admin` | Read-only admin console (`[ops] admin_token_env`) |
+| `GET /admin` | Admin console (`[ops] admin_token_env` or `[ops.oidc]`) |
+| `GET /ask` | Tokenis Ask, the question screen for everyone (`[ask]`, see [ask.md](ask.md)) |
 
 **Admin console.** People sign in with your identity provider
 ([`[ops.oidc]`](configuration.md)), and each gets the role the configuration
-gives them: viewer, auditor or admin. The admin activity log names the person
+gives them: user (Ask only), viewer, auditor or admin. The console and the
+sign-in pages are in Korean and English. The admin activity log names the person
 behind every sign-in, key issued or revoked, and export. The break-glass admin
 token (HTTP Basic, any user name) still works for emergencies and
 automation, and is logged as "admin token". Every number comes from the database, so
@@ -178,7 +180,8 @@ hours, 7 days or 30 days, and nothing resets when a process restarts.
 | Users | Per principal: calls, answers, refusals, the most frequent refusal rule, and the budget left in the current window. Exports every call as CSV |
 | Audit trail | The shared, signed trail: searchable and filterable, exportable as CSV. Disclosed values are never shown or exported |
 | Access | API keys: issue one (shown once), revoke one (effective on every replica with the next request). An admin activity log records every issue, revocation and export, with its source |
-| Policy & schema | The admission settings and column protection in force |
+| Policy & schema | The admission settings and column protection in force, explained in plain words |
+| Connect AI apps | Copy-ready settings for Claude Code, Claude Desktop, Cursor and VS Code with this gateway's address; a link to Ask for people without an AI app |
 
 Every call is recorded (tool, principal, outcome, rule, time, replica; never
 an argument or a value) in `tokenis_calls`, in the shared database, or in

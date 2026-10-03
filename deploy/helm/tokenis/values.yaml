@@ -114,10 +114,33 @@ admin:
     admins: []                 # identities, or "group:NAME"
     auditors: []
     viewers: []
+    # Ask only (no console). Identities, "group:NAME", or "@example.com" for
+    # every verified address in a domain.
+    users: []
     sessionHours: 8
+    displayName: ""            # on the sign-in button: "Continue with <displayName>"
     # Signs console sessions (shared by all replicas). Not needed when
     # [keys] is configured: the audit key is used.
     sessionSecret: {existingSecret: "", key: secret}
+
+# Tokenis Ask: a chat screen on /ask where signed-in people ask questions in
+# plain language; an LLM calls the gateway's tools on their behalf, under
+# their own budget. Needs admin.enabled and admin.oidc (people sign in with
+# single sign-on). See docs/ask.md.
+ask:
+  enabled: false
+  provider: openai             # openai (any OpenAI-compatible API: vLLM, Ollama, SARA, ...) | anthropic
+  baseUrl: ""                  # e.g. http://vllm.models:8000/v1 ; empty: the provider's public API
+  model: ""                    # e.g. claude-opus-5-5, or the served model name
+  apiKey: {existingSecret: "", key: api-key}
+  toolProtocol: auto           # auto | native | json (for models without function calling)
+  reasoningEffort: ""          # "none" turns off long hidden reasoning of local reasoning models
+  questionsPerHour: 60         # per person, per replica
+  timeoutSeconds: 120
+  language: ko                 # ko | en: default screen language
+  displayName: ""              # shown under the question box, e.g. "Claude" or "On-premises model"
+  suggestions: []              # example questions on the empty screen
+  labels: {}                   # column display names, e.g. {industry: 업종}
 
 metrics:
   # /metrics shares the MCP port, so an Ingress that routes "/" exposes it.

@@ -56,6 +56,13 @@ in the audit trail.
 
 ## Connect an LLM
 
+**No AI app at all: Tokenis Ask.** A chat screen at `/ask`, in Korean and
+English: people sign in with your single sign-on and ask in plain language;
+an LLM (Claude, a model on your own GPU servers, or SARA on-premises) calls
+the tools as that person, under their own budget, and every lookup is shown
+on screen and in the audit trail. Answers with figures that no lookup
+returned are withheld. See [docs/ask.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md).
+
 **Any MCP client, remote (Streamable HTTP + authentication).** HTTP always
 requires authentication — API keys or your identity provider's JWTs:
 
@@ -162,6 +169,7 @@ Prometheus metrics and a read-only admin console.
 | [Tools](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/tools.md) | What each tool answers, and why a question is refused |
 | [Configuration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/configuration.md) | Every setting, data sources, keys, ledger, state |
 | [Deployment](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/deployment.md) | Docker Compose, Kubernetes, monitoring, backups |
+| [Tokenis Ask](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md) | The question screen for everyone: single sign-on, Korean and English, Claude or on-premises models |
 | [LLM integration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/llm-integration.md) | Anthropic / OpenAI-compatible APIs without an MCP client |
 | [Troubleshooting](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/troubleshooting.md) | Error messages and what to do |
 | [Threat model](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/threat-model.md) | Assets, boundaries, adversaries, every mitigation with its code and test |

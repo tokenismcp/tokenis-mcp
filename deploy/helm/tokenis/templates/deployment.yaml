@@ -61,6 +61,13 @@ spec:
               valueFrom:
                 secretKeyRef: {name: {{ . | quote }}, key: {{ $.Values.admin.oidc.clientSecret.key | quote }}}
             {{- end }}
+            {{- if .Values.ask.enabled }}
+            {{- with .Values.ask.apiKey.existingSecret }}
+            - name: TOKENIS_ASK_API_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ . | quote }}, key: {{ $.Values.ask.apiKey.key | quote }}}
+            {{- end }}
+            {{- end }}
             {{- with .Values.admin.oidc.sessionSecret.existingSecret }}
             - name: TOKENIS_CONSOLE_SESSION_SECRET
               valueFrom:

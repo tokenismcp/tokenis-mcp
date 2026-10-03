@@ -1,5 +1,7 @@
 # Using the tools from an LLM API
 
+For people who should simply ask questions in a browser, without an MCP client or code, use [Tokenis Ask](ask.md).
+
 You do not need an MCP client to use Tokenis. The `tokenis.llm` module turns
 the gateway's tools into tool definitions for the Anthropic Messages API or
 any OpenAI-compatible Chat Completions API, and runs the calls the model

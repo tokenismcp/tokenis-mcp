@@ -7,6 +7,25 @@ the end records how the crypto layer got here.
 ## [Unreleased]
 
 ### Added
+- **Tokenis Ask** (`[ask]`): a chat screen at `/ask` for people without an
+  MCP client. Single sign-on; the person's identity is the admission
+  principal, so Ask shares their budget, refusals and audit trail. Claude
+  (Messages API) or any OpenAI-compatible model (vLLM, Ollama, SARA,
+  OpenAI); a JSON tool protocol for models without function calling.
+  Answers with figures no lookup returned are withheld; Korean questions get
+  Korean answers. Suggested questions, a plain-language description of what
+  can be asked, each lookup shown in plain words, refusals explained
+  without naming the rule, and the remaining allowance. Per-person rate
+  limit. Helm values `ask.*`.
+- **A `user` role** (`[ops.oidc] users`): Ask only, no console. Role
+  members may also be e-mail domains (`"@example.com"`, verified addresses).
+- **Korean console**: the admin console and the sign-in pages are in Korean
+  and English (browser language, or the switch in the top bar), with
+  refusal reasons and protections explained in plain words and column
+  display names from `[ask.labels]`.
+- **Connect AI apps** page in the console: copy-ready settings for Claude
+  Code, Claude Desktop, Cursor and VS Code with the gateway's address; a
+  newly issued key can be copied straight into them.
 - **Key management:** `[keys]` keeps the gateway's four secrets (ElGamal
   key, tokenizer key, audit key, ledger key) in a keystore wrapped by AWS KMS,
   HashiCorp Vault Transit, Google Cloud KMS, Azure Key Vault or a local
