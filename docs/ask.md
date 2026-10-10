@@ -8,8 +8,8 @@ person**: their identity is the admission-control subject, so Ask spends the
 same per-person budget as their API keys, every call is refused or answered
 by the same rules, and every call is in the audit trail and the console.
 
-The screen is in Korean and English (the browser's language, or the
-switch in the corner), suggests questions to start with, lists what the data
+The screen is in English by default; the EN / 한 switch at the top changes
+the language at any time. It suggests questions to start with, lists what the data
 can answer, shows each lookup the model made in plain words ("업종별 합계 ·
 2025년 매출 — 완료"), explains refusals without naming the rule that fired,
 and shows how much of the day's allowance is left.

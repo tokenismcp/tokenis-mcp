@@ -137,7 +137,7 @@ ask:
   reasoningEffort: ""          # "none" turns off long hidden reasoning of local reasoning models
   questionsPerHour: 60         # per person, per replica
   timeoutSeconds: 120
-  language: ko                 # ko | en: default screen language
+  language: en                 # en | ko: the screen's language until a person picks one
   displayName: ""              # shown under the question box, e.g. "Claude" or "On-premises model"
   suggestions: []              # example questions on the empty screen
   labels: {}                   # column display names, e.g. {industry: 업종}

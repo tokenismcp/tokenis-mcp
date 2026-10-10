@@ -186,7 +186,9 @@ def test_a_user_signs_in_to_ask_and_never_sees_the_console(tmp_path, idp, model)
     assert client.get("/admin/api/summary").status_code == 403
     ctx = client.get("/ask/api/context").json()
     assert ctx["me"]["role"] == "user" and ctx["me"]["console"] is False
-    assert ctx["catalog"]["suggestions"] and ctx["budget"]["remaining"] == 1000
+    assert ctx["catalog"]["suggestions"] is None
+    assert ctx["catalog"]["auto_suggestions"]["en"] and ctx["catalog"]["auto_suggestions"]["ko"]
+    assert ctx["budget"]["remaining"] == 1000
 
 
 def test_unverified_or_foreign_addresses_get_no_role(tmp_path, idp, model):
@@ -198,12 +200,23 @@ def test_unverified_or_foreign_addresses_get_no_role(tmp_path, idp, model):
     assert sign_in_user(client, idp, "eve@evil.example").status_code == 403
 
 
-def test_the_sign_in_page_speaks_korean(tmp_path, idp, model):
+def test_the_sign_in_page_is_english_until_the_person_switches(tmp_path, idp, model):
     client, _ = ask_app(tmp_path, idp, model([]))
-    page = client.get("/admin/auth/login?next=/ask", headers={"Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"})
+    page = client.get("/admin/auth/login?next=/ask", headers={"Accept-Language": "ko-KR,ko;q=0.9"})
+    assert '<html lang="en">' in page.text and "Sign in to Tokenis Ask" in page.text
+    assert 'href="/lang/ko?next=/admin/auth/login' in page.text
+    page = client.get("/admin/auth/login?next=/ask", headers={"Cookie": "tokenis_lang=ko"})
     assert '<html lang="ko">' in page.text and "Tokenis Ask 로그인" in page.text
-    page = client.get("/admin/auth/login?next=/ask", headers={"Accept-Language": "ko", "Cookie": "tokenis_lang=en"})
-    assert "Sign in to Tokenis Ask" in page.text
+    switched = client.get("/lang/ko?next=/admin/auth/login%3Fnext%3D/ask")
+    assert switched.status_code == 302 and switched.headers["location"] == "/admin/auth/login?next=/ask"
+    assert "tokenis_lang=ko" in switched.headers["set-cookie"] and "Path=/" in switched.headers["set-cookie"]
+
+
+def test_the_language_switch_only_returns_to_this_site(tmp_path, idp, model):
+    client, _ = ask_app(tmp_path, idp, model([]))
+    assert client.get("/lang/ko?next=https://evil.example/").headers["location"] == "/"
+    assert client.get("/lang/ko?next=//evil.example/").headers["location"] == "/"
+    assert client.get("/lang/fr").status_code == 404
 
 
 def test_a_question_is_answered_with_tool_calls_under_the_users_own_budget(tmp_path, idp, model):
@@ -316,3 +329,14 @@ def test_a_korean_question_gets_a_korean_answer(tmp_path, idp, model):
     answer = next(e for e in events(chat(client, "비트재의 매출은?")) if e["type"] == "answer")
     assert answer["text"] == "그룹 단위로 물어봐 주세요."
     assert "Korean" in m.requests[1]["body"]["messages"][-1]["content"]
+
+
+def test_the_console_is_english_by_default_and_follows_the_switch(tmp_path, idp, model):
+    client, _ = ask_app(tmp_path, idp, model([]))
+    sign_in_user(client, idp, "alice@acme.example")  # listed as admin in ask_app
+    page = client.get("/admin")
+    assert page.status_code == 200 and '<html lang="en">' in page.text
+    client.cookies.set("tokenis_lang", "ko")
+    page = client.get("/admin")
+    assert '<html lang="ko">' in page.text
+    assert 'data-l="en"' in page.text and 'data-l="ko"' in page.text

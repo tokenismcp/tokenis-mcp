@@ -248,9 +248,10 @@ Always served next to `/mcp`: `GET /healthz` (liveness) and `GET /readyz`
 database answers and the shared history is intact). See
 [deployment.md](deployment.md#operating-it).
 
-The console and the sign-in pages are in English and Korean: the browser's
-language decides, and the switch in the top bar remembers a choice (the
-`tokenis_lang` cookie). Sessions are valid for the console and for Ask.
+The console, Ask and the sign-in pages are in English (the default) and
+Korean. The EN / 한 switch in the top bar changes the language at any time and
+remembers the choice in a `tokenis_lang` cookie (`/lang/en` and `/lang/ko`
+set it). Sessions are valid for the console and for Ask.
 
 ## `[ask]`
 
@@ -271,7 +272,7 @@ person's own identity and budget. Needs `transport = "http"` and
 | `timeout_seconds` | `120` | Per model call (5-600) |
 | `questions_per_hour` | `60` | Per person, per replica; also one question at a time |
 | `temperature`, `max_tokens` | `0.2`, `1500` | Sampling |
-| `language` | `"ko"` | The screen's language when the browser does not ask for one: `"ko"` or `"en"` |
+| `language` | `"en"` | The screen's language until a person picks one with the EN / 한 switch: `"en"` or `"ko"` |
 | `display_name` | the model name | Shown under the question box, e.g. `"Claude"` |
 | `suggestions` | generated from the schema | Up to 12 example questions on the empty screen |
 | `[ask.labels]` | column descriptions | Display names, e.g. `industry = "업종"`: on screen, in the console's column list, and in the model's answers |

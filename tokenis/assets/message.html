@@ -35,6 +35,13 @@ body {
   font-feature-settings: "cv11", "ss01"; -webkit-font-smoothing: antialiased;
 }
 .shell { width: min(400px, 100%); display: grid; gap: 18px; }
+.lang { display: flex; justify-content: flex-end; gap: 2px; padding: 3px; width: max-content; justify-self: end;
+  border-radius: 10px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lang a { min-width: 40px; text-align: center; padding: 4px 10px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+  color: var(--muted); text-decoration: none; }
+.lang a:hover { color: var(--text); }
+.lang a[aria-current="true"] { background: var(--accent-soft); color: var(--text); }
+.lang a:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 30px 28px 26px; box-shadow: var(--shadow); }
 .brand { display: flex; align-items: center; gap: 11px; margin-bottom: 26px; }
 .brand img { width: 34px; height: 34px; }
@@ -62,6 +69,7 @@ p { margin: 0; color: var(--muted); word-break: keep-all; }
 </head>
 <body>
   <div class="shell">
+    {{switch}}
     <main class="card">
       <div class="brand"><img src="{{icon}}" alt=""><div><b>Tokenis</b><span>{{subtitle}}</span></div></div>
       <h1>{{title}}</h1>

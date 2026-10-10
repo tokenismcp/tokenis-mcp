@@ -263,8 +263,8 @@ kbd { font: 11px var(--mono); padding: 0 4px; border: 1px solid var(--border); b
       <span class="label-sm" data-t="new_chat"></span>
     </button>
     <div class="seg" role="group" aria-label="Language">
-      <button type="button" data-lang="ko" aria-pressed="false">한</button>
       <button type="button" data-lang="en" aria-pressed="false">EN</button>
+      <button type="button" data-lang="ko" aria-pressed="false">한</button>
     </div>
     <button class="tbtn icon" id="theme" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
     <div class="me">
@@ -413,7 +413,7 @@ const store = {
   set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* private mode */ } },
   del(k) { try { sessionStorage.removeItem(k); } catch (e) { /* private mode */ } },
 };
-let lang = document.documentElement.lang === "en" ? "en" : "ko";
+let lang = document.documentElement.lang === "ko" ? "ko" : "en";
 let ctx = null;
 let busy = null;           // AbortController while a question runs
 let history = [];          // [{role, content}] sent back for follow-ups
@@ -572,7 +572,8 @@ function applyTexts() {
 function renderSuggestions() {
   const box = $("suggest");
   box.textContent = "";
-  for (const q of ctx.catalog.suggestions.slice(0, 6)) {
+  const picks = ctx.catalog.suggestions || (ctx.catalog.auto_suggestions || {})[lang] || [];
+  for (const q of picks.slice(0, 6)) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "card-q";

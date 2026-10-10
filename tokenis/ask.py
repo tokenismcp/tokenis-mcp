@@ -80,8 +80,8 @@ class AskSettings:
     #: Display names for columns, e.g. {"industry": "업종"}: used in the
     #: suggestions, the step list and by the model in its answers.
     labels: Mapping[str, str] = field(default_factory=dict)
-    #: The screen's language when the browser does not say: "ko" or "en".
-    language: str = "ko"
+    #: The screen's language until the person picks one: "en" or "ko".
+    language: str = "en"
     #: Shown under the answer box, e.g. "SARA · on-premises".
     display_name: str = ""
     #: OpenAI-compatible only: "none" turns off the long hidden reasoning of
@@ -103,8 +103,8 @@ class AskSettings:
             raise ValueError("[ask] questions_per_hour must be 1 to 10000")
         if self.reasoning_effort not in ("", "none", "low", "medium", "high"):
             raise ValueError("[ask] reasoning_effort must be none, low, medium or high")
-        if self.language not in ("ko", "en"):
-            raise ValueError("[ask] language must be ko or en")
+        if self.language not in ("en", "ko"):
+            raise ValueError("[ask] language must be en or ko")
         if len(self.suggestions) > 12 or any(not isinstance(s, str) or not 0 < len(s) <= 200
                                              for s in self.suggestions):
             raise ValueError("[ask] suggestions: at most 12 strings of 1-200 characters")
@@ -268,10 +268,13 @@ class AskEngine:
                 entry["values"] = len(self.service.domain(c.name))
             cols.append(entry)
         return {"columns": cols, "k": self.service.k, "records": self.service.record_count,
-                "suggestions": list(self.settings.suggestions) or self._auto_suggestions(),
+                # Configured questions are shown as written; otherwise both
+                # languages are generated and the screen picks one.
+                "suggestions": list(self.settings.suggestions) or None,
+                "auto_suggestions": {"en": self._auto_suggestions("en"), "ko": self._auto_suggestions("ko")},
                 "purposes": [p.name for p in self.service.settings.purposes]}
 
-    def _auto_suggestions(self) -> List[str]:
+    def _auto_suggestions(self, lang: str) -> List[str]:
         labels = self.settings.labels
         schema = self.service.schema
 
@@ -281,7 +284,7 @@ class AskEngine:
         groups = list(schema.open)
         measures = [c for c in schema.sealed if c.result_mode != "band"] or list(schema.sealed)
         out: List[str] = []
-        if self.settings.language == "ko":
+        if lang == "ko":
             if groups and measures:
                 out.append(f"{name(groups[0])}별 {name(measures[-1])} 합계를 보여줘")
             if len(groups) > 1 and measures:

@@ -329,7 +329,13 @@ def install_routes(
     metrics are addressed by pod IP and are not browser-facing)."""
     import anyio
     from starlette.requests import Request
-    from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+    from starlette.responses import (
+        HTMLResponse,
+        JSONResponse,
+        PlainTextResponse,
+        RedirectResponse,
+        Response,
+    )
 
     no_store = {"Cache-Control": "no-store"}
 
@@ -371,10 +377,25 @@ def install_routes(
         body = await anyio.to_thread.run_sync(metrics.render, service, bool(metrics_token))
         return PlainTextResponse(body, media_type="text/plain; version=0.0.4", headers=no_store)
 
+    @server.custom_route("/lang/{code}", methods=["GET"], include_in_schema=False)
+    async def set_language(request: Request) -> Response:
+        """Remember the language choice (a cookie) and return to the page."""
+        code = request.path_params["code"]
+        if code not in ("en", "ko"):
+            return PlainTextResponse("unknown language\n", status_code=404)
+        target = request.query_params.get("next", "/")
+        if not (target.startswith("/") and not target.startswith("//")
+                and not any(c in target for c in "\\\r\n")):
+            target = "/"
+        from tokenis.console_auth import cookie_header
+
+        response = RedirectResponse(target, status_code=302, headers=no_store)
+        response.headers.append("set-cookie", cookie_header(
+            "tokenis_lang", code, max_age=365 * 24 * 3600, secure=secure_cookies, path="/"))
+        return response
+
     if not admin_token and oidc is None:
         return
-
-    from starlette.responses import RedirectResponse
 
     from tokenis.console_auth import (
         FLOW_COOKIE,
@@ -600,17 +621,26 @@ def install_routes(
         })
 
     def _lang(request: Request) -> str:
-        """ko or en: the person's choice (cookie), else the browser's."""
+        """en or ko: the person's choice (the tokenis_lang cookie, set by the
+        language switch), else the configured default (English)."""
         chosen = read_cookie(request.headers.get("cookie", ""), "tokenis_lang")
-        if chosen in ("ko", "en"):
+        if chosen in ("en", "ko"):
             return chosen
-        for part in request.headers.get("accept-language", "").split(","):
-            tag = part.split(";")[0].strip().lower()
-            if tag.startswith("ko"):
-                return "ko"
-            if tag.startswith("en"):
-                return "en"
         return ask.settings.language if ask is not None else "en"
+
+    def _switch(request: Request) -> str:
+        """The EN / 한 switch for the sign-in pages: it returns here."""
+        import html as html_lib
+        import urllib.parse
+
+        here = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        lang = _lang(request)
+        links = []
+        for code, label in (("en", "EN"), ("ko", "한")):
+            current = ' aria-current="true"' if code == lang else ""
+            href = f"/lang/{code}?next={urllib.parse.quote(here, safe='/?=&')}"
+            links.append(f'<a href="{html_lib.escape(href)}"{current}>{label}</a>')
+        return f'<nav class="lang" aria-label="Language">{"".join(links)}</nav>'
 
     def _message_page(request: Request, key: str, status: int = 200, action: Optional[Tuple[str, str]] = None,
                       **fmt: str) -> Response:
@@ -620,7 +650,8 @@ def install_routes(
         text = MESSAGES[lang]
         title, body_text = text[key]
         nonce = secrets.token_urlsafe(16)
-        body = message_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+        body = (message_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
+                .replace("{{switch}}", _switch(request)))
         for slot in ("subtitle", "foot_sso", "foot_audit"):
             body = body.replace("{{" + slot + "}}", html_lib.escape(text[slot]))
         body = body.replace("{{lang}}", lang)
