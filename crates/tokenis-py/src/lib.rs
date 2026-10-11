@@ -352,7 +352,10 @@ impl CiphertextVector {
                     .chunks(chunk)
                     .map(|part| scope.spawn(move || eg::to_bytes_many(part)))
                     .collect();
-                handles.into_iter().map(|h| h.join().ok()).collect::<Option<Vec<_>>>()
+                handles
+                    .into_iter()
+                    .map(|h| h.join().ok())
+                    .collect::<Option<Vec<_>>>()
             })?;
             let mut out = Vec::with_capacity(8 + items.len() * 68);
             out.extend_from_slice(&(items.len() as u64).to_le_bytes());
@@ -364,7 +367,9 @@ impl CiphertextVector {
             Some(out)
         });
         let out = out.ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err("ciphertext encoding failed in a worker thread")
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "ciphertext encoding failed in a worker thread",
+            )
         })?;
         Ok(PyBytes::new(py, &out))
     }
