@@ -169,7 +169,8 @@ jobs:
           wheel="$(ls wheels/*manylinux*x86_64*.whl | head -1)"
           /tmp/runtime/bin/pip install "${wheel}[postgres,mysql,oracle,mssql,aws,gcp,azure]"
           pip install cyclonedx-bom
-          cyclonedx-py environment --of JSON --output-reproducible -o "sbom/tokenis-mcp-${v}-python.cdx.json" /tmp/runtime
+          # No --output-reproducible: it drops serialNumber, which actions/attest-sbom requires.
+          cyclonedx-py environment --of JSON -o "sbom/tokenis-mcp-${v}-python.cdx.json" /tmp/runtime
           PYO3_PYTHON="$(which python)" cargo cyclonedx --format json --spec-version 1.5
           for crate in tokenis-core tokenis-py tokenis-wasm; do
             mv "crates/${crate}/${crate}.cdx.json" "sbom/${crate}-${v}-rust.cdx.json"
@@ -177,7 +178,7 @@ jobs:
           # npm ci prints a summary to stdout: keep it out of the SBOM file.
           (cd sdk/typescript && npm ci --ignore-scripts > /dev/null && npm sbom --sbom-format cyclonedx --omit dev) \
             > "sbom/tokenis-crypto-${v}-npm.cdx.json"
-          for f in sbom/*.json; do python -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['bomFormat']=='CycloneDX'; print(sys.argv[1], len(d.get('components', [])))" "$f"; done
+          for f in sbom/*.json; do python -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['bomFormat']=='CycloneDX' and d.get('serialNumber'); print(sys.argv[1], len(d.get('components', [])))" "$f"; done
       - uses: actions/upload-artifact@v7
         with:
           name: sbom
