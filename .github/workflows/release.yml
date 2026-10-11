@@ -174,7 +174,8 @@ jobs:
           for crate in tokenis-core tokenis-py tokenis-wasm; do
             mv "crates/${crate}/${crate}.cdx.json" "sbom/${crate}-${v}-rust.cdx.json"
           done
-          (cd sdk/typescript && npm ci --ignore-scripts && npm sbom --sbom-format cyclonedx --omit dev) \
+          # npm ci prints a summary to stdout: keep it out of the SBOM file.
+          (cd sdk/typescript && npm ci --ignore-scripts > /dev/null && npm sbom --sbom-format cyclonedx --omit dev) \
             > "sbom/tokenis-crypto-${v}-npm.cdx.json"
           for f in sbom/*.json; do python -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['bomFormat']=='CycloneDX'; print(sys.argv[1], len(d.get('components', [])))" "$f"; done
       - uses: actions/upload-artifact@v7
