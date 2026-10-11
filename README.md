@@ -17,6 +17,10 @@ tools that answer aggregate questions over encrypted data, under admission
 control and a signed audit trail, and never sees a row.** Plus the research
 papers and measurement code the design is accountable to.
 
+It works with any model and any AI app that speaks MCP: Claude, ChatGPT and
+the OpenAI API, Gemini, Codex, Cursor, VS Code, Windsurf, and models you host
+yourself (Ollama, vLLM, SARA); see [Connect an LLM](#connect-an-llm).
+
 A model connected to Tokenis can ask "total 2025 revenue for tech companies
 in Seoul?" and get `7,000,000 KRW over 12 records`. It cannot ask for one
 company's revenue, cannot get it by differencing two overlapping groups, and

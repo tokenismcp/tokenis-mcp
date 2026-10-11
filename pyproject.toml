@@ -9,7 +9,7 @@ build-backend = "maturin"
 [project]
 name = "tokenis-mcp"
 version = "0.1.0"
-description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool calling (MCP), with the research pipeline behind it"
+description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool calling (MCP) with Claude, ChatGPT/OpenAI, Gemini, Codex and local models, with the research pipeline behind it"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
