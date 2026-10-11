@@ -38,6 +38,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from tokenis.safe import equal
+
 ROLES = ("user", "viewer", "auditor", "admin")
 RANK = {role: i for i, role in enumerate(ROLES)}
 SESSION_COOKIE = "tokenis_console"
@@ -90,7 +92,7 @@ class SessionSigner:
             return None
         body, mac = value.split(".")
         expected = _b64(hmac.new(self._key, body.encode(), hashlib.sha256).digest())
-        if not hmac.compare_digest(mac, expected):
+        if not equal(mac, expected):
             return None
         try:
             payload = json.loads(_unb64(body))
@@ -217,7 +219,7 @@ class OidcClient:
                 issuer=meta["issuer"], leeway=60, options={"require": ["exp", "iat", "iss", "aud", "sub"]})
         except (jwt.PyJWTError, KeyError, ValueError) as exc:
             raise ConsoleAuthError(f"the ID token did not verify ({type(exc).__name__})") from None
-        if not hmac.compare_digest(str(claims.get("nonce", "")), nonce):
+        if not equal(str(claims.get("nonce", "")), nonce):
             raise ConsoleAuthError("the ID token was not issued for this sign-in")
         return claims
 

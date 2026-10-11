@@ -24,7 +24,6 @@ unauthenticated requests with 401 before any tool runs:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
 import os
@@ -38,6 +37,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import anyio.to_thread
+
+from tokenis.safe import equal
 
 log = logging.getLogger("tokenis.auth")
 
@@ -175,7 +176,7 @@ class ApiKeyStore:
             records = list(self._records)
         principal: Optional[str] = None
         for r in records:
-            if hmac.compare_digest(candidate, r.key_hash) and not r.revoked:
+            if equal(candidate, r.key_hash) and not r.revoked:
                 principal = r.principal
         return principal
 

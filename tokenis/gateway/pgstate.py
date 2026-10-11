@@ -32,6 +32,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple, Type
 
 from tokenis.audit.trace import TraceEntry, entry_from_dict, entry_to_dict
 from tokenis.gateway.state import StateMismatchError
+from tokenis.safe import equal
 
 _GENESIS = "0" * 64
 
@@ -260,7 +261,7 @@ class PostgresState:
         expected = seq + 1
         for s, raw, digest in rows:
             record = dict(raw) if isinstance(raw, dict) else {}
-            if int(s) != expected or not hmac.compare_digest(self.link(prev, record), str(digest)):
+            if int(s) != expected or not equal(self.link(prev, record), str(digest)):
                 raise StateMismatchError(
                     f"the shared admission history for tenant {self.tenant!r} fails verification at "
                     f"record {s}: a record is missing, edited, or was written without the audit key. "
@@ -386,6 +387,6 @@ class PostgresApiKeyStore:
         row = self._state._retry_once(lambda conn: conn.execute(
             "SELECT principal, key_hash FROM tokenis_api_keys WHERE tenant = %s "
             "AND key_hash = %s AND NOT revoked", (self._state.tenant, candidate)).fetchone())
-        if row is None or not hmac.compare_digest(str(row[1]), candidate):
+        if row is None or not equal(str(row[1]), candidate):
             return None
         return str(row[0])

@@ -54,6 +54,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Protocol, Tuple
 
+from tokenis.safe import equal
+
 
 @dataclass(frozen=True)
 class AuditRecord:
@@ -328,7 +330,7 @@ class DisclosureTrace:
                 if entry.digest != digest:
                     raise TraceIntegrityError(f"{where}: entry was modified")
                 expected = self._mac(entry.digest)
-                if expected is not None and not hmac.compare_digest(expected, str(mac or "")):
+                if expected is not None and not equal(expected, str(mac or "")):
                     raise TraceIntegrityError(f"{where}: HMAC does not verify")
                 prev, count = entry.digest, count + 1
         except TraceIntegrityError:

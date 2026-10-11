@@ -41,11 +41,25 @@ def crates() -> Dict[Tuple[str, str], str]:
             cwd=ROOT, check=True, capture_output=True, text=True,
         ).stdout
         for line in out.splitlines():
-            m = LINE.match(line.replace(" (*)", ""))
-            if not m or "(proc-macro)" in m["rest"] or m["name"].startswith("tokenis-"):
-                continue
-            found[(m["name"], m["version"])] = m["license"].strip()
+            parsed = parse_line(line)
+            if parsed is not None:
+                found[parsed[:2]] = parsed[2]
     return found
+
+
+# `cargo tree` marks a dependency it has already printed with "(*)". Cargo
+# versions differ in the spacing around the marker, which once leaked into the
+# license text on CI, so drop it wherever it appears.
+_DEDUPE_MARK = re.compile(r"\s*\(\*\)")
+
+
+def parse_line(line: str) -> "Tuple[str, str, str] | None":
+    """(name, version, license) of one ``cargo tree`` line, or None for lines
+    that are not third-party crates (proc-macros, our own crates)."""
+    m = LINE.match(_DEDUPE_MARK.sub("", line))
+    if not m or "(proc-macro)" in m["rest"] or m["name"].startswith("tokenis-"):
+        return None
+    return m["name"], m["version"], m["license"].strip()
 
 
 def source_dir(name: str, version: str) -> Path:

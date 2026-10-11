@@ -271,3 +271,11 @@ def test_only_https_or_loopback_endpoints_are_used():
         OidcClient(OidcSettings(issuer="file://localhost/etc", client_id="c", admins=("a",)))
     with pytest.raises(ValueError):
         OidcClient(OidcSettings(issuer="http://idp.example.com", client_id="c", admins=("a",)))
+
+
+def test_a_non_ascii_state_is_a_refusal_not_a_crash(tmp_path, idp):
+    client, _ = console(tmp_path, idp)
+    start = client.get("/admin/auth/start")
+    code, _state = idp.authorize(start.headers["location"])
+    page = client.get(f"/admin/auth/callback?code={code}&state=%C3%A9%E3%85%87")
+    assert page.status_code == 400

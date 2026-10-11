@@ -35,6 +35,8 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
+from tokenis.safe import equal
+
 if TYPE_CHECKING:  # pragma: no cover
     from mcp.server.mcpserver import MCPServer
 
@@ -756,7 +758,7 @@ def install_routes(
         if params.get("error"):
             return _message_page(request, "cancelled", 400, retry)
         if (flow is None or not params.get("code")
-                or not hmac.compare_digest(str(flow.get("state", "")), params.get("state", ""))):
+                or not equal(str(flow.get("state", "")), params.get("state", ""))):
             return _message_page(request, "expired", 400, retry)
         try:
             claims = await anyio.to_thread.run_sync(oidc.exchange, params["code"], flow["verifier"], flow["nonce"])
