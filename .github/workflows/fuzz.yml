@@ -41,7 +41,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
