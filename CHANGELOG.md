@@ -6,6 +6,10 @@ the end records how the crypto layer got here.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-11
+
+First release.
+
 ### Added
 - **`tokenis-mcp init FILE`**: a starting `tokenis.toml` and generated keys
   from a CSV or JSON-lines file. It guesses each column's protection
