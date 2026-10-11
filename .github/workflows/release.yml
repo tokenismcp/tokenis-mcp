@@ -152,7 +152,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          name: wheels-ubuntu-latest-x86_64-native
+          name: wheels-ubuntu-latest-x86_64-auto
           path: wheels
       - uses: actions/setup-python@v7
         with:
