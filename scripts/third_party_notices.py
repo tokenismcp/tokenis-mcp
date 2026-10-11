@@ -15,6 +15,7 @@ Unicode-3.0) get their full license text, copyright lines included.
 from __future__ import annotations
 
 import argparse
+import difflib
 import glob
 import os
 import re
@@ -102,14 +103,33 @@ def render() -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
+def annotate(message: str) -> None:
+    """A GitHub Actions error annotation: shown on the run page even to people
+    who cannot open the job log."""
+    escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::error title=Third-party notices::{escaped}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="fail if the file is out of date")
     args = parser.parse_args()
-    text = render()
+    try:
+        text = render()
+    except subprocess.CalledProcessError as exc:
+        annotate(f"{' '.join(exc.cmd)} failed ({exc.returncode}): {(exc.stderr or '')[-600:]}")
+        raise
+    except SystemExit as exc:
+        if isinstance(exc.code, str):
+            annotate(exc.code)
+        raise
     if args.check:
-        if not OUT.exists() or OUT.read_text(encoding="utf-8") != text:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != text:
+            diff = list(difflib.unified_diff(current.splitlines(), text.splitlines(), "committed", "generated",
+                                             lineterm="", n=0))
             print("THIRD-PARTY-NOTICES.md is stale: run scripts/third_party_notices.py")
+            annotate("THIRD-PARTY-NOTICES.md is stale; first differences:\n" + "\n".join(diff[:25])[:1500])
             return 1
         return 0
     OUT.write_text(text, encoding="utf-8")
