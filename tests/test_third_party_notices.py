@@ -20,6 +20,8 @@ spec.loader.exec_module(tpn)
     "ff v0.13.1 | MIT/Apache-2.0(*)",
     "ff v0.13.1 | MIT/Apache-2.0 (*)",
     "ff v0.13.1 | MIT/Apache-2.0\t(*)",
+    "ff v0.13.1 | MIT/Apache-2.0 \x1b[2m(*)\x1b[0m",       # CARGO_TERM_COLOR=always
+    "\x1b[1mff\x1b[0m v0.13.1 | MIT/Apache-2.0",
 ])
 def test_the_dedupe_marker_never_reaches_the_license(line):
     assert tpn.parse_line(line) == ("ff", "0.13.1", "MIT/Apache-2.0")

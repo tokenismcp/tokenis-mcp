@@ -62,7 +62,9 @@ jobs:
         working-directory: fuzz
         run: |
           set -o pipefail
-          if ! cargo fuzz run "${{ matrix.target }}" -O -- \
+          # cargo-fuzz from install-action is a static (musl) build and then
+          # defaults to the musl target, which cannot be sanitised: name the host.
+          if ! cargo fuzz run "${{ matrix.target }}" -O --target x86_64-unknown-linux-gnu -- \
               -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tee fuzz.log; then
             # The log needs a sign-in to read; an annotation does not.
             tail -n 25 fuzz.log | python3 -c "import sys; t=sys.stdin.read(); print('::error title=Fuzz ${{ matrix.target }} failed::' + t.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))"

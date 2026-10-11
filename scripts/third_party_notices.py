@@ -26,9 +26,12 @@ from typing import Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "THIRD-PARTY-NOTICES.md"
+# --color never: CI sets CARGO_TERM_COLOR=always, and cargo then wraps parts of
+# the output (the "(*)" repeat marker) in ANSI escape codes.
 TREES = [
-    ["cargo", "tree", "-p", "tokenis-py", "-e", "normal"],
-    ["cargo", "tree", "-p", "tokenis-wasm", "-e", "normal", "--target", "wasm32-unknown-unknown"],
+    ["cargo", "tree", "--color", "never", "-p", "tokenis-py", "-e", "normal"],
+    ["cargo", "tree", "--color", "never", "-p", "tokenis-wasm", "-e", "normal",
+     "--target", "wasm32-unknown-unknown"],
 ]
 LINE = re.compile(r"^(?P<name>[\w-]+) v(?P<version>\S+)(?P<rest>.*?) \| (?P<license>.+)$")
 
@@ -51,12 +54,13 @@ def crates() -> Dict[Tuple[str, str], str]:
 # versions differ in the spacing around the marker, which once leaked into the
 # license text on CI, so drop it wherever it appears.
 _DEDUPE_MARK = re.compile(r"\s*\(\*\)")
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def parse_line(line: str) -> "Tuple[str, str, str] | None":
     """(name, version, license) of one ``cargo tree`` line, or None for lines
     that are not third-party crates (proc-macros, our own crates)."""
-    m = LINE.match(_DEDUPE_MARK.sub("", line))
+    m = LINE.match(_DEDUPE_MARK.sub("", _ANSI.sub("", line)))
     if not m or "(proc-macro)" in m["rest"] or m["name"].startswith("tokenis-"):
         return None
     return m["name"], m["version"], m["license"].strip()
