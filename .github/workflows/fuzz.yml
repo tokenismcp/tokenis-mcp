@@ -1,10 +1,22 @@
-# Fuzzing. On pull requests touching the crypto core or the parsers: a short
-# smoke run of every target. Nightly: long runs, with the corpus carried over
+# Fuzzing. On pull requests and pushes touching the crypto core or the parsers:
+# a short smoke run of every target. Nightly: long runs, with the corpus carried over
 # between runs so coverage keeps growing. A crash fails the job and uploads
 # the reproducer.
 name: Fuzz
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fuzz.yml"
+      - "crates/tokenis-core/**"
+      - "fuzz/**"
+      - "tokenis/ledger.py"
+      - "tokenis/keystore.py"
+      - "tokenis/audit/**"
+      - "tokenis/gateway/state.py"
+      - "tokenis/config.py"
+      - "tests/test_fuzz_inputs.py"
   pull_request:
     paths:
       - "crates/tokenis-core/**"
@@ -34,7 +46,7 @@ jobs:
       matrix:
         target: [wire_formats, elgamal_arithmetic, decrypt_untrusted, delegation]
     env:
-      SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '1800' }}
+      SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '1800' || inputs.seconds || '60' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
@@ -49,8 +61,13 @@ jobs:
       - name: Fuzz ${{ matrix.target }} for ${{ env.SECONDS_PER_TARGET }}s
         working-directory: fuzz
         run: |
-          cargo fuzz run "${{ matrix.target }}" -O -- \
-            -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1
+          set -o pipefail
+          if ! cargo fuzz run "${{ matrix.target }}" -O -- \
+              -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tee fuzz.log; then
+            # The log needs a sign-in to read; an annotation does not.
+            tail -n 25 fuzz.log | python3 -c "import sys; t=sys.stdin.read(); print('::error title=Fuzz ${{ matrix.target }} failed::' + t.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))"
+            exit 1
+          fi
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -62,7 +79,7 @@ jobs:
     # log, ciphertext encodings and configuration (tests/test_fuzz_inputs.py).
     runs-on: ubuntu-latest
     env:
-      TOKENIS_FUZZ_EXAMPLES: ${{ github.event_name == 'pull_request' && '500' || '20000' }}
+      TOKENIS_FUZZ_EXAMPLES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '500' || '20000' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -71,4 +88,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - run: pytest -q tests/test_fuzz_inputs.py
+      - name: Property-based fuzzing
+        run: |
+          set -o pipefail
+          if ! pytest -q tests/test_fuzz_inputs.py --tb=short 2>&1 | tee pytest.log; then
+            tail -n 40 pytest.log | python3 -c "import sys; t=sys.stdin.read(); print('::error title=Python fuzzing failed::' + t[-1800:].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))"
+            exit 1
+          fi
