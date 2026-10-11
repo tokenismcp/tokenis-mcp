@@ -392,7 +392,10 @@ Checked by CI on every push (`.github/workflows/ci.yml`), not just claimed:
 
 ## Status
 
-Pre-1.0: interfaces may still change (see
+**v0.1.0 is out** ([release](https://github.com/tokenismcp/tokenis-mcp/releases/tag/v0.1.0):
+wheels for Linux, macOS and Windows, the sdist, a container image, SBOMs and
+Sigstore signatures; see [verifying-releases.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/verifying-releases.md)).
+Not independently audited yet. Pre-1.0: interfaces may still change (see
 [CHANGELOG.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/CHANGELOG.md)).
 Issues and PRs welcome. Found a security issue? Follow
 [SECURITY.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/SECURITY.md)
