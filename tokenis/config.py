@@ -62,6 +62,9 @@ class DataSource:
     #: Database sources are read in this column's order (the [data]
     #: id_column), so every replica sees the rows in the same order.
     order_by: Optional[str] = None
+    #: File sources: (header in the file, column name used by the gateway)
+    #: pairs, for headers that are not valid column names ("Annual Revenue").
+    rename: Tuple[Tuple[str, str], ...] = ()
 
     @property
     def label(self) -> str:
@@ -252,6 +255,21 @@ def _parse_ask(raw: Any, schema: Schema, server: ServerSettings, ops: OpsSetting
     return settings
 
 
+def _parse_rename(raw: Any) -> Tuple[Tuple[str, str], ...]:
+    """[data.rename]: header in the file = column name used by the gateway."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()):
+        raise ConfigError('[data.rename] must map file headers to column names: "Annual Revenue" = "annual_revenue"')
+    targets = list(raw.values())
+    if len(set(targets)) != len(targets):
+        raise ConfigError("[data.rename] maps two headers to the same column name")
+    for target in targets:
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", target):
+            raise ConfigError(f"[data.rename] {target!r} is not a valid column name ([a-z][a-z0-9_]*)")
+    return tuple(raw.items())
+
+
 def _path(base: Path, value: Any, where: str) -> Path:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ConfigError(f"{where} must be a path string")
@@ -279,8 +297,9 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
     data = _table(
         top.get("data"), "data",
         ("path", "format", "delimiter", "encoding", "id_column", "embedding_column",
-         "url", "url_env", "query", "table", "fetch_size"),
+         "url", "url_env", "query", "table", "fetch_size", "rename"),
     )
+    rename = _parse_rename(data.pop("rename", None))
     ledger_raw = _table(top.get("ledger"), "ledger", ("path",))
     ledger_path = _path(base_dir, ledger_raw["path"], "[ledger] path") if "path" in ledger_raw else None
     source_data: Optional[DataSource] = None
@@ -293,8 +312,10 @@ def parse_config(raw: Mapping[str, Any], base_dir: Path, source: Optional[Path] 
             raise ConfigError("[data] format must be csv or jsonl")
         source_data = DataSource(path=data_path, format=fmt,
                                  delimiter=str(data.get("delimiter", ",")),
-                                 encoding=str(data.get("encoding", "utf-8")))
+                                 encoding=str(data.get("encoding", "utf-8")), rename=rename)
     elif "url" in data or "url_env" in data:
+        if rename:
+            raise ConfigError("[data.rename] is for files; for a database name the columns in the query (AS)")
         if ("query" in data) == ("table" in data):
             raise ConfigError("[data]: a database source needs exactly one of query or table")
         url = data.get("url")
@@ -538,11 +559,16 @@ def iter_rows(
         yield from _iter_sql(source, os.environ if environ is None else environ)
         return
     assert source.path is not None  # noqa: S101 -- file sources always have a path
+    names = dict(source.rename)
+
+    def renamed(row: Dict[str, Any]) -> Dict[str, Any]:
+        return {names.get(k, k): v for k, v in row.items()} if names else row
+
     if source.format == "csv":
         with source.path.open(encoding=source.encoding, newline="") as fh:
             reader = csv.DictReader(fh, delimiter=source.delimiter)
             for row in reader:
-                yield f"{source.path.name}:{reader.line_num}", dict(row)
+                yield f"{source.path.name}:{reader.line_num}", renamed(dict(row))
     else:
         with source.path.open(encoding=source.encoding) as fh:
             for lineno, line in enumerate(fh, start=1):
@@ -555,7 +581,7 @@ def iter_rows(
                     raise ConfigError(f"{where}: invalid JSON") from exc
                 if not isinstance(row, dict):
                     raise ConfigError(f"{where}: each line must be a JSON object")
-                yield where, row
+                yield where, renamed(row)
 
 
 def database_url(source: DataSource, environ: Mapping[str, str]) -> str:

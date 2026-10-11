@@ -26,6 +26,7 @@ From a file:
 | `format` | from the extension | `csv` or `jsonl` (`.jsonl`/`.ndjson` imply `jsonl`) |
 | `delimiter` | `","` | CSV delimiter |
 | `encoding` | `"utf-8"` | File encoding |
+| `rename` | none | A `[data.rename]` table: `"Annual Revenue (KRW)" = "annual_revenue_krw"`. Maps file headers that are not valid column names to the names used below (`tokenis-mcp init` writes it for you). Files only; for a database use `AS` in the query |
 
 From a database, through SQLAlchemy (install the matching extra:
 `postgres`, `mysql`, `oracle`, `mssql`, `snowflake` or `bigquery`):

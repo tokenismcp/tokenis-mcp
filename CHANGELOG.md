@@ -7,6 +7,13 @@ the end records how the crypto layer got here.
 ## [Unreleased]
 
 ### Added
+- **`tokenis-mcp init FILE`**: a starting `tokenis.toml` and generated keys
+  from a CSV or JSON-lines file. It guesses each column's protection
+  conservatively (personal-looking or high-cardinality text: pseudonym; numbers:
+  sealed; few distinct values: open; unique `id`/`*_id`: record id;
+  numeric lists: embedding), leaves out columns with empty cells, writes
+  `.env` (mode 600, git-ignored) and loads every row to prove the result
+  works. `[data.rename]` maps file headers that are not valid column names.
 - **Any AI app, any model.** [docs/clients.md](docs/clients.md): settings for
   Claude Code, Claude Desktop, ChatGPT, Codex, Gemini CLI, Cursor, VS Code and
   Windsurf, with what is tested and what follows vendor documentation. The

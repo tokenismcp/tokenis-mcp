@@ -142,6 +142,13 @@ Every refusal returns one fixed message whatever the reason.
 
 ## Use your own data
 
+**Fastest:** `tokenis-mcp init customers.csv` reads your CSV or JSON-lines
+file, guesses how each column should be protected (conservatively: personal-looking or
+high-cardinality text becomes a pseudonym, numbers are sealed), writes
+`tokenis.toml` and a `.env` with generated keys, checks every row, and prints
+what it decided and why. Review it, then `tokenis-mcp serve --config tokenis.toml`.
+By hand:
+
 1. Describe the data in a TOML file — which columns are `open` (released
    verbatim, filterable), `token` (released only as keyed pseudonyms), and
    `sealed` (encrypted at load; only aggregates leave). The annotated
