@@ -51,3 +51,12 @@ def test_alerts_and_dashboard_use_exported_metrics():
     exprs += [t["expr"] for p in dashboard["panels"] for t in p["targets"]]
     used = {m for e in exprs for m in re.findall(r"\b(tokenis_\w+|up)\b", e)}
     assert used and used <= known, used - known
+
+
+def test_the_registry_description_fits_the_registry_schema():
+    """The MCP Registry schema caps `description` at 100 characters; packaging CI
+    validates against it over the network, this catches it offline."""
+    import json
+
+    server = json.loads((Path(__file__).resolve().parent.parent / "server.json").read_text(encoding="utf-8"))
+    assert 0 < len(server["description"]) <= 100
