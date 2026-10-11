@@ -34,7 +34,8 @@ file.
 | **Claude Code** (plugin: server + analysis skill) | `/plugin marketplace add tokenismcp/tokenis-mcp` then `/plugin install tokenis@tokenis-mcp` |
 | **Claude Code** (server only) | `claude mcp add tokenis -- uvx --index https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp serve --demo` |
 | **Claude Desktop** | Download `tokenis.mcpb` from the [latest release](https://github.com/tokenismcp/tokenis-mcp/releases/latest) and open it |
-| **Any MCP client** (stdio) | `{"command": "uvx", "args": ["--index", "https://tokenismcp.github.io/tokenis-mcp/simple/", "tokenis-mcp", "serve", "--demo"]}` |
+| **Codex** | In `~/.codex/config.toml`: `[mcp_servers.tokenis]` with `command = "uvx"` and `args = ["--index", "https://tokenismcp.github.io/tokenis-mcp/simple/", "tokenis-mcp", "serve", "--demo"]` |
+| **Any MCP client** (ChatGPT, Gemini CLI, Cursor, VS Code, Windsurf, ...; stdio) | `{"command": "uvx", "args": ["--index", "https://tokenismcp.github.io/tokenis-mcp/simple/", "tokenis-mcp", "serve", "--demo"]}`; remote settings per app in [docs/clients.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/clients.md) |
 | **Docker** | `docker run -i --rm ghcr.io/tokenismcp/tokenis-mcp` |
 | **Python** (library, CLI, `tokenis.llm`) | `uv pip install --index https://tokenismcp.github.io/tokenis-mcp/simple/ tokenis-mcp` (Python 3.10+) |
 
@@ -56,30 +57,41 @@ in the audit trail.
 
 ## Connect an LLM
 
-**No AI app at all: Tokenis Ask.** A chat screen at `/ask`, in Korean and
-English: people sign in with your single sign-on and ask in plain language;
-an LLM (Claude, a model on your own GPU servers, or SARA on-premises) calls
-the tools as that person, under their own budget, and every lookup is shown
-on screen and in the audit trail. Answers with figures that no lookup
-returned are withheld. See [docs/ask.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md).
+Tokenis is an MCP server, so it works with **any AI app that speaks MCP**:
+Claude, ChatGPT, Codex, Gemini CLI, Cursor, VS Code, Windsurf and others, and
+with **any model** through an API: Anthropic, OpenAI, Gemini, or models you
+host (vLLM, Ollama, SARA). The gateway treats them all the same; what a model
+can learn does not depend on which one it is. Per-app settings and what we
+have and have not tested are in
+[docs/clients.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/clients.md).
+
+**No AI app at all: Tokenis Ask.** A chat screen at `/ask`, in English and
+Korean: people sign in with your single sign-on and ask in plain language;
+an LLM (Claude, GPT, Gemini, a model on your own GPU servers, or SARA
+on-premises) calls the tools as that person, under their own budget, and
+every lookup is shown on screen and in the audit trail. Answers with figures
+that no lookup returned are withheld. See [docs/ask.md](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md).
 
 **Any MCP client, remote (Streamable HTTP + authentication).** HTTP always
-requires authentication — API keys or your identity provider's JWTs:
+requires authentication: API keys, or your identity provider's tokens (OAuth,
+which ChatGPT's connectors need):
 
 ```bash
 tokenis-mcp keys create alice@example.com --config tokenis.toml   # prints the key once
 tokenis-mcp serve --config tokenis.toml --transport http
+# then, in the person's AI app (Claude Code shown; Codex, Gemini CLI, Cursor, ... in docs/clients.md):
 claude mcp add --transport http tokenis https://tokenis.example.com/mcp \
   --header "Authorization: Bearer $TOKENIS_KEY"
 ```
 
 The principal is the key's (or token subject's) identity; a model cannot
-choose it. The same URL and key work with Anthropic's MCP connector in the
-Messages API and with any other MCP client.
+choose it. The same URL and key work with the MCP connectors of the Anthropic
+Messages API and the OpenAI Responses API, and with any other MCP client.
 
 **Straight from an LLM API (no MCP client needed).** `tokenis.llm` turns the
-tools into Anthropic or OpenAI-compatible tool definitions and runs the
-calls, through exactly the same code path as the MCP server:
+tools into Anthropic, OpenAI (Chat Completions and Responses) or
+OpenAI-compatible (Gemini, Ollama, vLLM) tool definitions and runs the calls,
+through exactly the same code path as the MCP server:
 
 ```python
 import anthropic
@@ -91,11 +103,13 @@ print(ask_anthropic(toolkit, "Which industry grew fastest from 2024 to 2025?",
                     client=anthropic.Anthropic()))                    # reads ANTHROPIC_API_KEY
 ```
 
-`toolkit.anthropic_tools()` / `toolkit.openai_tools()` and
-`toolkit.anthropic_tool_results(...)` / `toolkit.openai_tool_messages(...)`
-plug into a tool loop you already have; `ask_openai` works with OpenAI,
-Azure OpenAI and local models behind vLLM, Ollama or LiteLLM
-(`OPENAI_BASE_URL`). Runnable versions:
+`toolkit.anthropic_tools()` / `toolkit.openai_tools()` /
+`toolkit.responses_tools()` and `toolkit.anthropic_tool_results(...)` /
+`toolkit.openai_tool_messages(...)` / `toolkit.responses_tool_outputs(...)`
+plug into a tool loop you already have; `ask_openai` works with OpenAI, Gemini
+(`base_url` from `tokenis.llm.PROVIDER_PRESETS`), Azure OpenAI and local models
+behind vLLM, Ollama or LiteLLM. From the shell:
+`tokenis-mcp ask --provider anthropic|openai|gemini|ollama --model ... "question"`. Runnable versions:
 [`examples/anthropic_agent.py`](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/anthropic_agent.py),
 [`examples/openai_compatible_agent.py`](https://github.com/tokenismcp/tokenis-mcp/blob/main/examples/openai_compatible_agent.py).
 Or from the shell: `tokenis-mcp ask --demo "Which region is largest?"`.
@@ -169,7 +183,8 @@ Prometheus metrics and a read-only admin console.
 | [Tools](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/tools.md) | What each tool answers, and why a question is refused |
 | [Configuration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/configuration.md) | Every setting, data sources, keys, ledger, state |
 | [Deployment](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/deployment.md) | Docker Compose, Kubernetes, monitoring, backups |
-| [Tokenis Ask](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md) | The question screen for everyone: single sign-on, Korean and English, Claude or on-premises models |
+| [Connect any AI app](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/clients.md) | Claude, ChatGPT, Codex, Gemini CLI, Cursor, VS Code, Windsurf, OpenAI/Gemini APIs: settings and what is tested |
+| [Tokenis Ask](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/ask.md) | The question screen for everyone: single sign-on, English and Korean, any hosted or on-premises model |
 | [LLM integration](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/llm-integration.md) | Anthropic / OpenAI-compatible APIs without an MCP client |
 | [Troubleshooting](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/troubleshooting.md) | Error messages and what to do |
 | [Threat model](https://github.com/tokenismcp/tokenis-mcp/blob/main/docs/threat-model.md) | Assets, boundaries, adversaries, every mitigation with its code and test |

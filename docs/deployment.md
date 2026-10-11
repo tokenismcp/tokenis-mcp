@@ -4,7 +4,7 @@ Tokenis runs in three shapes. Pick the smallest one that fits:
 
 | Shape | For | State lives in |
 |---|---|---|
-| **Local (stdio)** | One person, one MCP client (Claude Desktop, Claude Code) | `[state] dir` on disk |
+| **Local (stdio)** | One person, one MCP client (Claude Desktop, Claude Code, Codex, Cursor, ...) | `[state] dir` on disk |
 | **Single server (HTTP)** | A team sharing one gateway | `[state] dir` on disk |
 | **Replicated (HTTP)** | Availability: several gateway processes behind a load balancer | PostgreSQL (`[state] backend = "postgres"`) |
 
@@ -181,7 +181,7 @@ hours, 7 days or 30 days, and nothing resets when a process restarts.
 | Audit trail | The shared, signed trail: searchable and filterable, exportable as CSV. Disclosed values are never shown or exported |
 | Access | API keys: issue one (shown once), revoke one (effective on every replica with the next request). An admin activity log records every issue, revocation and export, with its source |
 | Policy & schema | The admission settings and column protection in force, explained in plain words |
-| Connect AI apps | Copy-ready settings for Claude Code, Claude Desktop, Cursor and VS Code with this gateway's address; a link to Ask for people without an AI app |
+| Connect AI apps | Copy-ready settings for Claude Code, Claude Desktop, ChatGPT, Codex, Gemini CLI, Cursor, VS Code and Windsurf with this gateway's address (see [clients.md](clients.md)); a link to Ask for people without an AI app |
 
 Every call is recorded (tool, principal, outcome, rule, time, replica; never
 an argument or a value) in `tokenis_calls`, in the shared database, or in

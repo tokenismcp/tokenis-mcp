@@ -793,7 +793,9 @@ td time, td .who { white-space: nowrap; }
             </ol>
             <div class="segmented app-tabs" role="tablist" id="app-tabs"></div>
             <div class="where" id="app-where"></div>
+            <div class="warn-box" id="app-chatgpt-warn" hidden><svg><use href="#i-alert"/></svg><span data-i18n-html="chatgpt_warn">This gateway signs callers in with API keys. ChatGPT cannot send an API key: it needs OAuth, so an administrator has to switch the gateway to identity-provider sign-in ([auth] mode = "jwt").</span></div>
             <div class="cmd block"><code id="app-config"></code><button class="copy" id="app-copy"><svg><use href="#i-copy"/></svg><span data-i18n="copy">Copy</span></button></div>
+            <p class="note" data-i18n="apps_untested">Settings for each app follow its vendor's documentation. The gateway itself is tested with real MCP clients; check the app's own version if something does not connect.</p>
             <p class="note" data-i18n="connect_note">Every person needs their own key: budgets, refusals and the audit trail are kept per key. Never share a key in a chat or a ticket.</p>
           </div>
         </div>
@@ -894,7 +896,15 @@ td time, td .who { white-space: nowrap; }
       connect_s3: "Restart the app and ask", connect_s3d: "For example: “Which industry grew most this year?” Answers come from protected statistics only.",
       connect_note: "Every person needs their own key: budgets, refusals and the audit trail are kept per key. Never share a key in a chat or a ticket.",
       ask_card_title: "No AI app? Use Ask", ask_card_sub: "A chat screen in the browser, with your organisation sign-in: nothing to install", open_ask: "Open Ask",
-      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_cursor: "Cursor", app_vscode: "VS Code", app_other: "Other apps",
+      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_chatgpt: "ChatGPT", app_codex: "Codex", app_gemini: "Gemini CLI",
+      app_cursor: "Cursor", app_vscode: "VS Code", app_windsurf: "Windsurf", app_other: "Other apps",
+      chatgpt_url: "Server URL", chatgpt_auth: "Authentication", codex_env: "Put the key in the environment variable (shell profile)",
+      where_chatgpt: "ChatGPT signs in with OAuth, not an API key. In its developer-mode connector settings add a custom MCP connector with this address and choose OAuth. Your administrator must have set up <code>[auth] mode = \"jwt\"</code> with an identity provider that supports dynamic client registration.",
+      where_codex: "Add this to <code>~/.codex/config.toml</code> (Codex CLI and the Codex app share it), and set the environment variable before starting Codex.",
+      where_gemini: "Run this in a terminal.",
+      where_windsurf: "Save as <code>~/.codeium/windsurf/mcp_config.json</code>, then press Refresh in Manage MCPs.",
+      chatgpt_warn: "This gateway signs callers in with API keys. ChatGPT cannot send an API key: it needs OAuth, so an administrator has to switch the gateway to identity-provider sign-in (<code>[auth] mode = \"jwt\"</code>).",
+      apps_untested: "Settings for each app follow its vendor's documentation. The gateway itself is tested with real MCP clients; check the app's own version if something does not connect.",
       app_other_transport: "Transport: Streamable HTTP (MCP)",
       where_claude_code: "Run this in a terminal.",
       where_claude_desktop: "Settings → Developer → Edit Config opens <code>claude_desktop_config.json</code>; merge this in and restart. Needs Node.js (for <code>npx</code>).",
@@ -1027,7 +1037,15 @@ td time, td .who { white-space: nowrap; }
       connect_s3: "앱을 다시 시작하고 질문하기", connect_s3d: "예: “올해 가장 많이 성장한 업종은?” 답은 보호된 통계로만 나옵니다.",
       connect_note: "키는 반드시 사람마다 따로 쓰세요. 한도·거절·감사 기록이 키별로 관리됩니다. 채팅이나 티켓에 키를 붙여넣지 마세요.",
       ask_card_title: "AI 앱이 없나요? Ask를 쓰세요", ask_card_sub: "설치 없이 브라우저에서, 회사 계정으로 로그인해 바로 질문하는 화면", open_ask: "Ask 열기",
-      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_cursor: "Cursor", app_vscode: "VS Code", app_other: "기타 앱",
+      app_claude_code: "Claude Code", app_claude_desktop: "Claude Desktop", app_chatgpt: "ChatGPT", app_codex: "Codex", app_gemini: "Gemini CLI",
+      app_cursor: "Cursor", app_vscode: "VS Code", app_windsurf: "Windsurf", app_other: "기타 앱",
+      chatgpt_url: "서버 주소", chatgpt_auth: "인증 방식", codex_env: "키는 환경 변수에 넣으세요 (셸 설정 파일)",
+      where_chatgpt: "ChatGPT는 API 키가 아니라 OAuth로 로그인합니다. 개발자 모드의 커넥터 설정에서 이 주소로 사용자 지정 MCP 커넥터를 추가하고 OAuth를 고르세요. 관리자가 동적 클라이언트 등록(DCR)을 지원하는 회사 인증 시스템으로 <code>[auth] mode = \"jwt\"</code>를 설정해 두어야 합니다.",
+      where_codex: "<code>~/.codex/config.toml</code>에 추가하세요(Codex CLI와 Codex 앱이 같은 파일을 씁니다). Codex를 시작하기 전에 환경 변수를 설정하세요.",
+      where_gemini: "터미널에서 실행하세요.",
+      where_windsurf: "<code>~/.codeium/windsurf/mcp_config.json</code>에 저장한 뒤 Manage MCPs에서 Refresh를 누르세요.",
+      chatgpt_warn: "이 게이트웨이는 API 키로 사용자를 확인합니다. ChatGPT는 API 키를 보낼 수 없고 OAuth가 필요하므로, 관리자가 회사 인증 시스템 로그인(<code>[auth] mode = \"jwt\"</code>)으로 바꿔야 합니다.",
+      apps_untested: "앱별 설정은 각 회사의 공식 문서를 따랐습니다. 게이트웨이 자체는 실제 MCP 클라이언트로 테스트했습니다. 연결이 안 되면 앱의 버전을 확인해 보세요.",
       app_other_transport: "전송 방식: Streamable HTTP (MCP)",
       where_claude_code: "터미널에서 실행하세요.",
       where_claude_desktop: "설정 → 개발자 → 구성 편집을 누르면 <code>claude_desktop_config.json</code>이 열립니다. 아래 내용을 합쳐 넣고 앱을 다시 시작하세요. Node.js가 필요합니다(<code>npx</code>).",
@@ -1865,7 +1883,8 @@ td time, td .who { white-space: nowrap; }
 
   /* ------------------------------------------------- connect apps */
   const gatewayUrl = () => location.origin + "/mcp";
-  const APPS = ["claude_code", "claude_desktop", "cursor", "vscode", "other"];
+  const APPS = ["claude_code", "claude_desktop", "chatgpt", "codex", "gemini", "cursor", "vscode", "windsurf", "other"];
+  const SHELL_APPS = ["claude_code", "gemini"];  // one command: shown with a $ prompt
   let app = store.get("app") || "claude_code", tokenApp = "claude_code", tokenKey = "";
   if (!APPS.includes(app)) app = "claude_code";
   function appConfig(which, key) {
@@ -1873,6 +1892,10 @@ td time, td .who { white-space: nowrap; }
     const json = (o) => JSON.stringify(o, null, 2);
     if (which === "claude_code") return `claude mcp add --transport http tokenis ${url} \\\n  --header "Authorization: Bearer ${k}"`;
     if (which === "claude_desktop") return json({ mcpServers: { tokenis: { command: "npx", args: ["-y", "mcp-remote", url, "--header", "Authorization:${AUTH_HEADER}"], env: { AUTH_HEADER: "Bearer " + k } } } });
+    if (which === "chatgpt") return `${t("chatgpt_url")}: ${url}\n${t("chatgpt_auth")}: OAuth`;
+    if (which === "codex") return `# ~/.codex/config.toml\n[mcp_servers.tokenis]\nurl = "${url}"\nbearer_token_env_var = "TOKENIS_API_KEY"\n\n# ${t("codex_env")}\nexport TOKENIS_API_KEY=${k}`;
+    if (which === "gemini") return `gemini mcp add --transport http --header "Authorization: Bearer ${k}" tokenis ${url}`;
+    if (which === "windsurf") return json({ mcpServers: { tokenis: { serverUrl: url, headers: { Authorization: "Bearer " + k } } } });
     if (which === "cursor") return json({ mcpServers: { tokenis: { url, headers: { Authorization: "Bearer " + k } } } });
     if (which === "vscode") return json({ servers: { tokenis: { type: "http", url, headers: { Authorization: "Bearer " + k } } } });
     return `URL:     ${url}\nHeader:  Authorization: Bearer ${k}\n${t("app_other_transport")}`;
@@ -1888,12 +1911,13 @@ td time, td .who { white-space: nowrap; }
     tabs($("app-tabs"), app, (a) => { app = a; store.set("app", a); renderConnect(); });
     $("app-where").innerHTML = t("where_" + app);
     $("app-config").textContent = appConfig(app);
-    $("app-config").classList.toggle("shell", app === "claude_code");
+    $("app-config").classList.toggle("shell", SHELL_APPS.includes(app));
+    $("app-chatgpt-warn").hidden = app !== "chatgpt" || !(data && data.key_management);
   }
   function renderTokenConfig() {
     tabs($("token-tabs"), tokenApp, (a) => { tokenApp = a; renderTokenConfig(); });
     $("token-config").textContent = tokenKey ? appConfig(tokenApp, tokenKey) : "";
-    $("token-config").classList.toggle("shell", tokenApp === "claude_code");
+    $("token-config").classList.toggle("shell", SHELL_APPS.includes(tokenApp));
   }
 
   /* ------------------------------------------------ language switch */

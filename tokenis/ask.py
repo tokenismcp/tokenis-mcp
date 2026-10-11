@@ -14,9 +14,13 @@ Models (``[ask] provider``):
 
 - ``anthropic`` -- the Claude Messages API (``api_key_env``, normally
   ``ANTHROPIC_API_KEY``).
-- ``openai`` -- any OpenAI-compatible Chat Completions endpoint: OpenAI,
-  Azure OpenAI, vLLM, LiteLLM, Ollama (``http://127.0.0.1:11434/v1``) or
-  SARA (``http://127.0.0.1:8765/v1``).
+- ``openai`` -- OpenAI, or any OpenAI-compatible Chat Completions endpoint
+  (``base_url``): Azure OpenAI, vLLM, LiteLLM, SARA
+  (``http://127.0.0.1:8765/v1``), ...
+- ``gemini`` -- Google's Gemini API through its OpenAI-compatible endpoint
+  (``api_key_env``, normally ``GEMINI_API_KEY``).
+- ``ollama`` -- a local Ollama server (``http://127.0.0.1:11434/v1`` unless
+  ``base_url`` says otherwise); no API key.
 
 Tool use (``tool_protocol``): ``native`` uses the API's function calling;
 ``json`` describes the tools in the prompt and reads one JSON object per
@@ -43,11 +47,11 @@ from typing import Any, AsyncIterator, Deque, Dict, List, Mapping, Optional, Tup
 
 import anyio
 
-from tokenis.llm import TokenisToolkit, ToolOutcome
+from tokenis.llm import PROVIDER_PRESETS, TokenisToolkit, ToolOutcome
 
 log = logging.getLogger("tokenis.ask")
 
-PROVIDERS = ("anthropic", "openai")
+PROVIDERS = ("anthropic", "openai", "gemini", "ollama")
 PROTOCOLS = ("auto", "native", "json")
 MAX_QUESTION_CHARS = 2000
 MAX_HISTORY_ITEMS = 12
@@ -55,7 +59,7 @@ MAX_HISTORY_CHARS = 16000
 MAX_RESULT_CHARS = 6000
 
 _THINK = re.compile(r"<think>.*?(</think>|$)", re.DOTALL)
-_DEFAULT_BASE = {"anthropic": "https://api.anthropic.com", "openai": "https://api.openai.com/v1"}
+_DEFAULT_BASE = {"anthropic": "https://api.anthropic.com", **{k: v[0] for k, v in PROVIDER_PRESETS.items()}}
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,8 @@ class AskSettings:
     def __post_init__(self) -> None:
         if self.provider not in PROVIDERS:
             raise ValueError(f"[ask] provider must be one of {', '.join(PROVIDERS)}")
+        if self.provider == "gemini" and not self.api_key_env:
+            raise ValueError("[ask] provider gemini needs api_key_env (normally GEMINI_API_KEY)")
         if self.tool_protocol not in PROTOCOLS:
             raise ValueError(f"[ask] tool_protocol must be one of {', '.join(PROTOCOLS)}")
         if not self.model:
@@ -114,6 +120,12 @@ class AskSettings:
         parts = urllib.parse.urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise ValueError("[ask] base_url must be an http(s) URL")
+
+    @property
+    def protocol(self) -> str:
+        """The wire protocol: ``anthropic`` (Messages API) or ``openai``
+        (Chat Completions; OpenAI, Gemini, Ollama, vLLM, SARA, ...)."""
+        return "anthropic" if self.provider == "anthropic" else "openai"
 
     @property
     def endpoint(self) -> str:
@@ -353,13 +365,13 @@ Tools:
         s = self.settings
         headers = {"Content-Type": "application/json", "Accept": "application/json",
                    "User-Agent": "tokenis-ask"}
-        if s.provider == "anthropic":
+        if s.protocol == "anthropic":
             headers["anthropic-version"] = "2023-06-01"
             if self._api_key:
                 headers["x-api-key"] = self._api_key
         elif self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
-        if s.provider == "openai" and s.reasoning_effort:
+        if s.protocol == "openai" and s.reasoning_effort:
             body = {**body, "reasoning_effort": s.reasoning_effort}
         req = urllib.request.Request(s.endpoint + path, data=json.dumps(body).encode(), headers=headers)  # noqa: S310
         try:
@@ -415,7 +427,7 @@ Tools:
         system = self._system(kit, dataset, lang)
         run = _Run(kit, question, question + "\n" + "\n".join(m["content"] for m in history))
         try:
-            if self.settings.provider == "anthropic":
+            if self.settings.protocol == "anthropic":
                 stream = self._run_anthropic(run, system, defs, question, history)
             else:
                 stream = self._run_openai(run, system, defs, question, history)

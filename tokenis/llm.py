@@ -1,7 +1,8 @@
 # Copyright 2026 4Chains Inc.
 # SPDX-License-Identifier: Apache-2.0
 """Use Tokenis tools from an LLM API directly, without running an MCP
-server: the Anthropic Messages API, the OpenAI Chat Completions API, or any
+server: the Anthropic Messages API, the OpenAI Chat Completions or Responses
+API, Google's Gemini API (through its OpenAI-compatible endpoint), or any
 OpenAI-compatible endpoint (vLLM, Ollama, LiteLLM, Azure OpenAI, ...).
 
 The toolkit wraps the same :func:`~tokenis.mcp_server.server.create_server`
@@ -47,7 +48,7 @@ import copy
 import json
 import threading
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, TypeVar
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -55,6 +56,14 @@ from tokenis.gateway.service import TokenisGatewayService
 from tokenis.mcp_server.server import INSTRUCTIONS, create_server, fixed_principal
 
 _T = TypeVar("_T")
+
+#: OpenAI-compatible endpoints with a known address: name -> (base URL, the
+#: environment variable that holds the API key, or None when none is needed).
+PROVIDER_PRESETS: Dict[str, Tuple[str, Optional[str]]] = {
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "GEMINI_API_KEY"),
+    "ollama": ("http://127.0.0.1:11434/v1", None),
+}
 
 
 def _run(factory: Callable[[], Awaitable[_T]]) -> _T:
@@ -186,6 +195,13 @@ class TokenisToolkit:
             for d in self.definitions()
         ]
 
+    def responses_tools(self) -> List[Dict[str, Any]]:
+        """``tools=`` for the OpenAI Responses API (function tools)."""
+        return [
+            {"type": "function", "name": d.name, "description": d.description, "parameters": d.input_schema}
+            for d in self.definitions()
+        ]
+
     # -- calling ------------------------------------------------------------
 
     async def acall(self, name: str, arguments: Optional[Mapping[str, Any]] = None) -> ToolOutcome:
@@ -252,6 +268,34 @@ class TokenisToolkit:
         calls = list(tool_calls)
         return _run(lambda: self.aopenai_tool_messages(calls))
 
+    # -- OpenAI Responses API ---------------------------------------------------
+
+    async def aresponses_tool_outputs(self, output_items: Iterable[Any]) -> List[Dict[str, Any]]:
+        """``function_call_output`` items answering every ``function_call`` item
+        of a Responses API reply (SDK objects or dicts), run concurrently.
+        Append them to the next request's ``input``."""
+        calls = [item for item in output_items if _field(item, "type") == "function_call"]
+        parsed = []
+        for call in calls:
+            raw = _field(call, "arguments") or "{}"
+            try:
+                args = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            except ValueError:
+                args = None
+            parsed.append((_field(call, "name"), args))
+        outcomes = await self._gather([
+            self.acall(name, args) if isinstance(args, dict) else _invalid_json()
+            for name, args in parsed
+        ])
+        return [
+            {"type": "function_call_output", "call_id": _field(call, "call_id"), "output": o.content}
+            for call, o in zip(calls, outcomes)
+        ]
+
+    def responses_tool_outputs(self, output_items: Iterable[Any]) -> List[Dict[str, Any]]:
+        items = list(output_items)
+        return _run(lambda: self.aresponses_tool_outputs(items))
+
 
 async def _invalid_json() -> ToolOutcome:
     return ToolOutcome("invalid arguments: not a JSON object", True)
@@ -305,14 +349,18 @@ def ask_openai(
     model: str,
     max_turns: int = 12,
     on_tool: Optional[Callable[[str, Mapping[str, Any], ToolOutcome], None]] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> str:
     """Answer ``question`` with any OpenAI-compatible chat model. ``client``
-    defaults to ``openai.OpenAI()`` (``OPENAI_API_KEY``, and
-    ``OPENAI_BASE_URL`` for other providers or local servers)."""
+    defaults to ``openai.OpenAI(base_url=..., api_key=...)``: by default the
+    ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` environment variables, or pass
+    ``base_url`` / ``api_key`` for another provider (see ``PROVIDER_PRESETS``:
+    Gemini, Ollama) or a local server."""
     if client is None:
         import openai
 
-        client = openai.OpenAI()
+        client = openai.OpenAI(base_url=base_url, api_key=api_key)
     tools = toolkit.openai_tools()
     messages: List[Any] = [
         {"role": "system", "content": toolkit.system_prompt},

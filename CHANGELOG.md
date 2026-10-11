@@ -7,6 +7,16 @@ the end records how the crypto layer got here.
 ## [Unreleased]
 
 ### Added
+- **Any AI app, any model.** [docs/clients.md](docs/clients.md): settings for
+  Claude Code, Claude Desktop, ChatGPT, Codex, Gemini CLI, Cursor, VS Code and
+  Windsurf, with what is tested and what follows vendor documentation. The
+  console's Connect AI apps page covers them too. ChatGPT (OAuth only) works
+  through `[auth] mode = "jwt"`; the gateway's OAuth discovery is tested.
+  `tokenis.llm` gains `responses_tools()` / `responses_tool_outputs()` for the
+  OpenAI Responses API and `PROVIDER_PRESETS` (Gemini, Ollama);
+  `ask_openai(base_url=, api_key=)`; `tokenis-mcp ask --provider
+  gemini|ollama --base-url`; `tokenis-mcp tools --format responses`;
+  `[ask] provider = "gemini" | "ollama"`.
 - **Tokenis Ask** (`[ask]`): a chat screen at `/ask` for people without an
   MCP client. Single sign-on; the person's identity is the admission
   principal, so Ask shares their budget, refusals and audit trail. Claude

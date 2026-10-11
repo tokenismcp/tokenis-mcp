@@ -262,7 +262,7 @@ person's own identity and budget. Needs `transport = "http"` and
 
 | Key | Default | Meaning |
 |---|---|---|
-| `provider` | `"openai"` | `"anthropic"` (Messages API) or `"openai"` (any OpenAI-compatible Chat Completions API: OpenAI, Azure OpenAI, vLLM, LiteLLM, Ollama, SARA) |
+| `provider` | `"openai"` | `"anthropic"` (Messages API), `"openai"` (OpenAI, or any OpenAI-compatible Chat Completions API via `base_url`: Azure OpenAI, vLLM, LiteLLM, SARA), `"gemini"` (Gemini's OpenAI-compatible endpoint; needs `api_key_env`) or `"ollama"` (local, `http://127.0.0.1:11434/v1`, no key) |
 | `model` | required | Model name, e.g. `"claude-opus-5-5"` |
 | `base_url` | the provider's public API | e.g. `"http://127.0.0.1:11434/v1"`; an API key is never sent over plain http to another host |
 | `api_key_env` | none | Variable holding the model API key |
@@ -303,7 +303,7 @@ Keycloak, ...):
 | `tokenis-mcp serve --config F \| --demo \| --config-or-demo F` | Run the MCP server. `--config-or-demo ""` serves the demo, for launchers that always pass a path |
 | `tokenis-mcp check --config F` | Validate the config, the secrets and every data row; writes nothing |
 | `tokenis-mcp tools --demo --format anthropic\|openai\|mcp` | Print the tool schemas a model sees |
-| `tokenis-mcp ask --demo "question" [--provider anthropic\|openai] [--model M]` | Answer a question with an LLM using the tools |
+| `tokenis-mcp ask --demo "question" [--provider anthropic\|openai\|gemini\|ollama] [--base-url U] [--model M]` | Answer a question with an LLM using the tools |
 | `tokenis-mcp keys create PRINCIPAL --config F` | Create an API key (printed once) |
 | `tokenis-mcp keys list \| revoke KEY_ID --config F` | List or revoke keys; revocation applies without a restart |
 | `tokenis-mcp keygen-secret` | Print a random 32-byte hex secret |

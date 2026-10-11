@@ -6,7 +6,7 @@
     tokenis-mcp serve --config tokenis.toml       # transport from the file
     tokenis-mcp check --config tokenis.toml       # validate config + data
     tokenis-mcp tools --demo --format anthropic   # tool schemas for LLM APIs
-    tokenis-mcp ask --demo "Which industry grew most?"   # Claude or OpenAI-compatible
+    tokenis-mcp ask --demo "Which industry grew most?"   # Claude, OpenAI, Gemini, Ollama, ...
     tokenis-mcp keys create alice@example.com --config tokenis.toml
     tokenis-mcp keygen-secret                     # a 32-byte key for the env vars
     tokenis-mcp audit verify --config tokenis.toml
@@ -287,6 +287,8 @@ def cmd_tools(args: argparse.Namespace) -> None:
         out: Any = toolkit.anthropic_tools()
     elif args.format == "openai":
         out = toolkit.openai_tools()
+    elif args.format == "responses":
+        out = toolkit.responses_tools()
     else:
         out = [d.__dict__ for d in toolkit.definitions()]
     print(json.dumps(out, indent=2, ensure_ascii=False))
@@ -303,6 +305,8 @@ def cmd_ask(args: argparse.Namespace) -> None:
         status = "DENIED" if outcome.is_error else "ok"
         print(f"  -> {name}({json.dumps(arguments, ensure_ascii=False)}) [{status}]", file=sys.stderr)
 
+    from tokenis.llm import PROVIDER_PRESETS
+
     provider = args.provider or ("anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "openai")
     try:
         if provider == "anthropic":
@@ -311,7 +315,15 @@ def cmd_ask(args: argparse.Namespace) -> None:
         else:
             if not args.model:
                 _die("--model is required for OpenAI-compatible providers")
-            answer = ask_openai(toolkit, args.question, model=args.model, on_tool=show)
+            preset_url, key_env = PROVIDER_PRESETS.get(provider, (None, None))
+            base_url = args.base_url or (preset_url if provider != "openai" else None)
+            api_key = os.environ.get(key_env) if key_env and provider != "openai" else None
+            if provider == "gemini" and not api_key:
+                _die(f"set {key_env} to your Gemini API key")
+            if provider == "ollama":
+                api_key = "ollama"  # the client library wants a value; Ollama ignores it
+            answer = ask_openai(toolkit, args.question, model=args.model, on_tool=show,
+                                base_url=base_url, api_key=api_key)
     except ImportError as exc:
         _die(f"{exc}; install the client with: pip install 'tokenis-mcp[llm]'")
     print(answer)
@@ -470,14 +482,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("tools", help="print tool schemas")
     _source(p)
-    p.add_argument("--format", choices=("anthropic", "openai", "mcp"), default="anthropic")
+    p.add_argument("--format", choices=("anthropic", "openai", "responses", "mcp"), default="anthropic",
+                   help="anthropic (Messages API), openai (Chat Completions; also Gemini, Ollama, vLLM), "
+                        "responses (OpenAI Responses API) or mcp")
     p.set_defaults(func=cmd_tools)
 
     p = sub.add_parser("ask", help="answer a question with an LLM using the tools")
     _source(p)
     p.add_argument("question")
-    p.add_argument("--provider", choices=("anthropic", "openai"),
-                   help="default: anthropic if ANTHROPIC_API_KEY is set, else openai")
+    p.add_argument("--provider", choices=("anthropic", "openai", "gemini", "ollama"),
+                   help="default: anthropic if ANTHROPIC_API_KEY is set, else openai. gemini and ollama "
+                        "use their OpenAI-compatible endpoints (GEMINI_API_KEY for gemini)")
+    p.add_argument("--base-url", help="OpenAI-compatible endpoint (vLLM, SARA, Azure OpenAI, ...)")
     p.add_argument("--model")
     p.add_argument("--principal", help="principal to run as (default: local OS user)")
     p.set_defaults(func=cmd_ask)

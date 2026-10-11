@@ -43,6 +43,16 @@ def test_clean_history_alternates_and_drops_trailing_user():
     assert clean_history(raw) == [{"role": "user", "content": "b"}, {"role": "assistant", "content": "c"}]
 
 
+def test_providers_have_endpoints_and_protocols():
+    gemini = AskSettings(model="gemini-2.5-flash", provider="gemini", api_key_env="GEMINI_API_KEY")
+    assert gemini.endpoint == "https://generativelanguage.googleapis.com/v1beta/openai" and gemini.protocol == "openai"
+    assert AskSettings(model="llama3.1", provider="ollama").endpoint == "http://127.0.0.1:11434/v1"
+    assert AskSettings(model="gpt-5").endpoint == "https://api.openai.com/v1"
+    assert AskSettings(model="m", provider="anthropic").protocol == "anthropic"
+    with pytest.raises(ValueError, match="api_key_env"):
+        AskSettings(model="gemini-2.5-flash", provider="gemini")
+
+
 def test_settings_validation():
     with pytest.raises(ValueError):
         AskSettings(model="")

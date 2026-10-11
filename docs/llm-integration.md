@@ -3,9 +3,11 @@
 For people who should simply ask questions in a browser, without an MCP client or code, use [Tokenis Ask](ask.md).
 
 You do not need an MCP client to use Tokenis. The `tokenis.llm` module turns
-the gateway's tools into tool definitions for the Anthropic Messages API or
-any OpenAI-compatible Chat Completions API, and runs the calls the model
-makes. Use it when the gateway lives inside your own application, or when
+the gateway's tools into tool definitions for the Anthropic Messages API, the
+OpenAI Chat Completions and Responses APIs, Google's Gemini API (through its
+OpenAI-compatible endpoint) or any other OpenAI-compatible server, and runs
+the calls the model makes. To connect an AI app (ChatGPT, Codex, Gemini CLI,
+Cursor, ...) instead, see [clients.md](clients.md). Use it when the gateway lives inside your own application, or when
 you want a local model to answer questions.
 
 This path is not a separate implementation. `TokenisToolkit` wraps the same
@@ -128,6 +130,21 @@ For your own loop, `toolkit.openai_tools()` gives the `tools=` list and
 `role: tool` messages to append. Arguments that are not a JSON object come
 back as `invalid arguments: not a JSON object`.
 
+**OpenAI Responses API.** `toolkit.responses_tools()` gives the function
+`tools=` list and `toolkit.responses_tool_outputs(response.output)` the
+`function_call_output` items to append to `input` (see the loop in
+[clients.md](clients.md#openai-api-responses-api)).
+
+**Gemini and Ollama.** Both have OpenAI-compatible endpoints, and
+`tokenis.llm.PROVIDER_PRESETS` knows their addresses:
+
+```python
+from tokenis.llm import PROVIDER_PRESETS
+
+base_url, key_env = PROVIDER_PRESETS["gemini"]
+print(ask_openai(toolkit, question, model=model, base_url=base_url, api_key=os.environ[key_env]))
+```
+
 ## Lower-level calls
 
 | Member | What it does |
@@ -147,7 +164,7 @@ are the better choice.
 Print the tool definitions a model would see:
 
 ```bash
-tokenis-mcp tools --demo --format anthropic      # or openai, or mcp
+tokenis-mcp tools --demo --format anthropic      # or openai, responses, or mcp
 tokenis-mcp tools --config tokenis.toml --format openai
 ```
 
@@ -158,10 +175,12 @@ export ANTHROPIC_API_KEY=...                       # from your secret manager
 tokenis-mcp ask --demo "Which industry grew fastest from 2024 to 2025?"
 ```
 
-`ask` takes `--provider anthropic|openai` (default: `anthropic` when
-`ANTHROPIC_API_KEY` is set, otherwise `openai`), `--model` (required for
-OpenAI-compatible providers; the Anthropic default is `claude-opus-5-5`) and
-`--principal` (default `local:<os-user>`). Each tool call is printed to
+`ask` takes `--provider anthropic|openai|gemini|ollama` (default: `anthropic`
+when `ANTHROPIC_API_KEY` is set, otherwise `openai`; `gemini` reads
+`GEMINI_API_KEY`, `ollama` needs no key), `--model` (required for the
+OpenAI-compatible providers; the Anthropic default is `claude-opus-5-5`),
+`--base-url` (another OpenAI-compatible server) and `--principal` (default
+`local:<os-user>`). Each tool call is printed to
 stderr as `ok` or `DENIED`; the answer goes to stdout. For a local model:
 
 ```bash

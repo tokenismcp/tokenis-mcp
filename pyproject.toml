@@ -13,7 +13,7 @@ description = "Tokenis: a cryptographic disclosure-boundary gateway for LLM tool
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
-keywords = ["mcp", "llm", "privacy", "homomorphic-encryption", "access-control", "audit"]
+keywords = ["mcp", "model-context-protocol", "llm", "claude", "chatgpt", "openai", "gemini", "codex", "privacy", "homomorphic-encryption", "access-control", "audit"]
 authors = [
     { name = "Caleb Lee", email = "jlabsrd@gmail.com" },
 ]

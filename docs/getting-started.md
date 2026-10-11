@@ -1,7 +1,8 @@
 # Getting started
 
-This guide takes you from nothing to Claude answering questions over a
-confidential dataset, first on built-in fictional data, then on your own.
+This guide takes you from nothing to an AI app (Claude, ChatGPT, Codex,
+Gemini, Cursor, ...) answering questions over a confidential dataset, first on
+built-in fictional data, then on your own.
 
 ## 1. Try it with the demo data
 
@@ -28,7 +29,18 @@ claude mcp add tokenis -- uvx --index https://tokenismcp.github.io/tokenis-mcp/s
 [latest release](https://github.com/tokenismcp/tokenis-mcp/releases/latest)
 and open it. Leave the config empty for the demo.
 
-**Any other MCP client** (Cursor, Windsurf, Zed, ...): add a stdio server.
+**Codex.** Add a stdio server to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.tokenis]
+command = "uvx"
+args = ["--index", "https://tokenismcp.github.io/tokenis-mcp/simple/",
+        "tokenis-mcp", "serve", "--demo"]
+```
+
+**Any other MCP client** (Gemini CLI, Cursor, VS Code, Windsurf, Zed, ...): add
+a stdio server. Remote settings for each app, and ChatGPT's OAuth sign-in, are
+in [clients.md](clients.md).
 
 ```json
 {
@@ -53,7 +65,7 @@ Now ask, for example:
 > Which industry grew fastest from 2024 to 2025? And what is retail's total
 > 2025 revenue?
 
-Claude calls `describe_dataset`, compares the two revenue columns per
+The model calls `describe_dataset`, compares the two revenue columns per
 industry, and reports that retail can't be answered. Retail has only two
 companies, fewer than the minimum group size, and the gateway refuses to
 aggregate them. That refusal is Tokenis doing its job.
@@ -111,9 +123,11 @@ the extension's settings instead.
 
 - [tools.md](tools.md): what each tool answers, and why some questions are
   refused.
+- [clients.md](clients.md): connect Claude, ChatGPT, Codex, Gemini CLI,
+  Cursor, VS Code, Windsurf and the OpenAI and Gemini APIs.
 - [ask.md](ask.md): a question screen for everyone, with single sign-on.
 - [llm-integration.md](llm-integration.md): call the tools from the
-  Anthropic API, OpenAI-compatible APIs or local models, without an MCP client.
+  Anthropic, OpenAI or Gemini APIs, or local models, without an MCP client.
 - [deployment.md](deployment.md): run it as a shared, authenticated HTTP
   service.
 - [troubleshooting.md](troubleshooting.md): common errors and fixes.

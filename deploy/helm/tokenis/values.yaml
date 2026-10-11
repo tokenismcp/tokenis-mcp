@@ -129,7 +129,7 @@ admin:
 # single sign-on). See docs/ask.md.
 ask:
   enabled: false
-  provider: openai             # openai (any OpenAI-compatible API: vLLM, Ollama, SARA, ...) | anthropic
+  provider: openai             # openai (OpenAI, or any OpenAI-compatible API via baseUrl: vLLM, SARA, ...) | anthropic | gemini | ollama
   baseUrl: ""                  # e.g. http://vllm.models:8000/v1 ; empty: the provider's public API
   model: ""                    # e.g. claude-opus-5-5, or the served model name
   apiKey: {existingSecret: "", key: api-key}

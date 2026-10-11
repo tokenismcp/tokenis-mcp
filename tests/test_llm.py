@@ -11,7 +11,7 @@ pytest.importorskip("mcp", reason="needs the `server` extra (Python >= 3.10)")
 
 from tokenis.gateway.demo import demo_service
 from tokenis.gateway.service import DENIED_MESSAGE
-from tokenis.llm import TokenisToolkit, ask_anthropic, ask_openai, inline_refs
+from tokenis.llm import PROVIDER_PRESETS, TokenisToolkit, ask_anthropic, ask_openai, inline_refs
 
 
 @pytest.fixture
@@ -97,6 +97,42 @@ def test_ask_openai_runs_the_tool_loop(toolkit):
     groups = {g["group"]: g for g in json.loads(tool_message["content"])["groups"]}
     assert groups["retail"]["suppressed"] is True
     assert client.requests[0]["tools"][0]["type"] == "function"
+
+
+def test_openai_responses_api_tools_and_outputs(toolkit):
+    tools = toolkit.responses_tools()
+    assert {t["name"] for t in tools} >= {"describe_dataset", "aggregate", "group_by"}
+    assert all(t["type"] == "function" and "parameters" in t and "$ref" not in json.dumps(t) for t in tools)
+    items = [
+        {"type": "message", "content": "thinking"},
+        NS(type="function_call", call_id="call_1", name="group_by",
+           arguments=json.dumps({"key": "industry", "column": "revenue_2024"})),
+        {"type": "function_call", "call_id": "call_2", "name": "aggregate", "arguments": "{nope"},
+    ]
+    outputs = toolkit.responses_tool_outputs(items)
+    assert [o["call_id"] for o in outputs] == ["call_1", "call_2"]
+    assert all(o["type"] == "function_call_output" for o in outputs)
+    assert json.loads(outputs[0]["output"])["groups"]
+    assert outputs[1]["output"].startswith("invalid arguments")
+
+
+def test_provider_presets_name_the_gemini_and_ollama_endpoints():
+    assert PROVIDER_PRESETS["gemini"][0] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert PROVIDER_PRESETS["gemini"][1] == "GEMINI_API_KEY"
+    assert PROVIDER_PRESETS["ollama"] == ("http://127.0.0.1:11434/v1", None)
+
+
+def test_ask_openai_passes_the_endpoint_and_key_to_the_client(toolkit, monkeypatch):
+    seen = {}
+
+    class Client(FakeOpenAI):
+        def __init__(self, **kw):
+            seen.update(kw)
+            super().__init__([NS(role="assistant", content="ok", tool_calls=None)])
+
+    monkeypatch.setitem(__import__("sys").modules, "openai", NS(OpenAI=Client))
+    assert ask_openai(toolkit, "hi", model="m", base_url="http://x/v1", api_key="k") == "ok"
+    assert seen == {"base_url": "http://x/v1", "api_key": "k"}
 
 
 def test_malformed_tool_arguments_are_errors_not_crashes(toolkit):

@@ -24,7 +24,7 @@ admins = ["it-admin@example.com"]
 users = ["@example.com"]          # Ask only: everyone with a verified address here
 
 [ask]
-provider = "anthropic"            # or "openai" for any OpenAI-compatible API
+provider = "anthropic"            # or "openai", "gemini", "ollama" (see below)
 model = "claude-opus-5-5"
 api_key_env = "ANTHROPIC_API_KEY"
 suggestions = ["업종별 2025년 매출 합계를 보여줘", "지역별 평균 매출은?"]
@@ -48,10 +48,12 @@ before it). Members are identities, `group:NAME` (from `roles_claim`) or
 | Setup | `[ask]` | Notes |
 |---|---|---|
 | Claude (Anthropic API) | `provider = "anthropic"`, `model = "claude-opus-5-5"`, `api_key_env = "ANTHROPIC_API_KEY"` | Best answers. Aggregates go to Anthropic's API under your agreement with Anthropic. |
-| OpenAI-compatible service (OpenAI, Azure OpenAI, LiteLLM) | `provider = "openai"`, `base_url`, `model`, `api_key_env` | |
+| OpenAI (GPT) | `provider = "openai"`, `model`, `api_key_env = "OPENAI_API_KEY"` | |
+| Google Gemini | `provider = "gemini"`, `model`, `api_key_env = "GEMINI_API_KEY"` | Through Gemini's OpenAI-compatible endpoint; not yet tested by us against the live API |
+| Other OpenAI-compatible service (Azure OpenAI, LiteLLM) | `provider = "openai"`, `base_url`, `model`, `api_key_env` | |
 | Your own GPU server (vLLM, TGI) | `provider = "openai"`, `base_url = "http://vllm.models:8000/v1"`, `model` | Nothing leaves your network. 14B+ instruction models recommended. |
 | SARA on-premises agent | `provider = "openai"`, `base_url = "http://127.0.0.1:8765/v1"`, `model = "sara"`, `api_key_env` | Function calling for any local model, plus a memory of tool calls that worked (below). |
-| Ollama directly | `provider = "openai"`, `base_url = "http://127.0.0.1:11434/v1"`, `model`, `reasoning_effort = "none"` | Fine for a trial on a laptop; small models are slow and less reliable. |
+| Ollama directly | `provider = "ollama"`, `model`, `reasoning_effort = "none"` | Fine for a trial on a laptop; small models are slow and less reliable. |
 
 `tool_protocol = "auto"` (the default) uses the API's function calling and
 falls back to a JSON protocol when the server refuses tools, so models
