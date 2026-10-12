@@ -1,0 +1,43 @@
+TOKENIS BINARY DISTRIBUTION LICENSE (DRAFT)
+
+Copyright 2026 4Chains Inc. All rights reserved.
+
+NOTE: This is a draft prepared without legal review. 4Chains Inc. should have
+counsel confirm it before it is relied on.
+
+1. Grant. 4Chains Inc. ("Licensor") grants you a non-exclusive, non-transferable,
+   worldwide licence to install and run the Tokenis software in the compiled form
+   distributed by Licensor (the "Software"), for your internal business purposes,
+   including evaluation.
+
+2. Restrictions. You may not (a) decompile, disassemble or otherwise attempt to
+   derive the source code of the Software, except to the extent applicable law
+   permits despite this restriction; (b) copy, modify or create derivative works of
+   the Software; (c) redistribute, sublicense, sell, rent or host the Software for
+   third parties; (d) remove proprietary notices; or (e) use the Software to build
+   a competing product or to publish benchmarks without written consent.
+
+3. Third-party components. The Software includes open-source components under their
+   own licences, listed in THIRD-PARTY-NOTICES. Those licences apply to those
+   components and nothing here limits your rights under them.
+
+4. Documentation and papers. Documentation and papers published alongside the
+   Software are licensed under their own terms (for papers, CC BY 4.0).
+
+5. Ownership. Licensor retains all rights not expressly granted. Feedback you give
+   may be used by Licensor without obligation.
+
+6. Earlier releases. Software versions published before 0.2.0 were released under
+   the Apache License 2.0; copies you received under that licence stay under it.
+
+7. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+   The cryptographic components have not been independently audited.
+
+8. Limitation of liability. To the extent permitted by law, Licensor is not liable
+   for indirect, incidental or consequential damages, and its total liability is
+   limited to the amount you paid for the Software (zero, if nothing).
+
+9. Termination. This licence ends automatically if you breach it. On termination
+   you must stop using and delete the Software.
+
+Contact: jlabsrd@gmail.com

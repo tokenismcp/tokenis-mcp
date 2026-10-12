@@ -69,7 +69,7 @@ def test_stdio_end_to_end():
     from mcp.client.stdio import StdioServerParameters
 
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", "tokenis.cli", "--log-level", "WARNING", "serve", "--demo"],
+        command=sys.executable, args=["-m", "tokenis", "--log-level", "WARNING", "serve", "--demo"],
     )
 
     async def session():
@@ -101,7 +101,7 @@ def test_http_end_to_end_requires_a_valid_key(example, capsys):
     token = capsys.readouterr().out.strip()
 
     proc = subprocess.Popen(
-        [sys.executable, "-m", "tokenis.cli", "--log-level", "WARNING", "serve", "--config",
+        [sys.executable, "-m", "tokenis", "--log-level", "WARNING", "serve", "--config",
          str(example)],
         env={**os.environ, **ENV}, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )

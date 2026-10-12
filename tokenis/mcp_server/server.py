@@ -47,9 +47,10 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Icon, ToolAnnotations
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, create_model
+from pydantic import ConfigDict, Field, StringConstraints, create_model
 from typing_extensions import Annotated
 
+from tokenis._glue import make_tool, pyprompt, pyresource
 from tokenis.gateway.latency import pad_to_granularity_async
 from tokenis.gateway.service import (
     AdmissionDenied,
@@ -164,33 +165,6 @@ def _filters_model(svc: TokenisGatewayService, name: str) -> type:
     return model
 
 
-def _plain(value: Any) -> Any:
-    if isinstance(value, BaseModel):
-        return value.model_dump(exclude_none=True)
-    return value
-
-
-def _make_tool(name: str, params: List[Tuple[str, Any, Any]], run: Callable[..., Any]) -> Callable:
-    async def tool(**kwargs: Any) -> Dict[str, Any]:
-        ctx = kwargs.pop("ctx")
-        result: Dict[str, Any] = await run(ctx, name, {k: _plain(v) for k, v in kwargs.items()})
-        return result
-
-    parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)]
-    annotations: Dict[str, Any] = {"ctx": Context}
-    for pname, annotation, default in params:
-        parameters.append(
-            inspect.Parameter(pname, inspect.Parameter.KEYWORD_ONLY, annotation=annotation, default=default)
-        )
-        annotations[pname] = annotation
-    annotations["return"] = dict
-    tool.__signature__ = inspect.Signature(parameters, return_annotation=dict)  # type: ignore[attr-defined]
-    tool.__annotations__ = annotations
-    tool.__name__ = name
-    tool.__qualname__ = name
-    return tool
-
-
 _EMPTY = inspect.Parameter.empty
 
 
@@ -290,7 +264,7 @@ def create_server(
 
     def add(name: str, description: str, params: List[Tuple[str, Any, Any]], title: str) -> None:
         mcp.add_tool(
-            _make_tool(name, params, run), name=name, title=title, description=description,
+            make_tool(name, params, run), name=name, title=title, description=description,
             annotations=read_only.model_copy(update={"title": title}),
         )
 
@@ -406,7 +380,10 @@ def create_server(
             "Disclose bucket",
         )
 
-    @mcp.resource(
+    def catalogue_resource() -> dict:
+        return svc.catalogue_resource()
+
+    mcp.resource(
         "tokenis://catalogue",
         name="catalogue",
         description=(
@@ -414,17 +391,16 @@ def create_server(
             "disclosure purposes. No row values."
         ),
         mime_type="application/json",
-    )
-    def catalogue_resource() -> dict:
-        return svc.catalogue_resource()
+    )(pyresource(catalogue_resource))
 
-    @mcp.prompt(
-        name="analysis_guide",
-        title="Analyse the Tokenis dataset",
-        description="How to answer a question with Tokenis tools without over-querying.",
-    )
     def analysis_guide(question: str = "") -> str:
         task = f"\n\nThe question to answer: {question}" if question else ""
         return INSTRUCTIONS + task
+
+    mcp.prompt(
+        name="analysis_guide",
+        title="Analyse the Tokenis dataset",
+        description="How to answer a question with Tokenis tools without over-querying.",
+    )(pyprompt(analysis_guide))
 
     return mcp

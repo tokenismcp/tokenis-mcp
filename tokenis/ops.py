@@ -35,6 +35,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
+from tokenis._glue import pyroute
 from tokenis.safe import equal
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -341,7 +342,7 @@ def install_routes(
 
     no_store = {"Cache-Control": "no-store"}
 
-    @server.custom_route("/healthz", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/healthz", methods=["GET"], include_in_schema=False)
     async def healthz(_request: Request) -> Response:
         return JSONResponse({"status": "ok"}, headers=no_store)
 
@@ -361,7 +362,7 @@ def install_routes(
             ok = ok and up
         return ok, checks
 
-    @server.custom_route("/readyz", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/readyz", methods=["GET"], include_in_schema=False)
     async def readyz(_request: Request) -> Response:
         # Answer within a probe's timeout even when the database hangs: an
         # unanswered probe is indistinguishable from a dead process.
@@ -371,7 +372,7 @@ def install_routes(
         return JSONResponse({"status": "ready" if ok else "not ready", "checks": checks},
                             status_code=200 if ok else 503, headers=no_store)
 
-    @server.custom_route("/metrics", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/metrics", methods=["GET"], include_in_schema=False)
     async def prometheus(request: Request) -> Response:
         if metrics_token and not _authorised(request.headers.get("authorization", ""), metrics_token):
             return PlainTextResponse("unauthorized\n", status_code=401,
@@ -379,7 +380,7 @@ def install_routes(
         body = await anyio.to_thread.run_sync(metrics.render, service, bool(metrics_token))
         return PlainTextResponse(body, media_type="text/plain; version=0.0.4", headers=no_store)
 
-    @server.custom_route("/lang/{code}", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/lang/{code}", methods=["GET"], include_in_schema=False)
     async def set_language(request: Request) -> Response:
         """Remember the language choice (a cookie) and return to the page."""
         code = request.path_params["code"]
@@ -474,7 +475,7 @@ def install_routes(
             call_log.admin_event(actor, action, target, detail, _source(request))
         log.info("console %s by %s: %s %s", action, actor, target, detail)
 
-    @server.custom_route("/admin/api/summary", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/api/summary", methods=["GET"], include_in_schema=False)
     async def admin_summary(request: Request) -> Response:
         who, denied = _guard(request)
         if denied is not None:
@@ -510,7 +511,7 @@ def install_routes(
             row["budget"] = budgets.get(row["principal"])
         return {"range": range_key, "principals": rows}
 
-    @server.custom_route("/admin/api/principals", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/api/principals", methods=["GET"], include_in_schema=False)
     async def admin_principals(request: Request) -> Response:
         _, denied = _guard(request, "auditor")
         if denied is not None:
@@ -518,7 +519,7 @@ def install_routes(
         data = await anyio.to_thread.run_sync(_principals, request.query_params.get("range", "24h"))
         return JSONResponse(data, headers=no_store)
 
-    @server.custom_route("/admin/api/activity", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/api/activity", methods=["GET"], include_in_schema=False)
     async def admin_activity(request: Request) -> Response:
         _, denied = _guard(request, "auditor")
         if denied is not None:
@@ -526,7 +527,7 @@ def install_routes(
         events = await anyio.to_thread.run_sync(call_log.admin_events) if call_log is not None else []
         return JSONResponse({"events": events}, headers=no_store)
 
-    @server.custom_route("/admin/api/keys", methods=["POST"], include_in_schema=False)
+    @pyroute(server, "/admin/api/keys", methods=["POST"], include_in_schema=False)
     async def admin_create_key(request: Request) -> Response:
         who, denied = _guard(request, "admin", write=True)
         if denied is not None:
@@ -544,7 +545,7 @@ def install_routes(
         await anyio.to_thread.run_sync(_audit, who, "create key", record.key_id, f"principal {principal}", request)
         return JSONResponse({"token": token, "key": record.public_view()}, status_code=201, headers=no_store)
 
-    @server.custom_route("/admin/api/keys/{key_id}/revoke", methods=["POST"], include_in_schema=False)
+    @pyroute(server, "/admin/api/keys/{key_id}/revoke", methods=["POST"], include_in_schema=False)
     async def admin_revoke_key(request: Request) -> Response:
         who, denied = _guard(request, "admin", write=True)
         if denied is not None:
@@ -582,7 +583,7 @@ def install_routes(
     def _iso(seconds: float) -> str:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
 
-    @server.custom_route("/admin/api/export/{kind}.csv", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/api/export/{kind}.csv", methods=["GET"], include_in_schema=False)
     async def admin_export(request: Request) -> Response:
         from starlette.responses import StreamingResponse
 
@@ -680,7 +681,7 @@ def install_routes(
     def _sign_in_redirect(next_path: str) -> Response:
         return RedirectResponse(f"/admin/auth/login?next={next_path}", status_code=302, headers=no_store)
 
-    @server.custom_route("/admin", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin", methods=["GET"], include_in_schema=False)
     async def admin_page(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
@@ -697,7 +698,7 @@ def install_routes(
         html = dashboard_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
         return _page(nonce, html.replace("{{lang}}", _lang(request)))
 
-    @server.custom_route("/", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/", methods=["GET"], include_in_schema=False)
     async def root(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
@@ -717,7 +718,7 @@ def install_routes(
     def _next(value: Optional[str]) -> str:
         return value if value in ("/admin", "/ask") else "/admin"
 
-    @server.custom_route("/admin/auth/login", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/auth/login", methods=["GET"], include_in_schema=False)
     async def auth_login(request: Request) -> Response:
         """The sign-in page; the button starts the flow."""
         if not _host_ok(request):
@@ -730,7 +731,7 @@ def install_routes(
         return _message_page(request, "sign_in_ask" if target == "/ask" else "sign_in", 200,
                              (f"/admin/auth/start?next={target}", "continue_with"), provider=provider)
 
-    @server.custom_route("/admin/auth/start", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/auth/start", methods=["GET"], include_in_schema=False)
     async def auth_start(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
@@ -747,7 +748,7 @@ def install_routes(
                                                             secure=secure_cookies, path="/admin/auth"))
         return response
 
-    @server.custom_route("/admin/auth/callback", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/admin/auth/callback", methods=["GET"], include_in_schema=False)
     async def auth_callback(request: Request) -> Response:
         if not _host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
@@ -789,7 +790,7 @@ def install_routes(
         await anyio.to_thread.run_sync(_audit, {"identity": identity, "role": role}, "sign in", identity, "", request)
         return response
 
-    @server.custom_route("/admin/auth/logout", methods=["POST"], include_in_schema=False)
+    @pyroute(server, "/admin/auth/logout", methods=["POST"], include_in_schema=False)
     async def auth_logout(request: Request) -> Response:
         who, denied = _guard(request, "user", write=True)
         if denied is not None:
@@ -824,7 +825,7 @@ def _install_ask(server: Any, ask: Any, service: Any, *, guard: Any, who_of: Any
     from tokenis.ask import MAX_QUESTION_CHARS, ask_page_html, clean_history
     from tokenis.console_auth import at_least
 
-    @server.custom_route("/ask", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/ask", methods=["GET"], include_in_schema=False)
     async def ask_page(request: Request) -> Response:
         if not host_ok(request):
             return PlainTextResponse("misdirected request\n", status_code=421)
@@ -834,7 +835,7 @@ def _install_ask(server: Any, ask: Any, service: Any, *, guard: Any, who_of: Any
         html = ask_page_html().replace("{{nonce}}", nonce).replace("{{icon}}", _icon_uri())
         return page(nonce, html.replace("{{lang}}", lang_of(request)))
 
-    @server.custom_route("/ask/api/context", methods=["GET"], include_in_schema=False)
+    @pyroute(server, "/ask/api/context", methods=["GET"], include_in_schema=False)
     async def ask_context(request: Request) -> Response:
         import anyio
 
@@ -854,7 +855,7 @@ def _install_ask(server: Any, ask: Any, service: Any, *, guard: Any, who_of: Any
             "budget": await ask.budget(principal),
         }, headers=no_store)
 
-    @server.custom_route("/ask/api/chat", methods=["POST"], include_in_schema=False)
+    @pyroute(server, "/ask/api/chat", methods=["POST"], include_in_schema=False)
     async def ask_chat(request: Request) -> Response:
         who, denied = guard(request, "user", write=True)
         if denied is not None:

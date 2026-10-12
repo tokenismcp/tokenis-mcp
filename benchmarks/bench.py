@@ -284,7 +284,7 @@ def bench_http(records: int, clients: int, calls: int, granularity: float) -> Di
     port = _free_port()
     (work / "tokenis.toml").write_text(CONFIG.format(port=port, granularity=granularity))
     env = {**os.environ, "TOKENIS_TOKENIZER_KEY": "ab" * 32, "TOKENIS_AUDIT_KEY": "cd" * 32}
-    cli = [sys.executable, "-m", "tokenis.cli", "--log-level", "WARNING"]
+    cli = [sys.executable, "-m", "tokenis", "--log-level", "WARNING"]
     key = subprocess.run([*cli, "keys", "create", "bench@example.com", "--config",
                           str(work / "tokenis.toml")], env=env, capture_output=True, text=True,
                          check=True).stdout.strip()
