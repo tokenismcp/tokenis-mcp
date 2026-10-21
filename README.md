@@ -406,3 +406,7 @@ rather than opening a public issue.
 Code is Apache-2.0 (`LICENSE`); bundled third-party Rust crates are listed
 in `THIRD-PARTY-NOTICES.md`. Papers and other documentation are CC BY 4.0
 (`papers/LICENSE-CC-BY-4.0`).
+
+---
+
+*Built by [4Chains Inc.](https://4chains.site). Research published through [J1729Labs](https://j1729labs.site).*
