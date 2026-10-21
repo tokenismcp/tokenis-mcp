@@ -11,21 +11,29 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Node%2022%2B-blue.svg)
 
-**A cryptographic disclosure-boundary gateway between an enterprise's
-protected data and a large language model: the model gets a small set of
-tools that answer aggregate questions over encrypted data, under admission
-control and a signed audit trail, and never sees a row.** Plus the research
-papers and measurement code the design is accountable to.
+**Aggregate analytics for AI, with controls on what gets disclosed.**
 
-It works with any model and any AI app that speaks MCP: Claude, ChatGPT and
-the OpenAI API, Gemini, Codex, Cursor, VS Code, Windsurf, and models you host
-yourself (Ollama, vLLM, SARA); see [Connect an LLM](#connect-an-llm).
+Tokenis is an open-source MCP gateway for teams connecting AI assistants to
+protected datasets. It exposes aggregate tools, checks query history and
+records disclosures in an audit trail. The model receives permitted tool
+results rather than direct access to the source rows.
 
-A model connected to Tokenis can ask "total 2025 revenue for tech companies
-in Seoul?" and get `7,000,000 KRW over 12 records`. It cannot ask for one
-company's revenue, cannot get it by differencing two overlapping groups, and
-cannot learn *why* a question was refused. Every answer and every refusal is
-recorded, under the authenticated user's identity, in a tamper-evident log.
+For example, the fictional demo returns `4,250,000 KRW over 3 records` for
+finance's total 2025 revenue. The equivalent retail query is refused: that
+group has only two records, below the demo's minimum of three. The caller
+receives a generic refusal, not the rule that fired.
+
+**Try it without an LLM or API key:** follow the
+[local demo](docs/demo.md) to run both queries and inspect the audit trail.
+To connect your AI app, see [Install](#install) and
+[Connect an LLM](#connect-an-llm).
+
+**Security scope:** the gateway is a trusted component; plaintext and keys
+can exist in its process. Differencing checks have documented limitations,
+and answers across dataset refreshes can disclose additional information.
+This code has not been independently audited. Read the
+[threat model and residual risks](docs/threat-model.md#8-residual-risks)
+before connecting sensitive data.
 
 ## Install
 
@@ -210,12 +218,14 @@ What the gateway enforces, rather than asks the model to respect:
   HTTP: API keys (stored as hashes, revocable without restart) or JWTs from
   your IdP (asymmetric algorithms only; `exp`/`iss`/`aud` required).
 - **Admission control (P4 D1-D5)** on every value-bearing call: minimum
-  group size k, a differencing audit that refuses any query that would
-  combine with earlier ones to isolate a record, per-user budgets per
+  group size k, a differencing audit that checks query history for
+  combinations that isolate small groups, per-user budgets per
   window, a restricted surface while the context is tainted, and
   deny-by-default on unclassified columns. Admission, computation and
   auditing of a call are atomic, so concurrent calls cannot race past the
-  differencing audit.
+  differencing audit. The check is a tractable relaxation, not a complete
+  defense against all combinations or dataset refreshes; see
+  [residual risks R3 and R4](docs/threat-model.md#8-residual-risks).
 - **Refusals disclose nothing extra.** One message for every denial; the
   rule that fired is recorded for auditors only.
 - **Durable, signed audit trail.** Every answer and refusal is appended,
